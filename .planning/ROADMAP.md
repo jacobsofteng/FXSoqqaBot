@@ -1,0 +1,81 @@
+# Roadmap: FXSoqqaBot
+
+## Overview
+
+FXSoqqaBot goes from zero to autonomous XAUUSD scalping in four phases. First, we build the data pipeline, execution bridge, risk management, and configuration that keep a $20 account alive. Second, we build all eight analysis modules in simplified form and fuse them -- because the edge is the fusion, not any single module. Third, we scientifically validate the strategy through backtesting with walk-forward and Monte Carlo anti-overfitting. Fourth, we add observability dashboards and the self-learning evolution loop that lets the bot improve itself over time. Each phase delivers a complete, testable capability.
+
+## Phases
+
+**Phase Numbering:**
+- Integer phases (1, 2, 3): Planned milestone work
+- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+
+Decimal phases appear between their surrounding integers in numeric order.
+
+- [ ] **Phase 1: Trading Infrastructure** - Data pipeline, MT5 bridge, risk management, and configuration that keep a $20 account alive
+- [ ] **Phase 2: Signal Pipeline and Decision Fusion** - All analysis modules (chaos, order flow, quantum timing) simplified and fused into trade decisions
+- [ ] **Phase 3: Backtesting and Validation** - Scientific validation with walk-forward, Monte Carlo, and regime-aware evaluation on 2015-present XAUUSD data
+- [ ] **Phase 4: Observability and Self-Learning** - Real-time dashboards (TUI + web) and self-learning mutation loop for continuous strategy evolution
+
+## Phase Details
+
+### Phase 1: Trading Infrastructure
+**Goal**: The bot connects to MT5, ingests live market data, executes trades with full risk protection, and survives connection failures -- all configurable without code changes
+**Depends on**: Nothing (first phase)
+**Requirements**: DATA-01, DATA-02, DATA-03, DATA-05, DATA-06, EXEC-01, EXEC-02, EXEC-03, EXEC-04, RISK-01, RISK-02, RISK-03, RISK-04, RISK-05, RISK-06, RISK-07, CONF-01, CONF-02
+**Success Criteria** (what must be TRUE):
+  1. Bot streams live XAUUSD tick data from MT5 and maintains rolling in-memory buffers across multiple timeframes (M1, M5, M15, H1, H4) without blocking the async event loop
+  2. Bot places a market order on MT5 with server-side stop-loss and receives fill confirmation, and the kill switch can immediately flatten all positions and halt trading
+  3. Position sizing engine correctly calculates lot size from equity, risk percentage, and SL distance for all three capital phases ($20-$100, $100-$300, $300+) and never exceeds safe exposure
+  4. Daily drawdown circuit breaker halts trading when loss limit is hit, persists across restarts, and session time filter prevents trading outside configured hours
+  5. Bot detects MT5 disconnection, automatically reconnects, and reconciles position state -- and recovers gracefully from a full Python restart with open positions
+**Plans**: TBD
+
+### Phase 2: Signal Pipeline and Decision Fusion
+**Goal**: The bot reads the market's true state through simplified versions of all analysis modules -- chaos regime, order flow, institutional footprint, quantum timing -- and fuses them into confidence-weighted trade decisions with phase-aware position sizing
+**Depends on**: Phase 1
+**Requirements**: CHAOS-01, CHAOS-02, CHAOS-03, CHAOS-04, CHAOS-05, CHAOS-06, FLOW-01, FLOW-02, FLOW-03, FLOW-04, FLOW-05, FLOW-06, QTIM-01, QTIM-02, QTIM-03, FUSE-01, FUSE-02, FUSE-03, FUSE-04, FUSE-05
+**Success Criteria** (what must be TRUE):
+  1. Bot classifies the current XAUUSD market into discrete regime states (trending-up, trending-down, ranging, high-chaos, pre-bifurcation) using Hurst exponent, Lyapunov exponent, fractal dimension, and crowd entropy -- each with confidence levels
+  2. Bot computes real-time order flow signals (volume delta, bid-ask aggression, institutional footprints) from tick data, with graceful degradation when DOM depth data is unavailable
+  3. Bot outputs probability-weighted entry and exit timing windows based on price-time coupled state modeling
+  4. Decision core fuses all upstream signals using confidence-weighted combination where fusion weights adapt based on recent module accuracy, and fires trades with precise entry/SL/TP into MT5
+  5. Bot auto-transitions between capital phase behaviors (aggressive/selective/conservative) based on equity with smooth behavioral transitions
+**Plans**: TBD
+
+### Phase 3: Backtesting and Validation
+**Goal**: The strategy is scientifically validated on 2015-present XAUUSD history with anti-overfitting guarantees -- walk-forward, Monte Carlo, and regime-aware evaluation confirm the signal fusion generalizes to unseen data
+**Depends on**: Phase 2
+**Requirements**: DATA-04, TEST-01, TEST-02, TEST-03, TEST-04, TEST-05, TEST-06, TEST-07
+**Success Criteria** (what must be TRUE):
+  1. Backtesting engine replays historical M1 bar data (2015-present) and recent MT5 tick data through the exact same signal pipeline used in live trading (no separate backtest code paths) with realistic spread simulation and slippage modeling
+  2. Walk-forward validation trains on one period and validates on the next unseen period with rolling windows, and the strategy must be profitable across ALL windows -- not just aggregate
+  3. Monte Carlo simulation randomizes trade sequences 10,000+ times and results are statistically significant (p < 0.05)
+  4. Performance is measured separately across trending, ranging, high-volatility, and low-volatility regimes, and Feigenbaum stress testing verifies chaos module behavior during simulated regime transitions
+  5. Out-of-sample holdout period (never touched during development) produces results consistent with in-sample performance
+**Plans**: TBD
+
+### Phase 4: Observability and Self-Learning
+**Goal**: The operator can monitor every aspect of the bot's behavior in real time through dashboards, and the bot evolves its own strategy through a hybrid genetic + ML learning loop that promotes improvements only after scientific validation
+**Depends on**: Phase 3
+**Requirements**: OBS-01, OBS-02, OBS-03, OBS-04, OBS-05, LEARN-01, LEARN-02, LEARN-03, LEARN-04, LEARN-05, LEARN-06
+**Success Criteria** (what must be TRUE):
+  1. Rich terminal TUI displays in real time: current regime (color-coded), signal confidence per module, open positions with live P&L, spread/slippage metrics, circuit breaker status, and flags when the strategy mutates
+  2. Lightweight web dashboard accessible from any device on the local network shows historical equity curve, trade history with filters, regime timeline, and module performance comparison
+  3. Bot logs every trade with full context (regime state, all signal confidences, position size, timing, outcome) and the genetic algorithm evolves rule parameters using trade outcomes as fitness
+  4. Shadow mode tests mutated strategy variants alongside the live strategy without risking capital, and variants are promoted to live only after walk-forward validation confirms they outperform
+  5. Learning loop identifies which signal combinations, regimes, and rules are performing or degrading -- and automatically retires underperforming rules
+**Plans**: TBD
+**UI hint**: yes
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Trading Infrastructure | 0/TBD | Not started | - |
+| 2. Signal Pipeline and Decision Fusion | 0/TBD | Not started | - |
+| 3. Backtesting and Validation | 0/TBD | Not started | - |
+| 4. Observability and Self-Learning | 0/TBD | Not started | - |

@@ -137,13 +137,69 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| *(populated during roadmap creation)* | | |
+| DATA-01 | Phase 1: Trading Infrastructure | Pending |
+| DATA-02 | Phase 1: Trading Infrastructure | Pending |
+| DATA-03 | Phase 1: Trading Infrastructure | Pending |
+| DATA-04 | Phase 3: Backtesting and Validation | Pending |
+| DATA-05 | Phase 1: Trading Infrastructure | Pending |
+| DATA-06 | Phase 1: Trading Infrastructure | Pending |
+| EXEC-01 | Phase 1: Trading Infrastructure | Pending |
+| EXEC-02 | Phase 1: Trading Infrastructure | Pending |
+| EXEC-03 | Phase 1: Trading Infrastructure | Pending |
+| EXEC-04 | Phase 1: Trading Infrastructure | Pending |
+| RISK-01 | Phase 1: Trading Infrastructure | Pending |
+| RISK-02 | Phase 1: Trading Infrastructure | Pending |
+| RISK-03 | Phase 1: Trading Infrastructure | Pending |
+| RISK-04 | Phase 1: Trading Infrastructure | Pending |
+| RISK-05 | Phase 1: Trading Infrastructure | Pending |
+| RISK-06 | Phase 1: Trading Infrastructure | Pending |
+| RISK-07 | Phase 1: Trading Infrastructure | Pending |
+| CHAOS-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| CHAOS-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| CHAOS-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| CHAOS-04 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| CHAOS-05 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| CHAOS-06 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FLOW-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FLOW-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FLOW-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FLOW-04 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FLOW-05 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FLOW-06 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| QTIM-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| QTIM-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| QTIM-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FUSE-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FUSE-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FUSE-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FUSE-04 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FUSE-05 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| TEST-01 | Phase 3: Backtesting and Validation | Pending |
+| TEST-02 | Phase 3: Backtesting and Validation | Pending |
+| TEST-03 | Phase 3: Backtesting and Validation | Pending |
+| TEST-04 | Phase 3: Backtesting and Validation | Pending |
+| TEST-05 | Phase 3: Backtesting and Validation | Pending |
+| TEST-06 | Phase 3: Backtesting and Validation | Pending |
+| TEST-07 | Phase 3: Backtesting and Validation | Pending |
+| OBS-01 | Phase 4: Observability and Self-Learning | Pending |
+| OBS-02 | Phase 4: Observability and Self-Learning | Pending |
+| OBS-03 | Phase 4: Observability and Self-Learning | Pending |
+| OBS-04 | Phase 4: Observability and Self-Learning | Pending |
+| OBS-05 | Phase 4: Observability and Self-Learning | Pending |
+| LEARN-01 | Phase 4: Observability and Self-Learning | Pending |
+| LEARN-02 | Phase 4: Observability and Self-Learning | Pending |
+| LEARN-03 | Phase 4: Observability and Self-Learning | Pending |
+| LEARN-04 | Phase 4: Observability and Self-Learning | Pending |
+| LEARN-05 | Phase 4: Observability and Self-Learning | Pending |
+| LEARN-06 | Phase 4: Observability and Self-Learning | Pending |
+| CONF-01 | Phase 1: Trading Infrastructure | Pending |
+| CONF-02 | Phase 1: Trading Infrastructure | Pending |
 
 **Coverage:**
 - v1 requirements: 47 total
-- Mapped to phases: 0
-- Unmapped: 47 ⚠️
+- Mapped to phases: 47
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-27*
-*Last updated: 2026-03-27 after initial definition*
+*Last updated: 2026-03-27 after roadmap creation*
