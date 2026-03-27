@@ -240,6 +240,10 @@ class FusionConfig(BaseModel):
     phase_transition_equity_buffer: float = 10.0  # Sigmoid smoothing window in $
     # Position limit (D-11)
     max_concurrent_positions: int = 1
+    # Signal weight seeds for optimizer (initial accuracy values for AdaptiveWeightTracker)
+    weight_chaos_seed: float = 0.5
+    weight_flow_seed: float = 0.5
+    weight_timing_seed: float = 0.5
 
 
 class SignalsConfig(BaseModel):

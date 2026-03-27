@@ -78,6 +78,10 @@ class BacktestEngine:
             alpha=sig_config.fusion.ema_alpha,
             warmup_trades=sig_config.fusion.weight_warmup_trades,
         )
+        # Seed initial accuracies from config (for optimizer weight evolution)
+        weight_tracker._accuracies["chaos"] = sig_config.fusion.weight_chaos_seed
+        weight_tracker._accuracies["flow"] = sig_config.fusion.weight_flow_seed
+        weight_tracker._accuracies["timing"] = sig_config.fusion.weight_timing_seed
         phase_behavior = PhaseBehavior(sig_config.fusion, self._settings.risk)
 
         # Initialize data feed and executor (fresh per run for clean state)
