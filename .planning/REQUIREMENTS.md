@@ -86,9 +86,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Observability
 
-- [ ] **OBS-01**: Rich terminal TUI dashboard shows in real time: current regime (color-coded), signal confidence per module, open positions with live P&L, spread/slippage metrics, circuit breaker status, daily stats
-- [ ] **OBS-02**: TUI displays order flow visualization — volume delta, bid-ask pressure, institutional flow direction estimate
-- [ ] **OBS-03**: TUI flags moments where the strategy mutated or adapted, showing what changed and why
+- [x] **OBS-01**: Rich terminal TUI dashboard shows in real time: current regime (color-coded), signal confidence per module, open positions with live P&L, spread/slippage metrics, circuit breaker status, daily stats
+- [x] **OBS-02**: TUI displays order flow visualization — volume delta, bid-ask pressure, institutional flow direction estimate
+- [x] **OBS-03**: TUI flags moments where the strategy mutated or adapted, showing what changed and why
 - [ ] **OBS-04**: Lightweight web dashboard shows historical equity curve, trade history with filters, regime timeline, module performance comparison, and cumulative win rate
 - [ ] **OBS-05**: Web dashboard is accessible from any device on the local network for remote monitoring
 
@@ -181,9 +181,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-05 | Phase 3: Backtesting and Validation | Complete |
 | TEST-06 | Phase 3: Backtesting and Validation | Complete |
 | TEST-07 | Phase 3: Backtesting and Validation | Complete |
-| OBS-01 | Phase 4: Observability and Self-Learning | Pending |
-| OBS-02 | Phase 4: Observability and Self-Learning | Pending |
-| OBS-03 | Phase 4: Observability and Self-Learning | Pending |
+| OBS-01 | Phase 4: Observability and Self-Learning | Complete |
+| OBS-02 | Phase 4: Observability and Self-Learning | Complete |
+| OBS-03 | Phase 4: Observability and Self-Learning | Complete |
 | OBS-04 | Phase 4: Observability and Self-Learning | Pending |
 | OBS-05 | Phase 4: Observability and Self-Learning | Pending |
 | LEARN-01 | Phase 4: Observability and Self-Learning | Complete |
