@@ -7,7 +7,209 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <h1>FXSoqqaBot Dashboard</h1>
-    <p>Loading...</p>
+
+<!-- Header -->
+<header class="header">
+    <div class="header-left">
+        <div class="header-title">FXSoqqaBot Dashboard</div>
+        <div class="header-subtitle">XAUUSD Gold Scalper -- Real-Time Monitoring</div>
+    </div>
+    <div class="header-right">
+        <div class="connection-status">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">Disconnected</span>
+        </div>
+        <button class="btn btn-pause" id="btn-pause" onclick="handlePause()">Pause Trading</button>
+        <button class="btn btn-kill" id="btn-kill" onclick="showKillModal()">Emergency Kill</button>
+    </div>
+</header>
+
+<!-- Tab Navigation -->
+<nav class="tab-nav">
+    <button class="tab-btn active" data-tab="overview">Overview</button>
+    <button class="tab-btn" data-tab="trades">Trade History</button>
+    <button class="tab-btn" data-tab="evolution">Evolution</button>
+</nav>
+
+<!-- Error Banner -->
+<div class="error-banner" id="error-banner">
+    Failed to load data. Check that the bot is running.
+</div>
+
+<!-- ========= Overview Tab ========= -->
+<div class="tab-content active" id="tab-overview">
+    <!-- Summary Bar -->
+    <div class="summary-bar">
+        <div class="summary-item">
+            <span class="summary-label">Regime</span>
+            <span id="summary-regime"><span class="regime-badge ranging">RANGING</span></span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">Equity</span>
+            <span class="summary-value" id="summary-equity">$0.00</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">Today P&amp;L</span>
+            <span class="summary-value" id="summary-pnl">$0.00</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">Win Rate</span>
+            <span class="summary-value" id="summary-winrate">0%</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">Spread</span>
+            <span class="summary-value" id="summary-spread">0.00</span>
+        </div>
+    </div>
+
+    <!-- Equity Chart -->
+    <div class="card">
+        <div class="card-header">Equity Curve</div>
+        <div class="card-body">
+            <div class="chart-container" id="equity-chart"></div>
+        </div>
+    </div>
+
+    <!-- Price + Regime two-column -->
+    <div class="two-col">
+        <div class="card">
+            <div class="card-header">XAUUSD Price Action</div>
+            <div class="card-body">
+                <div class="chart-container" id="price-chart">
+                    <div class="empty-state" id="price-chart-empty">
+                        Chart library not loaded. Download lightweight-charts to static/vendor/.
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">Regime Timeline</div>
+            <div class="card-body">
+                <div class="chart-container" id="regime-chart"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========= Trade History Tab ========= -->
+<div class="tab-content" id="tab-trades">
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+        <label>Date range</label>
+        <input type="date" id="filter-start" title="Start date">
+        <input type="date" id="filter-end" title="End date">
+
+        <label>Regime</label>
+        <select id="filter-regime">
+            <option value="">All</option>
+            <option value="trending_up">Trending Up</option>
+            <option value="trending_down">Trending Down</option>
+            <option value="ranging">Ranging</option>
+            <option value="high_chaos">High Chaos</option>
+            <option value="pre_bifurcation">Pre-Bifurcation</option>
+        </select>
+
+        <label>Outcome</label>
+        <select id="filter-outcome">
+            <option value="">All</option>
+            <option value="win">Wins</option>
+            <option value="loss">Losses</option>
+        </select>
+
+        <label>Min confidence</label>
+        <input type="range" id="filter-confidence" min="0" max="100" value="0" step="5">
+        <span id="confidence-value" class="mono">0%</span>
+    </div>
+
+    <!-- Trades Table -->
+    <div class="card">
+        <div class="card-body">
+            <table class="trade-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Action</th>
+                        <th>Lots</th>
+                        <th>Entry</th>
+                        <th>Exit</th>
+                        <th>P&amp;L</th>
+                        <th>Regime</th>
+                        <th>Confidence</th>
+                        <th>Variant</th>
+                    </tr>
+                </thead>
+                <tbody id="trades-body">
+                    <tr>
+                        <td colspan="9" class="empty-state">No trades recorded yet. The bot will log trades as they execute.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ========= Evolution Tab ========= -->
+<div class="tab-content" id="tab-evolution">
+    <!-- Module Performance Chart -->
+    <div class="card">
+        <div class="card-header">Module Performance</div>
+        <div class="card-body">
+            <div class="chart-container" id="module-chart"></div>
+        </div>
+    </div>
+
+    <!-- Evolution panels grid -->
+    <div class="panel-grid">
+        <div class="panel">
+            <div class="panel-title">Shadow Variants</div>
+            <div id="shadow-variants">
+                <div class="panel-item">No shadow variants active.</div>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-title">Evolution Log</div>
+            <div id="evolution-log">
+                <div class="panel-item">No evolution events yet.</div>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-title">Rule Health</div>
+            <div id="rule-health">
+                <div class="panel-item">No rules tracked yet.</div>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-title">Signal Combinations</div>
+            <div id="signal-combos">
+                <div class="panel-item">Insufficient data for analysis.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========= Kill Switch Modal ========= -->
+<div class="modal-overlay" id="kill-modal">
+    <div class="modal">
+        <div class="modal-title">Emergency Kill</div>
+        <div class="modal-text">
+            This will close ALL positions and halt trading. Type the API key to confirm:
+        </div>
+        <input type="password" class="modal-input" id="kill-api-key" placeholder="API key">
+        <div class="modal-actions">
+            <button class="btn btn-cancel" onclick="hideKillModal()">Cancel</button>
+            <button class="btn btn-confirm-kill" onclick="confirmKill()">Kill All Positions</button>
+        </div>
+    </div>
+</div>
+
+<!-- Vendor JS Libraries
+     Download these files to static/vendor/ for local serving:
+     - lightweight-charts-4.1.3.js from https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js
+     - plotly-2.35.0.min.js from https://cdn.plot.ly/plotly-2.35.0.min.js
+-->
+<script src="/static/vendor/lightweight-charts-4.1.3.js"></script>
+<script src="/static/vendor/plotly-2.35.0.min.js"></script>
+<script src="/static/dashboard.js"></script>
+
 </body>
 </html>
