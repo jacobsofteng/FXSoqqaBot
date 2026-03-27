@@ -35,11 +35,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Chaos & Regime Detection
 
-- [ ] **CHAOS-01**: Bot computes rolling Hurst Exponent on price series to classify trending (H>0.5), mean-reverting (H<0.5), or random walk (H≈0.5) regimes
-- [ ] **CHAOS-02**: Bot computes Lyapunov Exponent to measure dynamical stability/instability of current price regime
-- [ ] **CHAOS-03**: Bot computes Fractal Dimension to measure complexity and self-similarity of price action across timeframes
-- [ ] **CHAOS-04**: Bot detects Feigenbaum bifurcation proximity by measuring period-doubling ratios in price oscillations to anticipate regime transitions before they complete
-- [ ] **CHAOS-05**: Bot models crowd entropy through statistical mechanics — detecting entropy spikes that signal crowd panic or euphoria tipping points
+- [x] **CHAOS-01**: Bot computes rolling Hurst Exponent on price series to classify trending (H>0.5), mean-reverting (H<0.5), or random walk (H≈0.5) regimes
+- [x] **CHAOS-02**: Bot computes Lyapunov Exponent to measure dynamical stability/instability of current price regime
+- [x] **CHAOS-03**: Bot computes Fractal Dimension to measure complexity and self-similarity of price action across timeframes
+- [x] **CHAOS-04**: Bot detects Feigenbaum bifurcation proximity by measuring period-doubling ratios in price oscillations to anticipate regime transitions before they complete
+- [x] **CHAOS-05**: Bot models crowd entropy through statistical mechanics — detecting entropy spikes that signal crowd panic or euphoria tipping points
 - [x] **CHAOS-06**: Bot classifies the current market into discrete regime states (trending-up, trending-down, ranging, high-chaos, pre-bifurcation) and outputs confidence levels, not point estimates
 
 ### Order Flow & Institutional Detection
@@ -154,11 +154,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RISK-05 | Phase 1: Trading Infrastructure | Complete |
 | RISK-06 | Phase 1: Trading Infrastructure | Complete |
 | RISK-07 | Phase 1: Trading Infrastructure | Complete |
-| CHAOS-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| CHAOS-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| CHAOS-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| CHAOS-04 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| CHAOS-05 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| CHAOS-01 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| CHAOS-02 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| CHAOS-03 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| CHAOS-04 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| CHAOS-05 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | CHAOS-06 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FLOW-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | FLOW-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
