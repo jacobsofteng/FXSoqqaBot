@@ -22,8 +22,8 @@ The bot reads the market's true state through the fusion of all eight modules �
 
 ### Active
 
-- [ ] Self-learning mutation loop logging full trade context and evolving rules via hybrid genetic + ML optimization
-- [ ] Dual dashboard: rich terminal TUI for real-time monitoring + lightweight web dashboard for charts, stats, regime visualization
+- [x] Self-learning mutation loop logging full trade context and evolving rules via hybrid genetic + ML optimization — Validated in Phase 4: Observability and Self-Learning
+- [x] Dual dashboard: rich terminal TUI for real-time monitoring + lightweight web dashboard for charts, stats, regime visualization — Validated in Phase 4: Observability and Self-Learning
 - [x] Backtesting framework with walk-forward validation, Monte Carlo simulation, out-of-sample testing, regime-aware evaluation, and Feigenbaum stress testing across XAUUSD 2015-present — Validated in Phase 3: Backtesting and Validation
 
 ### Out of Scope
@@ -113,4 +113,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-27 after Phase 3 completion*
+*Last updated: 2026-03-28 after Phase 4 completion — all 4 milestone phases complete*
