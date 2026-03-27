@@ -89,8 +89,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **OBS-01**: Rich terminal TUI dashboard shows in real time: current regime (color-coded), signal confidence per module, open positions with live P&L, spread/slippage metrics, circuit breaker status, daily stats
 - [ ] **OBS-02**: TUI displays order flow visualization — volume delta, bid-ask pressure, institutional flow direction estimate
 - [ ] **OBS-03**: TUI flags moments where the strategy mutated or adapted, showing what changed and why
-- [ ] **OBS-04**: Lightweight web dashboard shows historical equity curve, trade history with filters, regime timeline, module performance comparison, and cumulative win rate
-- [ ] **OBS-05**: Web dashboard is accessible from any device on the local network for remote monitoring
+- [x] **OBS-04**: Lightweight web dashboard shows historical equity curve, trade history with filters, regime timeline, module performance comparison, and cumulative win rate
+- [x] **OBS-05**: Web dashboard is accessible from any device on the local network for remote monitoring
 
 ### Configuration
 
@@ -184,8 +184,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OBS-01 | Phase 4: Observability and Self-Learning | Pending |
 | OBS-02 | Phase 4: Observability and Self-Learning | Pending |
 | OBS-03 | Phase 4: Observability and Self-Learning | Pending |
-| OBS-04 | Phase 4: Observability and Self-Learning | Pending |
-| OBS-05 | Phase 4: Observability and Self-Learning | Pending |
+| OBS-04 | Phase 4: Observability and Self-Learning | Complete |
+| OBS-05 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-01 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-02 | Phase 4: Observability and Self-Learning | Pending |
 | LEARN-03 | Phase 4: Observability and Self-Learning | Pending |

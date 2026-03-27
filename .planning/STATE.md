@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-27T18:28:14.722Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-03-27T18:38:35.215Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 24
-  completed_plans: 19
+  completed_plans: 20
   percent: 77
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 04 (observability-and-self-learning) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 04
-Last activity: 2026-03-27 -- Phase 04 execution started
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-03-27
 
 Progress: [████████░░] 77%
 
@@ -70,6 +70,7 @@ Progress: [████████░░] 77%
 | Phase 03 P04 | 4min | 1 tasks | 2 files |
 | Phase 03 P05 | 6min | 2 tasks | 5 files |
 | Phase 04 P01 | 5min | 2 tasks | 9 files |
+| Phase 04 P03 | 7min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -131,6 +132,9 @@ Recent decisions affecting current work:
 - [Phase 03]: Forward-fill regime tags for bars before first analysis window to avoid NaN gaps
 - [Phase 04]: Mutable TradingEngineState (not frozen) -- engine writes, dashboards read
 - [Phase 04]: Auto-incrementing trade_id via SELECT MAX + 1 for embedded DuckDB trade_log
+- [Phase 04]: httpx ASGITransport for FastAPI endpoint testing without running a server
+- [Phase 04]: _sanitize_trades helper converts DuckDB timestamps and numpy scalars to JSON-safe types
+- [Phase 04]: Vendor JS libraries served locally from static/vendor/ -- no CDN dependency at runtime
 
 ### Pending Todos
 
@@ -146,8 +150,8 @@ None yet.
 
 <<<<<<< Updated upstream
 <<<<<<< HEAD
-Last session: 2026-03-27T18:28:14.720Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-27T18:38:35.213Z
+Stopped at: Completed 04-03-PLAN.md
 =======
 Last session: 2026-03-27T14:40:15.787Z
 Stopped at: Completed 03-05-PLAN.md
