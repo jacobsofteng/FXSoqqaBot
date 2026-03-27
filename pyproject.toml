@@ -1,0 +1,35 @@
+[project]
+name = "fxsoqqabot"
+version = "0.1.0"
+description = "Self-learning XAUUSD scalping bot for MetaTrader 5"
+authors = [
+    { name = "Jacob", email = "ekubmuhamedov@gmail.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "metatrader5>=5.0",
+    "numpy>=2.4",
+    "pandas>=2.2,<3.0",
+    "pydantic>=2.12",
+    "pydantic-settings>=2.13",
+    "structlog>=25.5",
+    "duckdb>=1.5",
+    "pyarrow>=19.0",
+    "aiosqlite>=0.22",
+    "rich>=13.0",
+    "pytz",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "pre-commit",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.12,<0.11.0"]
+build-backend = "uv_build"
