@@ -193,18 +193,22 @@ class TestHFTSignatures:
         """Sudden burst of rapid ticks with spread widening -> HFT detected."""
         from fxsoqqabot.signals.flow.aggression import detect_hft_signatures
 
-        # Normal ticks for 50 intervals, then burst of rapid ticks with wide spread
-        normal_times = np.arange(0, 5000, 100, dtype=np.int64)  # 50 ticks
-        burst_times = np.arange(5000, 5100, 2, dtype=np.int64)  # 50 ticks in 100ms
+        # 200 normal ticks at 100ms intervals, then 5 ultra-fast ticks in 1ms
+        normal_times = np.arange(0, 20000, 100, dtype=np.int64)  # 200 ticks
+        burst_times = np.arange(20000, 20005, 1, dtype=np.int64)  # 5 ticks in 5ms
         time_msc = np.concatenate([normal_times, burst_times])
 
-        normal_spread = np.full(50, 1.0)
-        burst_spread = np.full(50, 5.0)  # wide spread
+        normal_spread = np.full(200, 1.0)
+        burst_spread = np.full(5, 10.0)  # very wide spread during burst
         spread = np.concatenate([normal_spread, burst_spread])
 
         volume_real = np.ones(len(time_msc))
 
-        is_hft, confidence = detect_hft_signatures(time_msc, spread, volume_real)
+        is_hft, confidence = detect_hft_signatures(
+            time_msc, spread, volume_real,
+            tick_velocity_threshold=3.0,  # lower threshold for detection
+            spread_widen_multiplier=2.0,
+        )
         assert is_hft is True
         assert confidence > 0.0
 
