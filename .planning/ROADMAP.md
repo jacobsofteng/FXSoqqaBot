@@ -74,9 +74,9 @@ Plans:
 
 Plans:
 - [x] 03-01-PLAN.md -- Interface abstraction: DataFeedProtocol, Clock Protocol, BacktestConfig, LiveDataFeedAdapter
-- [ ] 03-02-PLAN.md -- Historical data pipeline: histdata.com CSV parsing, validation, Parquet conversion
+- [x] 03-02-PLAN.md -- Historical data pipeline: histdata.com CSV parsing, validation, Parquet conversion
 - [x] 03-03-PLAN.md -- Backtest engine: BacktestDataFeed, BacktestExecutor (spread/slippage/commission), BacktestEngine replay loop
-- [ ] 03-04-PLAN.md -- Walk-forward validation and out-of-sample holdout evaluation
+- [x] 03-04-PLAN.md -- Walk-forward validation and out-of-sample holdout evaluation
 - [ ] 03-05-PLAN.md -- Monte Carlo simulation, regime-aware evaluation, and Feigenbaum stress testing
 
 ### Phase 4: Observability and Self-Learning

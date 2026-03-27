@@ -77,9 +77,9 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Backtesting & Validation
 
 - [x] **TEST-01**: Backtesting engine replays historical data (histdata.com M1 bars 2015-present + MT5 tick data for recent periods) with realistic spread simulation, slippage modeling, and commission costs
-- [ ] **TEST-02**: Walk-forward validation trains on one period and validates on the next unseen period, rolling forward continuously — strategy must generalize, not memorize
+- [x] **TEST-02**: Walk-forward validation trains on one period and validates on the next unseen period, rolling forward continuously — strategy must generalize, not memorize
 - [ ] **TEST-03**: Monte Carlo simulation randomizes trade order sequences and entry timing 10,000+ times to verify robustness — results must be statistically significant (p < 0.05)
-- [ ] **TEST-04**: Out-of-sample testing reserves a portion of recent history (never touched during development) for final validation only
+- [x] **TEST-04**: Out-of-sample testing reserves a portion of recent history (never touched during development) for final validation only
 - [ ] **TEST-05**: Regime-aware evaluation measures performance separately across trending, ranging, high-volatility, low-volatility, and news-driven market regimes
 - [ ] **TEST-06**: Feigenbaum stress testing injects simulated regime transitions into backtests to verify the chaos module correctly anticipates and adapts to bifurcation events
 - [x] **TEST-07**: Backtesting shares 100% of analysis code with live trading via interface abstraction (DataFeedProtocol + Clock) — no separate backtest-only code paths
@@ -175,9 +175,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FUSE-04 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-05 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | TEST-01 | Phase 3: Backtesting and Validation | Complete |
-| TEST-02 | Phase 3: Backtesting and Validation | Pending |
+| TEST-02 | Phase 3: Backtesting and Validation | Complete |
 | TEST-03 | Phase 3: Backtesting and Validation | Pending |
-| TEST-04 | Phase 3: Backtesting and Validation | Pending |
+| TEST-04 | Phase 3: Backtesting and Validation | Complete |
 | TEST-05 | Phase 3: Backtesting and Validation | Pending |
 | TEST-06 | Phase 3: Backtesting and Validation | Pending |
 | TEST-07 | Phase 3: Backtesting and Validation | Complete |
