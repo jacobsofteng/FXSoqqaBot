@@ -50,7 +50,15 @@ Plans:
   3. Bot outputs probability-weighted entry and exit timing windows based on price-time coupled state modeling
   4. Decision core fuses all upstream signals using confidence-weighted combination where fusion weights adapt based on recent module accuracy, and fires trades with precise entry/SL/TP into MT5
   5. Bot auto-transitions between capital phase behaviors (aggressive/selective/conservative) based on equity with smooth behavioral transitions
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 02-01-PLAN.md -- Signal pipeline foundation: dependencies, Protocol/dataclass types, config models
+- [ ] 02-02-PLAN.md -- Chaos/regime module: Hurst, Lyapunov, fractal, Feigenbaum, entropy, regime classifier
+- [ ] 02-03-PLAN.md -- Order flow module: volume delta, aggression, DOM analysis, institutional footprints, HFT detection
+- [ ] 02-04-PLAN.md -- Quantum timing module: OU mean-reversion timing, phase transition detection
+- [ ] 02-05-PLAN.md -- Fusion core: confidence-weighted blend, adaptive weights, phase behavior, trade manager
+- [ ] 02-06-PLAN.md -- Engine integration: signal loop wiring, weight persistence, end-to-end pipeline
 
 ### Phase 3: Backtesting and Validation
 **Goal**: The strategy is scientifically validated on 2015-present XAUUSD history with anti-overfitting guarantees -- walk-forward, Monte Carlo, and regime-aware evaluation confirm the signal fusion generalizes to unseen data
@@ -84,7 +92,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Trading Infrastructure | 0/7 | Planned | - |
-| 2. Signal Pipeline and Decision Fusion | 0/TBD | Not started | - |
+| 1. Trading Infrastructure | 7/7 | Complete | 2026-03-27 |
+| 2. Signal Pipeline and Decision Fusion | 0/6 | Planned | - |
 | 3. Backtesting and Validation | 0/TBD | Not started | - |
 | 4. Observability and Self-Learning | 0/TBD | Not started | - |
