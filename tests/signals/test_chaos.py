@@ -265,3 +265,223 @@ class TestComputeCrowdEntropy:
         import inspect
         src = inspect.getsource(compute_crowd_entropy)
         assert "scipy.stats" in src or "entropy" in src
+
+
+# ---------------------------------------------------------------------------
+# Regime classifier tests
+# ---------------------------------------------------------------------------
+
+class TestClassifyRegime:
+    """Tests for classify_regime() -- CHAOS-06."""
+
+    def test_returns_tuple_of_regime_state_and_float(self):
+        from fxsoqqabot.signals.chaos.regime import classify_regime
+        from fxsoqqabot.signals.base import RegimeState
+        regime, confidence = classify_regime(
+            hurst=0.5, hurst_conf=0.5,
+            lyapunov=0.0, lyap_conf=0.5,
+            fractal_dim=1.5, fractal_conf=0.5,
+            bifurcation=0.0, bifurcation_conf=0.5,
+            entropy=0.5, entropy_conf=0.5,
+            price_direction=0.0,
+        )
+        assert isinstance(regime, RegimeState)
+        assert isinstance(confidence, float)
+
+    def test_high_bifurcation_returns_pre_bifurcation(self):
+        from fxsoqqabot.signals.chaos.regime import classify_regime
+        from fxsoqqabot.signals.base import RegimeState
+        regime, confidence = classify_regime(
+            hurst=0.7, hurst_conf=0.8,
+            lyapunov=0.1, lyap_conf=0.5,
+            fractal_dim=1.5, fractal_conf=0.5,
+            bifurcation=0.8, bifurcation_conf=0.5,
+            entropy=0.3, entropy_conf=0.5,
+            price_direction=1.0,
+        )
+        assert regime == RegimeState.PRE_BIFURCATION
+
+    def test_high_lyapunov_and_entropy_returns_high_chaos(self):
+        from fxsoqqabot.signals.chaos.regime import classify_regime
+        from fxsoqqabot.signals.base import RegimeState
+        regime, confidence = classify_regime(
+            hurst=0.5, hurst_conf=0.5,
+            lyapunov=0.8, lyap_conf=0.5,
+            fractal_dim=1.5, fractal_conf=0.5,
+            bifurcation=0.3, bifurcation_conf=0.5,
+            entropy=0.8, entropy_conf=0.5,
+            price_direction=0.0,
+        )
+        assert regime == RegimeState.HIGH_CHAOS
+
+    def test_high_hurst_positive_direction_returns_trending_up(self):
+        from fxsoqqabot.signals.chaos.regime import classify_regime
+        from fxsoqqabot.signals.base import RegimeState
+        regime, _ = classify_regime(
+            hurst=0.7, hurst_conf=0.5,
+            lyapunov=0.1, lyap_conf=0.5,
+            fractal_dim=1.5, fractal_conf=0.5,
+            bifurcation=0.1, bifurcation_conf=0.1,
+            entropy=0.3, entropy_conf=0.5,
+            price_direction=1.0,
+        )
+        assert regime == RegimeState.TRENDING_UP
+
+    def test_high_hurst_negative_direction_returns_trending_down(self):
+        from fxsoqqabot.signals.chaos.regime import classify_regime
+        from fxsoqqabot.signals.base import RegimeState
+        regime, _ = classify_regime(
+            hurst=0.7, hurst_conf=0.5,
+            lyapunov=0.1, lyap_conf=0.5,
+            fractal_dim=1.5, fractal_conf=0.5,
+            bifurcation=0.1, bifurcation_conf=0.1,
+            entropy=0.3, entropy_conf=0.5,
+            price_direction=-1.0,
+        )
+        assert regime == RegimeState.TRENDING_DOWN
+
+    def test_low_hurst_returns_ranging(self):
+        from fxsoqqabot.signals.chaos.regime import classify_regime
+        from fxsoqqabot.signals.base import RegimeState
+        regime, _ = classify_regime(
+            hurst=0.3, hurst_conf=0.5,
+            lyapunov=0.1, lyap_conf=0.5,
+            fractal_dim=1.5, fractal_conf=0.5,
+            bifurcation=0.1, bifurcation_conf=0.1,
+            entropy=0.3, entropy_conf=0.5,
+            price_direction=0.0,
+        )
+        assert regime == RegimeState.RANGING
+
+    def test_ambiguous_defaults_to_ranging_low_confidence(self):
+        from fxsoqqabot.signals.chaos.regime import classify_regime
+        from fxsoqqabot.signals.base import RegimeState
+        regime, confidence = classify_regime(
+            hurst=0.5, hurst_conf=0.5,
+            lyapunov=0.1, lyap_conf=0.5,
+            fractal_dim=1.5, fractal_conf=0.5,
+            bifurcation=0.1, bifurcation_conf=0.1,
+            entropy=0.3, entropy_conf=0.5,
+            price_direction=0.0,
+        )
+        assert regime == RegimeState.RANGING
+        assert confidence == pytest.approx(0.2, abs=0.01)
+
+    def test_bifurcation_priority_over_trending(self):
+        """PRE_BIFURCATION should take priority over TRENDING_UP."""
+        from fxsoqqabot.signals.chaos.regime import classify_regime
+        from fxsoqqabot.signals.base import RegimeState
+        regime, _ = classify_regime(
+            hurst=0.8, hurst_conf=0.9,
+            lyapunov=0.1, lyap_conf=0.5,
+            fractal_dim=1.5, fractal_conf=0.5,
+            bifurcation=0.9, bifurcation_conf=0.5,
+            entropy=0.3, entropy_conf=0.5,
+            price_direction=1.0,
+        )
+        assert regime == RegimeState.PRE_BIFURCATION
+
+
+# ---------------------------------------------------------------------------
+# ChaosRegimeModule tests
+# ---------------------------------------------------------------------------
+
+class TestChaosRegimeModule:
+    """Tests for ChaosRegimeModule -- implements SignalModule Protocol."""
+
+    def test_name_returns_chaos(self):
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        from fxsoqqabot.config.models import ChaosConfig
+        module = ChaosRegimeModule(ChaosConfig())
+        assert module.name == "chaos"
+
+    def test_implements_signal_module_protocol(self):
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        from fxsoqqabot.signals.base import SignalModule
+        from fxsoqqabot.config.models import ChaosConfig
+        module = ChaosRegimeModule(ChaosConfig())
+        assert isinstance(module, SignalModule)
+
+    async def test_initialize_completes(self):
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        from fxsoqqabot.config.models import ChaosConfig
+        module = ChaosRegimeModule(ChaosConfig())
+        await module.initialize()  # Should not raise
+
+    async def test_update_with_empty_bar_arrays(self):
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        from fxsoqqabot.signals.base import SignalOutput, RegimeState
+        from fxsoqqabot.config.models import ChaosConfig
+        module = ChaosRegimeModule(ChaosConfig())
+        result = await module.update(
+            tick_arrays={},
+            bar_arrays={},
+            dom=None,
+        )
+        assert isinstance(result, SignalOutput)
+        assert result.module_name == "chaos"
+        assert result.confidence == 0.0
+        assert result.regime == RegimeState.RANGING
+
+    async def test_update_with_insufficient_data(self):
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        from fxsoqqabot.signals.base import SignalOutput
+        from fxsoqqabot.config.models import ChaosConfig
+        module = ChaosRegimeModule(ChaosConfig())
+        # Only 10 data points -- insufficient for all metrics
+        close_prices = np.cumsum(np.random.randn(10)) + 1000
+        result = await module.update(
+            tick_arrays={},
+            bar_arrays={"M5": {"close": close_prices}},
+            dom=None,
+        )
+        assert isinstance(result, SignalOutput)
+        assert result.confidence == pytest.approx(0.2, abs=0.01)
+
+    async def test_update_with_sufficient_data(self):
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        from fxsoqqabot.signals.base import SignalOutput, RegimeState
+        from fxsoqqabot.config.models import ChaosConfig
+        module = ChaosRegimeModule(ChaosConfig())
+        np.random.seed(42)
+        close_prices = np.cumsum(np.random.randn(500)) + 1000
+        result = await module.update(
+            tick_arrays={},
+            bar_arrays={"M5": {"close": close_prices}},
+            dom=None,
+        )
+        assert isinstance(result, SignalOutput)
+        assert result.module_name == "chaos"
+        assert isinstance(result.regime, RegimeState)
+        assert -1.0 <= result.direction <= 1.0
+        assert 0.0 <= result.confidence <= 1.0
+        # Metadata should contain all chaos metric values
+        assert "hurst" in result.metadata
+        assert "lyapunov" in result.metadata
+        assert "fractal_dim" in result.metadata
+        assert "bifurcation" in result.metadata
+        assert "entropy" in result.metadata
+
+    async def test_update_direction_for_trending_up(self):
+        """Trending up regime should give direction +1.0."""
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        from fxsoqqabot.signals.base import RegimeState
+        from fxsoqqabot.config.models import ChaosConfig
+        module = ChaosRegimeModule(ChaosConfig())
+        # Strong uptrend data
+        np.random.seed(42)
+        close_prices = np.linspace(1000, 1200, 500) + np.random.randn(500) * 0.5
+        result = await module.update(
+            tick_arrays={},
+            bar_arrays={"M5": {"close": close_prices}},
+            dom=None,
+        )
+        # If classified as TRENDING_UP, direction should be +1.0
+        if result.regime == RegimeState.TRENDING_UP:
+            assert result.direction == 1.0
+
+    def test_exported_from_package(self):
+        from fxsoqqabot.signals.chaos import ChaosRegimeModule
+        from fxsoqqabot.config.models import ChaosConfig
+        module = ChaosRegimeModule(ChaosConfig())
+        assert module.name == "chaos"
