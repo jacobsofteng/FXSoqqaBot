@@ -13,8 +13,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **DATA-02**: Bot retrieves DOM depth snapshots from MT5 when available, with graceful degradation to tick-only mode when DOM is limited or unavailable
 - [x] **DATA-03**: Bot accesses bar data across multiple timeframes (M1, M5, M15, H1, H4) with aligned timestamps and efficient caching
 - [ ] **DATA-04**: Bot loads and parses historical M1 bar data from histdata.com CSV files (2015-present) for backtesting
-- [ ] **DATA-05**: Bot stores tick data and trade events in DuckDB/Parquet for analytical queries and backtesting
-- [ ] **DATA-06**: Bot maintains rolling in-memory buffers of recent ticks and bars for real-time signal computation
+- [x] **DATA-05**: Bot stores tick data and trade events in DuckDB/Parquet for analytical queries and backtesting
+- [x] **DATA-06**: Bot maintains rolling in-memory buffers of recent ticks and bars for real-time signal computation
 
 ### MT5 Bridge & Execution
 
@@ -141,8 +141,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DATA-02 | Phase 1: Trading Infrastructure | Complete |
 | DATA-03 | Phase 1: Trading Infrastructure | Complete |
 | DATA-04 | Phase 3: Backtesting and Validation | Pending |
-| DATA-05 | Phase 1: Trading Infrastructure | Pending |
-| DATA-06 | Phase 1: Trading Infrastructure | Pending |
+| DATA-05 | Phase 1: Trading Infrastructure | Complete |
+| DATA-06 | Phase 1: Trading Infrastructure | Complete |
 | EXEC-01 | Phase 1: Trading Infrastructure | Complete |
 | EXEC-02 | Phase 1: Trading Infrastructure | Pending |
 | EXEC-03 | Phase 1: Trading Infrastructure | Complete |
