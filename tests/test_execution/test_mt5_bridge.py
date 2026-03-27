@@ -221,13 +221,13 @@ class TestMT5BridgeDataRetrieval:
             ],
         )
         mock_mt5.copy_ticks_from.return_value = fake_data
-        mock_mt5.COPY_TICKS_ALL = 1
 
         bridge = MT5Bridge(exec_config)
         now = datetime.now(timezone.utc)
         result = await bridge.get_ticks("XAUUSD", now, 100)
 
-        mock_mt5.copy_ticks_from.assert_called_once_with("XAUUSD", now, 100, 1)
+        # COPY_TICKS_ALL is -1 in the real MT5 module; default arg captured at import
+        mock_mt5.copy_ticks_from.assert_called_once_with("XAUUSD", now, 100, -1)
         assert result is fake_data
 
     @patch("fxsoqqabot.execution.mt5_bridge.mt5")
