@@ -552,7 +552,7 @@ class TradingEngine:
 
                 # Evaluate and potentially execute trade
                 if current_atr > 0 and current_price > 0:
-                    decision = await self._trade_manager.evaluate_and_execute(
+                    decision, fill = await self._trade_manager.evaluate_and_execute(
                         fusion_result=fusion_result,
                         equity=equity,
                         current_price=current_price,
@@ -576,11 +576,11 @@ class TradingEngine:
                         )
 
                         # Phase 4: Log trade open context
-                        if self._trade_logger and hasattr(decision, "fill") and decision.fill:
+                        if self._trade_logger and fill is not None:
                             try:
                                 self._trade_logger.log_trade_open(
                                     decision=decision,
-                                    fill=decision.fill,
+                                    fill=fill,
                                     signals=signals,
                                     fusion_result=fusion_result,
                                     weights=weights,

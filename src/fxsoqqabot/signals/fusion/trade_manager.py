@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from fxsoqqabot.config.models import FusionConfig
+from fxsoqqabot.core.events import FillEvent
 from fxsoqqabot.signals.base import RegimeState
 from fxsoqqabot.signals.fusion.core import FusionResult
 from fxsoqqabot.signals.fusion.phase_behavior import PhaseBehavior
@@ -135,7 +136,7 @@ class TradeManager:
         equity: float,
         current_price: float,
         atr: float,
-    ) -> TradeDecision:
+    ) -> tuple[TradeDecision, FillEvent | None]:
         """Evaluate fusion result and execute trade if appropriate.
 
         Decision flow:
@@ -153,7 +154,8 @@ class TradeManager:
             atr: Average True Range value.
 
         Returns:
-            TradeDecision with action and parameters.
+            Tuple of (TradeDecision, FillEvent | None). FillEvent is non-None
+            only on successful order execution.
         """
         regime = fusion_result.regime
 
@@ -197,7 +199,7 @@ class TradeManager:
                     confidence=fusion_result.fused_confidence,
                     regime=regime,
                     reason=f"Adverse regime transition to {regime.value} per D-08",
-                )
+                ), None
 
             return TradeDecision(
                 action="hold",
@@ -207,7 +209,7 @@ class TradeManager:
                 confidence=fusion_result.fused_confidence,
                 regime=regime,
                 reason="Position already open per D-11",
-            )
+            ), None
 
         # 2. Check if fusion says trade
         if not fusion_result.should_trade:
@@ -219,7 +221,7 @@ class TradeManager:
                 confidence=fusion_result.fused_confidence,
                 regime=regime,
                 reason="Below confidence threshold",
-            )
+            ), None
 
         # 3. Check circuit breakers
         if self._breakers and not self._breakers.is_trading_allowed():
@@ -232,7 +234,7 @@ class TradeManager:
                 confidence=fusion_result.fused_confidence,
                 regime=regime,
                 reason=f"Circuit breaker tripped: {', '.join(tripped)}",
-            )
+            ), None
 
         # 4. Compute SL/TP per D-09
         sl_price, tp_price, sl_dist, tp_dist = self.compute_sl_tp(
@@ -251,7 +253,7 @@ class TradeManager:
                 confidence=fusion_result.fused_confidence,
                 regime=regime,
                 reason=sizing.skip_reason or "Sizing rejected trade",
-            )
+            ), None
 
         lot_size = sizing.lot_size
 
@@ -264,6 +266,7 @@ class TradeManager:
 
         # 6. Execute trade
         action = "buy" if fusion_result.direction > 0 else "sell"
+        fill: FillEvent | None = None
 
         if self._orders:
             try:
@@ -307,7 +310,7 @@ class TradeManager:
             confidence=fusion_result.fused_confidence,
             regime=regime,
             reason="Fusion threshold exceeded",
-        )
+        ), fill
 
     def record_position_closed(self, ticket: int) -> None:
         """Clear position state when position closes.
