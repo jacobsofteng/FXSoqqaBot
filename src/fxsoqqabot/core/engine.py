@@ -15,12 +15,19 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from fxsoqqabot.config.models import BotSettings
 from fxsoqqabot.core.state import StateManager
+from fxsoqqabot.core.state_snapshot import TradingEngineState
+
+if TYPE_CHECKING:
+    from fxsoqqabot.dashboard.tui.app import FXSoqqaBotTUI
+    from fxsoqqabot.dashboard.web.server import DashboardServer
+    from fxsoqqabot.learning.loop import LearningLoopManager
+    from fxsoqqabot.learning.trade_logger import TradeContextLogger
 from fxsoqqabot.data.buffers import BarBufferSet, TickBuffer
 from fxsoqqabot.data.feed import MarketDataFeed
 from fxsoqqabot.data.storage import TickStorage
@@ -81,6 +88,19 @@ class TradingEngine:
         self._phase_behavior: PhaseBehavior | None = None
         self._trade_manager: TradeManager | None = None
 
+        # Phase 4: Dashboard and learning slots
+        self._engine_state = TradingEngineState()
+        self._trade_logger: TradeContextLogger | None = None
+        self._learning_loop: LearningLoopManager | None = None
+        self._web_server: DashboardServer | None = None
+        self._tui_enabled: bool = settings.tui.enabled
+        self._web_enabled: bool = settings.web.enabled
+        self._learning_enabled: bool = settings.learning.enabled
+
+        # Track last signals and fusion result for state updates
+        self._last_signals: list[SignalOutput] | None = None
+        self._last_fusion_result: Any = None
+
     # -- Properties -----------------------------------------------------------
 
     @property
@@ -102,6 +122,11 @@ class TradingEngine:
     def state(self) -> StateManager | None:
         """StateManager instance for external access."""
         return self._state
+
+    @property
+    def engine_state(self) -> TradingEngineState:
+        """Shared TradingEngineState for dashboard consumption."""
+        return self._engine_state
 
     # -- Component initialization ---------------------------------------------
 
@@ -199,11 +224,41 @@ class TradingEngine:
             breaker_manager=self._breakers,
         )
 
+        # Phase 4: Trade context logger
+        from fxsoqqabot.learning.trade_logger import TradeContextLogger
+
+        self._trade_logger = TradeContextLogger(self._storage._db)
+
+        # Phase 4: Learning loop
+        if self._learning_enabled:
+            from fxsoqqabot.learning.loop import LearningLoopManager
+
+            self._learning_loop = LearningLoopManager(
+                config=self._settings.learning,
+                trade_logger=self._trade_logger,
+                equity=self._settings.risk.aggressive_max,
+            )
+
+        # Phase 4: Web dashboard server
+        if self._web_enabled:
+            from fxsoqqabot.dashboard.web.server import DashboardServer
+
+            self._web_server = DashboardServer(
+                config=self._settings.web,
+                state=self._engine_state,
+                trade_logger=self._trade_logger,
+                kill_callback=self._handle_kill,
+                pause_callback=self._handle_pause,
+            )
+
         self._logger.info(
             "components_initialized",
             mode=exec_config.mode,
             symbol=exec_config.symbol,
             signal_modules=[m.name for m in self._signal_modules],
+            tui_enabled=self._tui_enabled,
+            web_enabled=self._web_enabled,
+            learning_enabled=self._learning_enabled,
         )
 
     # -- Connection -----------------------------------------------------------
@@ -448,6 +503,9 @@ class TradingEngine:
                     await asyncio_sleep(interval_s)
                     continue
 
+                # Store for state update
+                self._last_signals = signals
+
                 # Get adaptive weights
                 weights = self._weight_tracker.get_weights()
 
@@ -460,6 +518,7 @@ class TradingEngine:
 
                 # Fuse signals
                 fusion_result = self._fusion_core.fuse(signals, weights, threshold)
+                self._last_fusion_result = fusion_result
 
                 # Log fusion state
                 self._logger.debug(
@@ -516,10 +575,131 @@ class TradingEngine:
                             self._weight_tracker.get_state()
                         )
 
+                        # Phase 4: Log trade open context
+                        if self._trade_logger and hasattr(decision, "fill") and decision.fill:
+                            try:
+                                self._trade_logger.log_trade_open(
+                                    decision=decision,
+                                    fill=decision.fill,
+                                    signals=signals,
+                                    fusion_result=fusion_result,
+                                    weights=weights,
+                                    equity=equity,
+                                    atr=current_atr,
+                                )
+                            except Exception:
+                                self._logger.error(
+                                    "trade_log_open_error", exc_info=True
+                                )
+
+                # Phase 4: Update shared engine state for dashboards
+                self._update_engine_state()
+
             except Exception:
                 self._logger.error("signal_loop_error", exc_info=True)
 
             await asyncio_sleep(interval_s)
+
+    # -- Phase 4: State update and callbacks -----------------------------------
+
+    def _update_engine_state(self) -> None:
+        """Atomically update shared state snapshot for dashboard consumption.
+
+        Called after each signal cycle in _signal_loop(). Updates all fields
+        that TUI and web dashboard read.
+        """
+        s = self._engine_state
+
+        # Regime from last signals
+        if self._last_signals:
+            chaos_signal = next(
+                (sig for sig in self._last_signals if sig.module_name == "chaos"),
+                None,
+            )
+            if chaos_signal and chaos_signal.regime:
+                s.regime = chaos_signal.regime
+                s.regime_confidence = chaos_signal.confidence
+
+        # Signal confidences/directions
+        s.signal_confidences = {
+            sig.module_name: sig.confidence
+            for sig in (self._last_signals or [])
+        }
+        s.signal_directions = {
+            sig.module_name: sig.direction
+            for sig in (self._last_signals or [])
+        }
+
+        # Fusion score
+        if self._last_fusion_result is not None:
+            s.fusion_score = self._last_fusion_result.composite_score
+
+        # Price and spread from latest tick
+        if self._tick_buffer and len(self._tick_buffer) > 0:
+            arrays = self._tick_buffer.as_arrays()
+            if arrays["bid"].size > 0:
+                s.current_price = float(arrays["bid"][-1])
+            if arrays["spread"].size > 0:
+                s.spread = float(arrays["spread"][-1])
+
+        # Equity
+        s.equity = getattr(self, "_current_equity", 0.0)
+
+        # Breaker status
+        if self._breakers:
+            try:
+                snapshot = self._breakers.get_snapshot()
+                s.breaker_status = {
+                    "daily_drawdown": (
+                        snapshot.daily_drawdown_state.value
+                        if hasattr(snapshot, "daily_drawdown_state")
+                        else "unknown"
+                    )
+                }
+            except Exception:
+                pass
+
+        # Connection status
+        s.is_connected = getattr(self, "_connected", False)
+
+        # Kill switch
+        if self._kill_switch:
+            s.is_killed = getattr(self._kill_switch, "is_killed", False)
+
+        # Order flow from last flow signal
+        if self._last_signals:
+            flow_sig = next(
+                (sig for sig in self._last_signals if sig.module_name == "flow"),
+                None,
+            )
+            if flow_sig and flow_sig.metadata:
+                s.volume_delta = flow_sig.metadata.get("volume_delta", 0.0)
+                s.bid_pressure = flow_sig.metadata.get("bid_pressure", 0.0)
+                s.ask_pressure = flow_sig.metadata.get("ask_pressure", 0.0)
+
+        # Recent trades from trade_logger
+        if self._trade_logger:
+            try:
+                s.recent_trades = self._trade_logger.get_recent_trades(20)
+            except Exception:
+                pass
+
+        # Learning mutations
+        if self._learning_loop:
+            try:
+                status = self._learning_loop.get_learning_status()
+                s.recent_mutations = status.get("recent_mutations", [])
+            except Exception:
+                pass
+
+    async def _handle_kill(self) -> None:
+        """Handle kill switch activation from dashboard callback."""
+        if self._kill_switch:
+            await self._kill_switch.activate(self._order_manager)
+
+    async def _handle_pause(self) -> None:
+        """Toggle pause state from dashboard callback."""
+        self._engine_state.is_paused = not self._engine_state.is_paused
 
     # -- Helpers --------------------------------------------------------------
 
@@ -562,13 +742,20 @@ class TradingEngine:
         self._running = True
         self._logger.info("engine_started")
 
+        # Build task list
+        tasks = [
+            self._tick_loop(),
+            self._bar_loop(),
+            self._health_loop(),
+            self._signal_loop(),  # Phase 2 signal pipeline
+        ]
+
+        # Phase 4: Web dashboard as parallel async task
+        if self._web_enabled and self._web_server:
+            tasks.append(self._web_server.start())
+
         try:
-            await asyncio.gather(
-                self._tick_loop(),
-                self._bar_loop(),
-                self._health_loop(),
-                self._signal_loop(),  # Phase 2 signal pipeline
-            )
+            await asyncio.gather(*tasks)
         except asyncio.CancelledError:
             self._logger.info("engine_loops_cancelled")
         finally:
@@ -581,6 +768,13 @@ class TradingEngine:
         """
         self._running = False
         self._logger.info("engine_stopping")
+
+        # Phase 4: Stop web dashboard server
+        if self._web_server is not None:
+            try:
+                await self._web_server.stop()
+            except Exception:
+                self._logger.error("web_server_stop_error", exc_info=True)
 
         # Flush storage to parquet
         if self._storage is not None:

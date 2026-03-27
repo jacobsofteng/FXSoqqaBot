@@ -111,3 +111,29 @@ high_chaos_confidence_boost = 0.15
 high_chaos_size_reduction = 0.5
 phase_transition_equity_buffer = 10.0
 max_concurrent_positions = 1
+
+# Phase 4: TUI Dashboard
+[tui]
+refresh_interval_s = 1.0
+enabled = true
+
+# Phase 4: Web Dashboard
+[web]
+host = "0.0.0.0"
+port = 8080
+api_key = "changeme"
+enabled = true
+
+# Phase 4: Self-Learning Loop
+[learning]
+evolve_every_n_trades = 50
+n_shadow_variants = 5
+promotion_alpha = 0.05
+min_promotion_trades = 50
+retirement_threshold = 0.3
+retirement_min_trades = 50
+ga_population_size = 20
+ga_crossover_prob = 0.5
+ga_mutation_prob = 0.2
+ga_tournament_size = 3
+enabled = false

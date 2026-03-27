@@ -1,7 +1,9 @@
 """CLI entry points for FXSoqqaBot per D-09.
 
-Supports four commands:
-- run: Start the trading bot
+Supports commands:
+- run: Start the trading bot (with optional --no-tui, --no-web, --no-learning)
+- dashboard: Run web dashboard only
+- learning: Show learning loop status
 - kill: Activate kill switch (close all positions, halt trading)
 - status: Show circuit breaker states and counters
 - reset: Reset kill switch (explicit manual action per D-10)
@@ -24,20 +26,72 @@ from fxsoqqabot.core.state import StateManager
 
 
 def create_parser() -> argparse.ArgumentParser:
-    """Create argument parser with run, kill, status, reset subcommands."""
+    """Create argument parser with run, dashboard, learning, kill, status, reset subcommands."""
     parser = argparse.ArgumentParser(
         prog="fxsoqqabot",
         description="FXSoqqaBot: Self-learning XAUUSD scalping bot",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # run command
+    # run command with Phase 4 flags
     run_parser = subparsers.add_parser("run", help="Start the trading bot")
     run_parser.add_argument(
         "--config",
         nargs="*",
         default=None,
         help="TOML config file(s) to load (e.g., config/paper.toml)",
+    )
+    run_parser.add_argument(
+        "--no-tui",
+        action="store_true",
+        default=False,
+        help="Disable terminal UI dashboard",
+    )
+    run_parser.add_argument(
+        "--no-web",
+        action="store_true",
+        default=False,
+        help="Disable web dashboard server",
+    )
+    run_parser.add_argument(
+        "--no-learning",
+        action="store_true",
+        default=False,
+        help="Disable self-learning loop",
+    )
+
+    # dashboard command
+    dashboard_parser = subparsers.add_parser(
+        "dashboard", help="Run dashboard (web-only or TUI)"
+    )
+    dashboard_parser.add_argument(
+        "--web-only",
+        action="store_true",
+        default=False,
+        help="Run only the web dashboard without TUI",
+    )
+    dashboard_parser.add_argument(
+        "--config",
+        nargs="*",
+        default=None,
+        help="TOML config file(s) to load",
+    )
+
+    # learning command
+    learning_parser = subparsers.add_parser(
+        "learning", help="Learning loop control and status"
+    )
+    learning_parser.add_argument(
+        "--status",
+        action="store_true",
+        default=False,
+        help="Show learning loop status",
+    )
+    learning_parser.add_argument(
+        "--config",
+        nargs="*",
+        default=None,
+        help="TOML config file(s) to load",
     )
 
     # kill command (no args) per D-09
@@ -61,11 +115,21 @@ def create_parser() -> argparse.ArgumentParser:
 async def cmd_run(args: argparse.Namespace) -> None:
     """Start the trading bot with the given configuration.
 
-    Handles SIGINT/SIGTERM for graceful shutdown.
+    Handles SIGINT/SIGTERM for graceful shutdown. Supports --no-tui,
+    --no-web, and --no-learning flags to disable Phase 4 features.
     """
     from fxsoqqabot.core.engine import TradingEngine
 
     settings = load_settings(args.config)
+
+    # Apply CLI overrides for Phase 4 features
+    if getattr(args, "no_tui", False):
+        settings.tui.enabled = False
+    if getattr(args, "no_web", False):
+        settings.web.enabled = False
+    if getattr(args, "no_learning", False):
+        settings.learning.enabled = False
+
     _setup_logging(settings)
 
     logger = structlog.get_logger()
@@ -73,6 +137,9 @@ async def cmd_run(args: argparse.Namespace) -> None:
         "bot_starting",
         mode=settings.execution.mode,
         symbol=settings.execution.symbol,
+        tui=settings.tui.enabled,
+        web=settings.web.enabled,
+        learning=settings.learning.enabled,
     )
 
     engine = TradingEngine(settings)
@@ -96,11 +163,75 @@ async def cmd_run(args: argparse.Namespace) -> None:
     except Exception:
         pass
 
-    try:
-        await engine.start()
-    except KeyboardInterrupt:
-        logger.info("keyboard_interrupt")
-        await engine.stop()
+    # If TUI enabled, start engine in background and TUI as main loop
+    if settings.tui.enabled and not getattr(args, "no_tui", False):
+        try:
+            from fxsoqqabot.dashboard.tui.app import FXSoqqaBotTUI
+
+            tui = FXSoqqaBotTUI(
+                state=engine.engine_state,
+                kill_callback=engine._handle_kill,
+                pause_callback=engine._handle_pause,
+            )
+            engine_task = asyncio.create_task(engine.start())
+            await tui.run_async()
+            engine_task.cancel()
+        except KeyboardInterrupt:
+            logger.info("keyboard_interrupt")
+            await engine.stop()
+    else:
+        try:
+            await engine.start()
+        except KeyboardInterrupt:
+            logger.info("keyboard_interrupt")
+            await engine.stop()
+
+
+async def cmd_dashboard(args: argparse.Namespace) -> None:
+    """Run dashboard standalone (web-only or TUI).
+
+    Useful for connecting to a running bot's state or for development.
+    """
+    from fxsoqqabot.core.state_snapshot import TradingEngineState
+
+    settings = load_settings(getattr(args, "config", None))
+    _setup_logging(settings)
+
+    state = TradingEngineState()
+
+    if getattr(args, "web_only", False):
+        from fxsoqqabot.dashboard.web.server import DashboardServer
+
+        server = DashboardServer(
+            config=settings.web,
+            state=state,
+        )
+        print(f"Starting web dashboard on http://{settings.web.host}:{settings.web.port}")
+        await server.start()
+    else:
+        from fxsoqqabot.dashboard.tui.app import FXSoqqaBotTUI
+
+        tui = FXSoqqaBotTUI(state=state)
+        await tui.run_async()
+
+
+async def cmd_learning(args: argparse.Namespace) -> None:
+    """Show learning loop status.
+
+    Reads trade context from DuckDB and displays learning metrics.
+    """
+    settings = load_settings(getattr(args, "config", None))
+
+    print("FXSoqqaBot Learning Status")
+    print("=" * 40)
+    print(f"Learning enabled:       {settings.learning.enabled}")
+    print(f"Evolve every N trades:  {settings.learning.evolve_every_n_trades}")
+    print(f"Shadow variants:        {settings.learning.n_shadow_variants}")
+    print(f"Promotion alpha:        {settings.learning.promotion_alpha}")
+    print(f"Retirement threshold:   {settings.learning.retirement_threshold}")
+    print(f"GA population:          {settings.learning.ga_population_size}")
+    print(f"GA crossover prob:      {settings.learning.ga_crossover_prob}")
+    print(f"GA mutation prob:       {settings.learning.ga_mutation_prob}")
 
 
 async def cmd_kill() -> None:
@@ -214,6 +345,8 @@ def main() -> None:
 
     commands = {
         "run": lambda: cmd_run(args),
+        "dashboard": lambda: cmd_dashboard(args),
+        "learning": lambda: cmd_learning(args),
         "kill": cmd_kill,
         "status": cmd_status,
         "reset": cmd_reset,
