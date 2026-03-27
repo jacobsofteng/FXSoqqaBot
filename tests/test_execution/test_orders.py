@@ -344,7 +344,11 @@ class TestDynamicFillMode:
     async def test_determine_filling_mode_fok(
         self, mock_mt5, mock_bridge, exec_config_live
     ):
-        """_determine_filling_mode returns FOK when FOK bit set."""
+        """_determine_filling_mode returns FOK when SYMBOL_FILLING_FOK bit set.
+
+        MT5 filling_mode bitmask uses SYMBOL_FILLING_FOK=1, SYMBOL_FILLING_IOC=2.
+        ORDER_FILLING_FOK=0 is the value to SET in the order request.
+        """
         from fxsoqqabot.execution.orders import OrderManager
 
         mock_mt5.ORDER_FILLING_FOK = ORDER_FILLING_FOK
@@ -352,7 +356,7 @@ class TestDynamicFillMode:
         mock_mt5.ORDER_FILLING_RETURN = ORDER_FILLING_RETURN
 
         mock_bridge.get_symbol_info.return_value = SimpleNamespace(
-            filling_mode=1,  # FOK bit
+            filling_mode=1,  # SYMBOL_FILLING_FOK bit
         )
 
         mgr = OrderManager(mock_bridge, exec_config_live)
@@ -363,7 +367,7 @@ class TestDynamicFillMode:
     async def test_determine_filling_mode_ioc(
         self, mock_mt5, mock_bridge, exec_config_live
     ):
-        """_determine_filling_mode returns IOC when only IOC bit set."""
+        """_determine_filling_mode returns IOC when only SYMBOL_FILLING_IOC bit set."""
         from fxsoqqabot.execution.orders import OrderManager
 
         mock_mt5.ORDER_FILLING_FOK = ORDER_FILLING_FOK
@@ -371,7 +375,7 @@ class TestDynamicFillMode:
         mock_mt5.ORDER_FILLING_RETURN = ORDER_FILLING_RETURN
 
         mock_bridge.get_symbol_info.return_value = SimpleNamespace(
-            filling_mode=2,  # IOC bit only
+            filling_mode=2,  # SYMBOL_FILLING_IOC bit only (no FOK)
         )
 
         mgr = OrderManager(mock_bridge, exec_config_live)
@@ -382,7 +386,7 @@ class TestDynamicFillMode:
     async def test_determine_filling_mode_return(
         self, mock_mt5, mock_bridge, exec_config_live
     ):
-        """_determine_filling_mode returns RETURN when neither FOK nor IOC."""
+        """_determine_filling_mode returns RETURN when neither FOK nor IOC bits set."""
         from fxsoqqabot.execution.orders import OrderManager
 
         mock_mt5.ORDER_FILLING_FOK = ORDER_FILLING_FOK
@@ -390,7 +394,7 @@ class TestDynamicFillMode:
         mock_mt5.ORDER_FILLING_RETURN = ORDER_FILLING_RETURN
 
         mock_bridge.get_symbol_info.return_value = SimpleNamespace(
-            filling_mode=4,  # RETURN bit
+            filling_mode=0,  # Neither SYMBOL_FILLING_FOK nor SYMBOL_FILLING_IOC
         )
 
         mgr = OrderManager(mock_bridge, exec_config_live)
