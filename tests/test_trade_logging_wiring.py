@@ -369,3 +369,181 @@ async def _run_one_signal_iteration(engine):
                     )
                 except Exception:
                     pass
+
+
+# ---------------------------------------------------------------------------
+# Test: Engine trade close wiring (paper SL/TP)
+# ---------------------------------------------------------------------------
+
+
+class TestTradeCloseWiring:
+    """Engine _handle_paper_close calls simulate_close, log_trade_close,
+    on_trade_closed, and record_position_closed."""
+
+    def _make_paper_position(self, ticket: int = 1000000):
+        """Create a mock PaperPosition."""
+        from fxsoqqabot.execution.paper import PaperPosition
+
+        return PaperPosition(
+            ticket=ticket,
+            symbol="XAUUSD",
+            action="buy",
+            volume=0.01,
+            open_price=2050.0,
+            sl=2048.0,
+            tp=2056.0,
+            magic=20260327,
+            open_time=datetime(2026, 3, 27, 10, 0, tzinfo=UTC),
+        )
+
+    def _make_close_fill(self, ticket: int = 1000000) -> FillEvent:
+        """Create a FillEvent for a close operation."""
+        return FillEvent(
+            ticket=ticket,
+            symbol="XAUUSD",
+            action="close",
+            volume=0.01,
+            fill_price=2053.0,
+            requested_price=2053.0,
+            slippage=0.0,
+            sl=2048.0,
+            tp=2056.0,
+            magic=20260327,
+            is_paper=True,
+        )
+
+    def _make_tick(self, bid: float = 2047.0, ask: float = 2047.5):
+        """Create a mock tick object."""
+        tick = MagicMock()
+        tick.bid = bid
+        tick.ask = ask
+        tick.spread = ask - bid
+        return tick
+
+    @pytest.mark.asyncio
+    async def test_simulate_close_called_on_trigger(self):
+        """Engine calls simulate_close for each triggered ticket."""
+        engine = _make_minimal_engine()
+        pos = self._make_paper_position(ticket=1000000)
+        close_fill = self._make_close_fill(ticket=1000000)
+
+        engine._paper_executor = MagicMock()
+        engine._paper_executor.check_sl_tp.return_value = [1000000]
+        engine._paper_executor._positions = {1000000: pos}
+        engine._paper_executor.simulate_close.return_value = close_fill
+        engine._paper_executor.balance = 20.0
+
+        engine._trade_logger = MagicMock()
+        engine._learning_loop = None
+        engine._learning_enabled = False
+        engine._trade_manager = MagicMock()
+        engine._last_signals = _make_signals()
+
+        latest_tick = self._make_tick()
+        await engine._handle_paper_close([1000000], latest_tick)
+
+        engine._paper_executor.simulate_close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_log_trade_close_called_on_successful_close(self):
+        """Engine calls log_trade_close with correct args after simulate_close."""
+        engine = _make_minimal_engine()
+        pos = self._make_paper_position(ticket=1000000)
+        close_fill = self._make_close_fill(ticket=1000000)
+
+        engine._paper_executor = MagicMock()
+        engine._paper_executor._positions = {1000000: pos}
+        engine._paper_executor.simulate_close.return_value = close_fill
+        engine._paper_executor.balance = 20.0
+
+        engine._trade_logger = MagicMock()
+        engine._learning_loop = None
+        engine._learning_enabled = False
+        engine._trade_manager = MagicMock()
+        engine._last_signals = _make_signals()
+
+        latest_tick = self._make_tick()
+        await engine._handle_paper_close([1000000], latest_tick)
+
+        engine._trade_logger.log_trade_close.assert_called_once()
+        call_kwargs = engine._trade_logger.log_trade_close.call_args[1]
+        assert call_kwargs["ticket"] == 1000000
+        assert "exit_price" in call_kwargs
+        assert "pnl" in call_kwargs
+        assert "hold_duration_seconds" in call_kwargs
+        assert "exit_regime" in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_on_trade_closed_called_with_pnl_and_equity(self):
+        """Engine calls learning_loop.on_trade_closed with pnl and equity."""
+        engine = _make_minimal_engine()
+        pos = self._make_paper_position(ticket=1000000)
+        close_fill = self._make_close_fill(ticket=1000000)
+
+        engine._paper_executor = MagicMock()
+        engine._paper_executor._positions = {1000000: pos}
+        engine._paper_executor.simulate_close.return_value = close_fill
+        engine._paper_executor.balance = 23.0
+
+        engine._trade_logger = MagicMock()
+        engine._learning_loop = AsyncMock()
+        engine._learning_loop.on_trade_closed = AsyncMock(return_value=[])
+        engine._learning_enabled = True
+        engine._trade_manager = MagicMock()
+        engine._last_signals = _make_signals()
+
+        latest_tick = self._make_tick()
+        await engine._handle_paper_close([1000000], latest_tick)
+
+        engine._learning_loop.on_trade_closed.assert_called_once()
+        call_args = engine._learning_loop.on_trade_closed.call_args[0][0]
+        assert "pnl" in call_args
+        assert "equity" in call_args
+        assert call_args["equity"] == 23.0
+
+    @pytest.mark.asyncio
+    async def test_record_position_closed_called(self):
+        """Engine calls trade_manager.record_position_closed with ticket."""
+        engine = _make_minimal_engine()
+        pos = self._make_paper_position(ticket=1000000)
+        close_fill = self._make_close_fill(ticket=1000000)
+
+        engine._paper_executor = MagicMock()
+        engine._paper_executor._positions = {1000000: pos}
+        engine._paper_executor.simulate_close.return_value = close_fill
+        engine._paper_executor.balance = 20.0
+
+        engine._trade_logger = MagicMock()
+        engine._learning_loop = None
+        engine._learning_enabled = False
+        engine._trade_manager = MagicMock()
+        engine._last_signals = _make_signals()
+
+        latest_tick = self._make_tick()
+        await engine._handle_paper_close([1000000], latest_tick)
+
+        engine._trade_manager.record_position_closed.assert_called_once_with(1000000)
+
+    @pytest.mark.asyncio
+    async def test_no_log_when_simulate_close_returns_none(self):
+        """When simulate_close returns None, no log/learn calls are made."""
+        engine = _make_minimal_engine()
+        pos = self._make_paper_position(ticket=1000000)
+
+        engine._paper_executor = MagicMock()
+        engine._paper_executor._positions = {1000000: pos}
+        engine._paper_executor.simulate_close.return_value = None
+        engine._paper_executor.balance = 20.0
+
+        engine._trade_logger = MagicMock()
+        engine._learning_loop = AsyncMock()
+        engine._learning_enabled = True
+        engine._trade_manager = MagicMock()
+        engine._last_signals = _make_signals()
+
+        latest_tick = self._make_tick()
+        await engine._handle_paper_close([1000000], latest_tick)
+
+        engine._trade_logger.log_trade_close.assert_not_called()
+        engine._learning_loop.on_trade_closed.assert_not_called()
+        engine._trade_manager.record_position_closed.assert_not_called()

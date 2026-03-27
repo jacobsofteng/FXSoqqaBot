@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -382,6 +383,7 @@ class TradingEngine:
                         self._logger.info(
                             "paper_sl_tp_triggered", tickets=triggered
                         )
+                        await self._handle_paper_close(triggered, latest)
 
                 # Periodic parquet flush (every 1000 polls)
                 if self._tick_poll_count % 1000 == 0 and self._tick_poll_count > 0:
@@ -599,6 +601,105 @@ class TradingEngine:
                 self._logger.error("signal_loop_error", exc_info=True)
 
             await asyncio_sleep(interval_s)
+
+    # -- Phase 4: Paper close pipeline ----------------------------------------
+
+    async def _handle_paper_close(self, triggered: list[int], latest_tick: Any) -> None:
+        """Close triggered paper positions and log/learn from them.
+
+        For each triggered ticket:
+        1. Capture position state before close (for hold duration)
+        2. Call simulate_close to close and compute PnL
+        3. Log the close to DuckDB via trade_logger
+        4. Notify the learning loop
+        5. Clear trade_manager position state
+
+        Args:
+            triggered: List of triggered ticket IDs from check_sl_tp.
+            latest_tick: Current tick with bid/ask attributes.
+        """
+        assert self._paper_executor is not None
+
+        # Capture positions before closing (simulate_close removes them)
+        positions_before = {
+            t: self._paper_executor._positions[t]
+            for t in triggered
+            if t in self._paper_executor._positions
+        }
+
+        for ticket in triggered:
+            pos = positions_before.get(ticket)
+            if pos is None:
+                continue
+
+            # Build close request matching simulate_close signature
+            close_request = {
+                "position": ticket,
+                "symbol": pos.symbol,
+                "price": latest_tick.bid if pos.action == "buy" else latest_tick.ask,
+                "volume": pos.volume,
+            }
+
+            close_fill = self._paper_executor.simulate_close(close_request, latest_tick)
+
+            if close_fill is not None:
+                # PnL from the paper executor's close
+                contract_size = 100.0
+                if pos.action == "buy":
+                    pnl = (close_fill.fill_price - pos.open_price) * pos.volume * contract_size
+                else:
+                    pnl = (pos.open_price - close_fill.fill_price) * pos.volume * contract_size
+
+                # Hold duration
+                hold_duration = (datetime.now(UTC) - pos.open_time).total_seconds()
+
+                # Current regime for exit_regime
+                exit_regime = "unknown"
+                if self._last_signals:
+                    chaos_sig = next(
+                        (s for s in self._last_signals if s.module_name == "chaos"),
+                        None,
+                    )
+                    if chaos_sig and chaos_sig.regime:
+                        exit_regime = chaos_sig.regime.value
+
+                # Log trade close
+                if self._trade_logger:
+                    try:
+                        self._trade_logger.log_trade_close(
+                            ticket=ticket,
+                            exit_price=close_fill.fill_price,
+                            pnl=pnl,
+                            hold_duration_seconds=hold_duration,
+                            exit_regime=exit_regime,
+                        )
+                    except Exception:
+                        self._logger.error("trade_log_close_error", exc_info=True)
+
+                # Notify learning loop
+                if self._learning_loop and self._learning_enabled:
+                    try:
+                        await self._learning_loop.on_trade_closed({
+                            "pnl": pnl,
+                            "equity": self._paper_executor.balance,
+                            "ticket": ticket,
+                            "exit_price": close_fill.fill_price,
+                            "exit_regime": exit_regime,
+                        })
+                    except Exception:
+                        self._logger.error("learning_loop_trade_closed_error", exc_info=True)
+
+                # Clear trade manager position state
+                if self._trade_manager:
+                    self._trade_manager.record_position_closed(ticket)
+
+                self._logger.info(
+                    "paper_trade_closed",
+                    ticket=ticket,
+                    pnl=pnl,
+                    exit_price=close_fill.fill_price,
+                    hold_duration=hold_duration,
+                )
 
     # -- Phase 4: State update and callbacks -----------------------------------
 

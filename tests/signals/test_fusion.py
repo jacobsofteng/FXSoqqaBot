@@ -427,7 +427,7 @@ class TestTradeManager:
         """No position + should_trade=True: returns buy decision."""
         result = self._make_fusion_result(direction=1.0, should_trade=True)
         # Use equity=200 and atr=1.0 so position sizing works within risk budget
-        decision = await trade_manager.evaluate_and_execute(
+        decision, _fill = await trade_manager.evaluate_and_execute(
             result, equity=200.0, current_price=2000.0, atr=1.0
         )
         assert decision.action == "buy"
@@ -439,7 +439,7 @@ class TestTradeManager:
     async def test_no_position_should_trade_sell(self, trade_manager) -> None:
         """No position + should_trade=True + sell: returns sell decision."""
         result = self._make_fusion_result(direction=-1.0, should_trade=True)
-        decision = await trade_manager.evaluate_and_execute(
+        decision, _fill = await trade_manager.evaluate_and_execute(
             result, equity=200.0, current_price=2000.0, atr=1.0
         )
         assert decision.action == "sell"
@@ -448,7 +448,7 @@ class TestTradeManager:
     async def test_should_trade_false_returns_hold(self, trade_manager) -> None:
         """should_trade=False: returns hold."""
         result = self._make_fusion_result(should_trade=False)
-        decision = await trade_manager.evaluate_and_execute(
+        decision, _fill = await trade_manager.evaluate_and_execute(
             result, equity=200.0, current_price=2000.0, atr=1.0
         )
         assert decision.action == "hold"
@@ -463,7 +463,7 @@ class TestTradeManager:
         trade_manager._open_position_regime = RegimeState.TRENDING_UP
 
         result = self._make_fusion_result(should_trade=True)
-        decision = await trade_manager.evaluate_and_execute(
+        decision, _fill = await trade_manager.evaluate_and_execute(
             result, equity=50.0, current_price=2005.0, atr=5.0
         )
         assert decision.action == "hold"
@@ -500,12 +500,12 @@ class TestTradeManager:
             direction=1.0, regime=RegimeState.HIGH_CHAOS
         )
         # Use generous equity so sizing doesn't skip
-        decision_trending = await trade_manager.evaluate_and_execute(
+        decision_trending, _fill_t = await trade_manager.evaluate_and_execute(
             result_trending, equity=500.0, current_price=2000.0, atr=5.0
         )
         # Reset position state for second trade
         trade_manager._open_position_ticket = None
-        decision_chaos = await trade_manager.evaluate_and_execute(
+        decision_chaos, _fill_c = await trade_manager.evaluate_and_execute(
             result_chaos, equity=500.0, current_price=2000.0, atr=5.0
         )
         # High-chaos lot should be less than or equal to trending lot
@@ -521,7 +521,7 @@ class TestTradeManager:
 
         # Regime transitions to HIGH_CHAOS
         result = self._make_fusion_result(regime=RegimeState.HIGH_CHAOS)
-        decision = await trade_manager.evaluate_and_execute(
+        decision, _fill = await trade_manager.evaluate_and_execute(
             result, equity=50.0, current_price=2005.0, atr=5.0
         )
         assert decision.action == "tighten_sl"
