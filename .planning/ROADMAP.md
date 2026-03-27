@@ -77,7 +77,7 @@ Plans:
 - [x] 03-02-PLAN.md -- Historical data pipeline: histdata.com CSV parsing, validation, Parquet conversion
 - [x] 03-03-PLAN.md -- Backtest engine: BacktestDataFeed, BacktestExecutor (spread/slippage/commission), BacktestEngine replay loop
 - [x] 03-04-PLAN.md -- Walk-forward validation and out-of-sample holdout evaluation
-- [ ] 03-05-PLAN.md -- Monte Carlo simulation, regime-aware evaluation, and Feigenbaum stress testing
+- [x] 03-05-PLAN.md -- Monte Carlo simulation, regime-aware evaluation, and Feigenbaum stress testing
 
 ### Phase 4: Observability and Self-Learning
 **Goal**: The operator can monitor every aspect of the bot's behavior in real time through dashboards, and the bot evolves its own strategy through a hybrid genetic + ML learning loop that promotes improvements only after scientific validation
