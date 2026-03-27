@@ -172,9 +172,10 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260328-1jh | Wire set_walk_forward_validator in engine.py | 2026-03-27 | abdcd4c | [260328-1jh-wire-set-walk-forward-validator-in-engin](./quick/260328-1jh-wire-set-walk-forward-validator-in-engin/) |
+| 260328-27e | Run backtesting end-to-end with histdata | 2026-03-28 | 033a8b0 | [260328-27e-run-backtesting-end-to-end-with-histdata](./quick/260328-27e-run-backtesting-end-to-end-with-histdata/) |
 
 ## Session Continuity
 
-Last session: 2026-03-28T00:15:00.000Z
-Stopped at: Completed quick task 260328-1jh: Wire set_walk_forward_validator in engine.py
+Last session: 2026-03-27T20:43:53Z
+Stopped at: Completed quick task 260328-27e: Run backtesting end-to-end with histdata
 Resume file: None
