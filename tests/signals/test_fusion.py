@@ -426,8 +426,9 @@ class TestTradeManager:
     async def test_no_position_should_trade_buy(self, trade_manager) -> None:
         """No position + should_trade=True: returns buy decision."""
         result = self._make_fusion_result(direction=1.0, should_trade=True)
+        # Use equity=200 and atr=1.0 so position sizing works within risk budget
         decision = await trade_manager.evaluate_and_execute(
-            result, equity=50.0, current_price=2000.0, atr=5.0
+            result, equity=200.0, current_price=2000.0, atr=1.0
         )
         assert decision.action == "buy"
         assert decision.sl_distance > 0
@@ -439,7 +440,7 @@ class TestTradeManager:
         """No position + should_trade=True + sell: returns sell decision."""
         result = self._make_fusion_result(direction=-1.0, should_trade=True)
         decision = await trade_manager.evaluate_and_execute(
-            result, equity=50.0, current_price=2000.0, atr=5.0
+            result, equity=200.0, current_price=2000.0, atr=1.0
         )
         assert decision.action == "sell"
 
@@ -448,7 +449,7 @@ class TestTradeManager:
         """should_trade=False: returns hold."""
         result = self._make_fusion_result(should_trade=False)
         decision = await trade_manager.evaluate_and_execute(
-            result, equity=50.0, current_price=2000.0, atr=5.0
+            result, equity=200.0, current_price=2000.0, atr=1.0
         )
         assert decision.action == "hold"
         assert "confidence threshold" in decision.reason.lower() or "threshold" in decision.reason.lower()
