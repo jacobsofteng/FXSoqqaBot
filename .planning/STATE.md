@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-06-PLAN.md
-last_updated: "2026-03-27T18:57:46.927Z"
+stopped_at: Completed 04-07-PLAN.md
+last_updated: "2026-03-27T19:50:04.017Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 4
-  completed_phases: 4
-  total_plans: 24
-  completed_plans: 24
+  completed_phases: 3
+  total_plans: 26
+  completed_plans: 25
   percent: 77
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 04 (observability-and-self-learning) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-03-27
 
@@ -75,6 +75,7 @@ Progress: [████████░░] 77%
 | Phase 04 P04 | 7min | 2 tasks | 6 files |
 | Phase 04 P05 | 5min | 2 tasks | 4 files |
 | Phase 04 P06 | 5min | 2 tasks | 5 files |
+| Phase 04 P07 | 9min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -149,6 +150,8 @@ Recent decisions affecting current work:
 - [Phase 04]: RandomForest with n_jobs=-1 for parallel regime prediction -- acceptable for single-machine deployment
 - [Phase 04]: LearningLoopManager as facade orchestrating all 5 learning sub-components with asyncio.to_thread for blocking GA/ML work
 - [Phase 04]: Learning disabled by default (enabled=false) until explicitly enabled -- prevents accidental evolution before sufficient trade history
+- [Phase 04]: Tuple return (TradeDecision, FillEvent | None) over adding fill field to frozen TradeDecision -- preserves immutability
+- [Phase 04]: Extracted _handle_paper_close as separate async method for testability vs inlining in _tick_loop
 
 ### Pending Todos
 
@@ -162,6 +165,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T18:57:46.925Z
-Stopped at: Completed 04-06-PLAN.md
+Last session: 2026-03-27T19:50:04.015Z
+Stopped at: Completed 04-07-PLAN.md
 Resume file: None
