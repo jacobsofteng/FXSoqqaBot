@@ -16,6 +16,14 @@ from nolds.measures import poly_fit as _nolds_poly_fit
 from fxsoqqabot.signals.chaos._numba_core import _delay_embedding, _lyap_r_core
 
 
+def _lyap_r_min_len(emb_dim: int, lag: int, trajectory_len: int, min_tsep: int) -> int:
+    """Minimum data length for lyap_r. Mirrors nolds.lyap_r_len."""
+    min_len = (emb_dim - 1) * lag + 1
+    min_len += trajectory_len - 1
+    min_len += min_tsep * 2 + 1
+    return min_len
+
+
 def compute_lyapunov(
     close_prices: np.ndarray,
     emb_dim: int = 10,
@@ -40,6 +48,7 @@ def compute_lyapunov(
         data = np.ascontiguousarray(close_prices, dtype=np.float64)
         n = len(data)
         trajectory_len = 20
+        min_neighbors = 20
         tau = 1
 
         # FFT for auto-lag and min_tsep (not jittable, stays in Python)
@@ -57,14 +66,19 @@ def compute_lyapunov(
             min_tsep = 1
         min_tsep = min(min_tsep, int(0.25 * n))
 
-        # Autocorrelation for lag
+        # Autocorrelation for lag (mirrors nolds exactly)
         acorr = np.fft.irfft(f * np.conj(f))
         acorr = np.roll(acorr, n - 1)
         eps = acorr[n - 1] * (1 - 1.0 / np.e)
         lag = 1
         for k in range(1, n):
-            if acorr[n - 1 + k] < eps:
-                lag = k
+            lag = k
+            # Check autocorrelation threshold (both directions)
+            if acorr[n - 1 + k] < eps or acorr[n - 1 - k] < eps:
+                break
+            # Check if we still have enough neighbors
+            req_len = _lyap_r_min_len(emb_dim, k, trajectory_len, min_tsep)
+            if max(0, n - req_len) < min_neighbors:
                 break
 
         # JIT-compiled delay embedding

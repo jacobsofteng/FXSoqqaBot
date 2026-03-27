@@ -288,12 +288,14 @@ def _corr_dim_core(orbit: np.ndarray, rvals: np.ndarray) -> np.ndarray:
                 if dist <= rvals[ri]:
                     counts[ri] += 1.0
 
-    # Total pairs = n * (n - 1) / 2, doubled for symmetry = n * (n - 1)
+    # Match nolds: np.sum(dists <= r) / (n * (n-1)) counts all matrix
+    # elements including diagonal zeros (which are always <= r for r > 0).
+    # So total = n (diagonal) + 2 * upper_count.
     total_pairs = n * (n - 1)
     csums = np.empty(n_r)
     for ri in range(n_r):
-        # 2 * count_upper / (n * (n - 1)) = count_upper * 2 / total_pairs
-        csums[ri] = (2.0 * counts[ri]) / total_pairs if total_pairs > 0 else 0.0
+        # nolds formula: (n + 2 * count_upper) / (n * (n - 1))
+        csums[ri] = (n + 2.0 * counts[ri]) / total_pairs if total_pairs > 0 else 0.0
 
     return csums
 
