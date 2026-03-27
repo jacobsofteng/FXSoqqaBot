@@ -89,8 +89,16 @@ Plans:
   3. Bot logs every trade with full context (regime state, all signal confidences, position size, timing, outcome) and the genetic algorithm evolves rule parameters using trade outcomes as fitness
   4. Shadow mode tests mutated strategy variants alongside the live strategy without risking capital, and variants are promoted to live only after walk-forward validation confirms they outperform
   5. Learning loop identifies which signal combinations, regimes, and rules are performing or degrading -- and automatically retires underperforming rules
-**Plans**: TBD
+**Plans**: 6 plans
 **UI hint**: yes
+
+Plans:
+- [ ] 04-01-PLAN.md -- Foundation: dependencies, config models, event types, shared state, trade context logger
+- [ ] 04-02-PLAN.md -- TUI dashboard: Textual app with regime, signals, position, risk, trades, order flow panels
+- [ ] 04-03-PLAN.md -- Web dashboard: FastAPI server, WebSocket/REST API, static HTML/JS/CSS frontend
+- [ ] 04-04-PLAN.md -- GA evolution engine, signal combination analyzer, EMA rule retirement tracker
+- [ ] 04-05-PLAN.md -- Shadow mode variant management, ML regime classifier, statistical promotion
+- [ ] 04-06-PLAN.md -- Engine integration: wire TUI, web, trade logger, and learning loop into TradingEngine
 
 ## Progress
 
@@ -102,4 +110,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Trading Infrastructure | 7/7 | Complete | 2026-03-27 |
 | 2. Signal Pipeline and Decision Fusion | 6/6 | Complete | 2026-03-27 |
 | 3. Backtesting and Validation | 0/5 | Not started | - |
-| 4. Observability and Self-Learning | 0/TBD | Not started | - |
+| 4. Observability and Self-Learning | 0/6 | Not started | - |
