@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Trading Infrastructure** - Data pipeline, MT5 bridge, risk management, and configuration that keep a $20 account alive
 - [ ] **Phase 2: Signal Pipeline and Decision Fusion** - All analysis modules (chaos, order flow, quantum timing) simplified and fused into trade decisions
 - [ ] **Phase 3: Backtesting and Validation** - Scientific validation with walk-forward, Monte Carlo, and regime-aware evaluation on 2015-present XAUUSD data
-- [ ] **Phase 4: Observability and Self-Learning** - Real-time dashboards (TUI + web) and self-learning mutation loop for continuous strategy evolution
+- [x] **Phase 4: Observability and Self-Learning** - Real-time dashboards (TUI + web) and self-learning mutation loop for continuous strategy evolution (completed 2026-03-27)
 
 ## Phase Details
 
@@ -98,7 +98,7 @@ Plans:
 - [x] 04-03-PLAN.md -- Web dashboard: FastAPI server, WebSocket/REST API, static HTML/JS/CSS frontend
 - [x] 04-04-PLAN.md -- GA evolution engine, signal combination analyzer, EMA rule retirement tracker
 - [x] 04-05-PLAN.md -- Shadow mode variant management, ML regime classifier, statistical promotion
-- [ ] 04-06-PLAN.md -- Engine integration: wire TUI, web, trade logger, and learning loop into TradingEngine
+- [x] 04-06-PLAN.md -- Engine integration: wire TUI, web, trade logger, and learning loop into TradingEngine
 
 ## Progress
 
@@ -110,4 +110,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Trading Infrastructure | 7/7 | Complete | 2026-03-27 |
 | 2. Signal Pipeline and Decision Fusion | 6/6 | Complete | 2026-03-27 |
 | 3. Backtesting and Validation | 0/5 | Not started | - |
-| 4. Observability and Self-Learning | 0/6 | Not started | - |
+| 4. Observability and Self-Learning | 6/6 | Complete   | 2026-03-27 |
