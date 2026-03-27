@@ -76,7 +76,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Backtesting & Validation
 
-- [ ] **TEST-01**: Backtesting engine replays historical data (histdata.com M1 bars 2015-present + MT5 tick data for recent periods) with realistic spread simulation, slippage modeling, and commission costs
+- [x] **TEST-01**: Backtesting engine replays historical data (histdata.com M1 bars 2015-present + MT5 tick data for recent periods) with realistic spread simulation, slippage modeling, and commission costs
 - [ ] **TEST-02**: Walk-forward validation trains on one period and validates on the next unseen period, rolling forward continuously — strategy must generalize, not memorize
 - [ ] **TEST-03**: Monte Carlo simulation randomizes trade order sequences and entry timing 10,000+ times to verify robustness — results must be statistically significant (p < 0.05)
 - [ ] **TEST-04**: Out-of-sample testing reserves a portion of recent history (never touched during development) for final validation only
@@ -174,7 +174,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FUSE-03 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-04 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-05 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
-| TEST-01 | Phase 3: Backtesting and Validation | Pending |
+| TEST-01 | Phase 3: Backtesting and Validation | Complete |
 | TEST-02 | Phase 3: Backtesting and Validation | Pending |
 | TEST-03 | Phase 3: Backtesting and Validation | Pending |
 | TEST-04 | Phase 3: Backtesting and Validation | Pending |
