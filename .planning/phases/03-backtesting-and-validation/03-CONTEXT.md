@@ -20,6 +20,7 @@ Requirements covered: DATA-04, TEST-01, TEST-02, TEST-03, TEST-04, TEST-05, TEST
 - **D-02:** Graceful module degradation when only M1 bars are available. Chaos and order flow modules run in "bar-only" mode with reduced confidence — similar to how order flow already degrades without DOM data (Phase 2 D-13). Modules adapt computations to bar OHLCV.
 - **D-03:** Strict data validation with auto-repair. Validate timestamps are monotonic, detect/fill gaps (weekends, holidays, outages), flag suspicious bars (extreme range, zero volume), log quality report. Automatically interpolate small gaps (<5 bars) and filter extreme outliers.
 - **D-04:** Convert CSVs to Parquet once, partitioned by year/month. DuckDB queries Parquet directly. Consistent with Phase 1's tick storage pattern. One-time conversion cost, fast repeated backtests.
+- **D-04a:** Raw histdata.com CSV files are stored in `data/histdata/` relative to the project root. The historical data loader reads from this directory.
 
 ### Validation Pass/Fail Criteria
 - **D-05:** Walk-forward windows: 6 months training, 2 months validation, rolling forward by 2 months. ~50 windows from 2015-present.
