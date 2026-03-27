@@ -30,10 +30,14 @@ from fxsoqqabot.config.models import BotSettings
 # -- Fixtures -----------------------------------------------------------------
 
 
-def _make_m1_bars(n: int = 200, base_price: float = 2000.0) -> pd.DataFrame:
+def _make_m1_bars(
+    n: int = 200,
+    base_price: float = 2000.0,
+    start_time: int = 1700000000,
+) -> pd.DataFrame:
     """Generate synthetic M1 bar data with realistic XAUUSD prices."""
     rng = np.random.default_rng(42)
-    times = np.arange(n, dtype=np.int64) * 60 + 1700000000  # 60s apart
+    times = np.arange(n, dtype=np.int64) * 60 + start_time  # 60s apart
     closes = base_price + rng.standard_normal(n).cumsum() * 0.5
     opens = closes - rng.uniform(-0.3, 0.3, n)
     highs = np.maximum(opens, closes) + rng.uniform(0.1, 0.5, n)
@@ -59,7 +63,7 @@ def bars_df() -> pd.DataFrame:
 @pytest.fixture
 def bars_df_small() -> pd.DataFrame:
     """A smaller distinct bar set for reset testing."""
-    return _make_m1_bars(100, base_price=1950.0)
+    return _make_m1_bars(100, base_price=1950.0, start_time=1710000000)
 
 
 @pytest.fixture
