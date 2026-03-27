@@ -100,7 +100,7 @@ Plans:
 - [x] 04-05-PLAN.md -- Shadow mode variant management, ML regime classifier, statistical promotion
 - [x] 04-06-PLAN.md -- Engine integration: wire TUI, web, trade logger, and learning loop into TradingEngine
 - [ ] 04-07-PLAN.md -- Gap closure: fix trade logging pipeline (FillEvent return, close logging, learning loop wiring)
-- [ ] 04-08-PLAN.md -- Gap closure: add walk-forward validation gate to shadow variant promotion
+- [x] 04-08-PLAN.md -- Gap closure: add walk-forward validation gate to shadow variant promotion
 
 ## Progress
 
