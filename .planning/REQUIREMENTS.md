@@ -60,10 +60,10 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Signal Fusion & Decision
 
 - [x] **FUSE-01**: Decision core fuses signals from all upstream modules (chaos regime, order flow, institutional, quantum timing) into a single trade decision using confidence-weighted combination
-- [ ] **FUSE-02**: Each module produces a signal with a confidence score; fusion weights adapt based on which modules have been accurate in the recent rolling window
-- [ ] **FUSE-03**: Bot applies phase-aware position sizing: aggressive leverage utilization ($20-$100), selective with tighter risk ($100-$300), conservative capital preservation ($300+)
-- [ ] **FUSE-04**: Bot auto-transitions between capital phases based on equity, with smooth behavioral transitions (no sudden strategy flip at exact threshold)
-- [ ] **FUSE-05**: Decision core fires trades into MT5 with precise entry, SL, and TP parameters and manages open positions in real time, exiting when conditions reverse
+- [x] **FUSE-02**: Each module produces a signal with a confidence score; fusion weights adapt based on which modules have been accurate in the recent rolling window
+- [x] **FUSE-03**: Bot applies phase-aware position sizing: aggressive leverage utilization ($20-$100), selective with tighter risk ($100-$300), conservative capital preservation ($300+)
+- [x] **FUSE-04**: Bot auto-transitions between capital phases based on equity, with smooth behavioral transitions (no sudden strategy flip at exact threshold)
+- [x] **FUSE-05**: Decision core fires trades into MT5 with precise entry, SL, and TP parameters and manages open positions in real time, exiting when conditions reverse
 
 ### Self-Learning & Evolution
 
@@ -170,10 +170,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | QTIM-02 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | QTIM-03 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-01 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
-| FUSE-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| FUSE-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| FUSE-04 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| FUSE-05 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FUSE-02 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| FUSE-03 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| FUSE-04 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| FUSE-05 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | TEST-01 | Phase 3: Backtesting and Validation | Pending |
 | TEST-02 | Phase 3: Backtesting and Validation | Pending |
 | TEST-03 | Phase 3: Backtesting and Validation | Pending |

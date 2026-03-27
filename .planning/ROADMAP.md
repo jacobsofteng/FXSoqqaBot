@@ -57,7 +57,7 @@ Plans:
 - [x] 02-02-PLAN.md -- Chaos/regime module: Hurst, Lyapunov, fractal, Feigenbaum, entropy, regime classifier
 - [x] 02-03-PLAN.md -- Order flow module: volume delta, aggression, DOM analysis, institutional footprints, HFT detection
 - [x] 02-04-PLAN.md -- Quantum timing module: OU mean-reversion timing, phase transition detection
-- [ ] 02-05-PLAN.md -- Fusion core: confidence-weighted blend, adaptive weights, phase behavior, trade manager
+- [x] 02-05-PLAN.md -- Fusion core: confidence-weighted blend, adaptive weights, phase behavior, trade manager
 - [ ] 02-06-PLAN.md -- Engine integration: signal loop wiring, weight persistence, end-to-end pipeline
 
 ### Phase 3: Backtesting and Validation
@@ -93,6 +93,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Trading Infrastructure | 7/7 | Complete | 2026-03-27 |
-| 2. Signal Pipeline and Decision Fusion | 0/6 | Planned | - |
+| 2. Signal Pipeline and Decision Fusion | 5/6 | In Progress|  |
 | 3. Backtesting and Validation | 0/TBD | Not started | - |
 | 4. Observability and Self-Learning | 0/TBD | Not started | - |

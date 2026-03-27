@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-03-27T12:25:12.255Z"
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-03-27T12:37:45.177Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 13
-  completed_plans: 9
+  completed_plans: 12
   percent: 71
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 02 (signal-pipeline-and-decision-fusion) — EXECUTING
-Plan: 2 of 6 (COMPLETE)
+Plan: 3 of 6 (COMPLETE)
 Status: Ready to execute
 Last activity: 2026-03-27
 
@@ -62,6 +62,7 @@ Progress: [███████░░░] 71%
 | Phase 02 P02 | 6min | 2 tasks | 9 files |
 | Phase 02 P03 | 7min | 2 tasks | 8 files |
 | Phase 02 P04 | 5min | 2 tasks | 5 files |
+| Phase 02 P05 | 7min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,9 @@ Recent decisions affecting current work:
 - [Phase 02]: OLS regression for OU estimation rather than MLE -- simpler, robust, R-squared confidence directly
 - [Phase 02]: asyncio.to_thread wraps OU estimation to avoid blocking async event loop during numerical computation
 - [Phase 02]: 60/40 weighted confidence blend (OU 60% + phase transition 40%) scaled by urgency for timing signal
+- [Phase 02]: Fused confidence = sum(confidence * weight) not mean -- weighted average confidence when weights normalized
+- [Phase 02]: Additive sigmoid staircase (base + step1 + step2) for monotonic smooth threshold transitions
+- [Phase 02]: TYPE_CHECKING import for OrderManager/CircuitBreakerManager in TradeManager to avoid circular deps
 
 ### Pending Todos
 
@@ -116,6 +120,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T12:25:12.253Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-03-27T12:37:45.175Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
