@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Completed quick task 260328-31c: Numba JIT chaos signal module"
-last_updated: "2026-03-27T21:45:25.427Z"
+stopped_at: "Completed quick task 260328-3ve: Optuna parameter optimizer with DEAP rule evolution"
+last_updated: "2026-03-27T22:04:30.524Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 4
@@ -159,6 +159,8 @@ Recent decisions affecting current work:
 - [Phase quick-260328-31c]: Keep nolds.measures.poly_fit for RANSAC final fits outside JIT boundary
 - [Phase quick-260328-31c]: Match nolds correlation sum counting with diagonal self-matches for numerical equivalence
 - [Phase quick-260328-31c]: Replicate nolds nb_neighbors lag check in lyapunov to prevent orbit-too-small on short data
+- [Phase quick-260328-3ve]: Synchronous run_optimization with per-trial asyncio.run() to avoid nested event loop (Optuna Pitfall 2)
+- [Phase quick-260328-3ve]: FusionConfig.model_fields over hasattr for Pydantic v2 field detection in apply_params_to_settings
 
 ### Pending Todos
 
@@ -177,9 +179,10 @@ None yet.
 | 260328-1jh | Wire set_walk_forward_validator in engine.py | 2026-03-27 | abdcd4c | [260328-1jh-wire-set-walk-forward-validator-in-engin](./quick/260328-1jh-wire-set-walk-forward-validator-in-engin/) |
 | 260328-27e | Run backtesting end-to-end with histdata | 2026-03-28 | 033a8b0 | [260328-27e-run-backtesting-end-to-end-with-histdata](./quick/260328-27e-run-backtesting-end-to-end-with-histdata/) |
 | 260328-31c | Numba JIT compile chaos signal module hot loops | 2026-03-28 | 23ddfcb | [260328-31c-numba-jit-compile-chaos-signal-module-ho](./quick/260328-31c-numba-jit-compile-chaos-signal-module-ho/) |
+| 260328-3ve | Optuna parameter optimizer with DEAP rule evolution | 2026-03-28 | ee18a25 | [260328-3ve-optuna-parameter-optimizer-with-deap-rul](./quick/260328-3ve-optuna-parameter-optimizer-with-deap-rul/) |
 
 ## Session Continuity
 
-Last session: 2026-03-27T21:45:17.394Z
-Stopped at: Completed quick task 260328-31c: Numba JIT chaos signal module
+Last session: 2026-03-27T22:04:07.447Z
+Stopped at: Completed quick task 260328-3ve: Optuna parameter optimizer with DEAP rule evolution
 Resume file: None
