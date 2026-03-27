@@ -67,7 +67,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Self-Learning & Evolution
 
-- [ ] **LEARN-01**: Bot logs every trade with full context: regime state, order flow conditions, signal combination and individual confidences, position size, entry/exit timing, win/loss, hold duration, spread at entry, slippage
+- [x] **LEARN-01**: Bot logs every trade with full context: regime state, order flow conditions, signal combination and individual confidences, position size, entry/exit timing, win/loss, hold duration, spread at entry, slippage
 - [ ] **LEARN-02**: Genetic algorithm evolves rule parameters (SL distance, entry thresholds, timeframe weights, signal fusion weights) using trade outcomes as fitness function
 - [ ] **LEARN-03**: ML classifiers (RandomForest/XGBoost) trained on trade context data to improve regime detection and win probability prediction over time
 - [ ] **LEARN-04**: Shadow mode tests strategy variants in parallel — mutated parameter sets run alongside live strategy without risking capital, promoted to live when they outperform
@@ -186,7 +186,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OBS-03 | Phase 4: Observability and Self-Learning | Pending |
 | OBS-04 | Phase 4: Observability and Self-Learning | Pending |
 | OBS-05 | Phase 4: Observability and Self-Learning | Pending |
-| LEARN-01 | Phase 4: Observability and Self-Learning | Pending |
+| LEARN-01 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-02 | Phase 4: Observability and Self-Learning | Pending |
 | LEARN-03 | Phase 4: Observability and Self-Learning | Pending |
 | LEARN-04 | Phase 4: Observability and Self-Learning | Pending |

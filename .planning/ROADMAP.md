@@ -93,7 +93,7 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] 04-01-PLAN.md -- Foundation: dependencies, config models, event types, shared state, trade context logger
+- [x] 04-01-PLAN.md -- Foundation: dependencies, config models, event types, shared state, trade context logger
 - [ ] 04-02-PLAN.md -- TUI dashboard: Textual app with regime, signals, position, risk, trades, order flow panels
 - [ ] 04-03-PLAN.md -- Web dashboard: FastAPI server, WebSocket/REST API, static HTML/JS/CSS frontend
 - [ ] 04-04-PLAN.md -- GA evolution engine, signal combination analyzer, EMA rule retirement tracker
