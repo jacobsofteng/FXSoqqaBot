@@ -12,11 +12,12 @@ The bot reads the market's true state through the fusion of all eight modules �
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Three-phase growth model: aggressive ($20-$100), selective ($100-$300), conservative ($300+) with adaptive behavior per capital phase — Validated in Phase 1: Trading Infrastructure
+- [x] Graceful degradation when DOM depth data is limited or unavailable from broker feed — Validated in Phase 1: Trading Infrastructure (MarketDataFeed degrades to tick-only)
+- [x] Market microstructure sensor ingesting tick-level data, DOM depth, volume delta, and bid-ask flow in real time from MT5/RoboForex ECN — Validated in Phase 1: Trading Infrastructure (data pipeline complete)
 
 ### Active
 
-- [ ] Market microstructure sensor ingesting tick-level data, DOM depth, volume delta, and bid-ask flow in real time from MT5/RoboForex ECN
 - [ ] Institutional footprint detector classifying activity as retail noise vs. institutional flow (absorptions, iceberg patterns, DOM shifts, HFT signatures)
 - [ ] Quantum timing engine treating price-time as coupled state variables with probability-weighted entry/exit windows
 - [ ] Chaos/fractal/Feigenbaum regime classifier detecting market dynamical state (fractal dimension, strange attractors, bifurcation proximity, crowd entropy)
@@ -24,8 +25,6 @@ The bot reads the market's true state through the fusion of all eight modules �
 - [ ] Self-learning mutation loop logging full trade context and evolving rules via hybrid genetic + ML optimization
 - [ ] Dual dashboard: rich terminal TUI for real-time monitoring + lightweight web dashboard for charts, stats, regime visualization
 - [ ] Backtesting framework with walk-forward validation, Monte Carlo simulation, out-of-sample testing, regime-aware evaluation, and Feigenbaum stress testing across XAUUSD 2015-present
-- [ ] Three-phase growth model: aggressive ($20-$100), selective ($100-$300), conservative ($300+) with adaptive behavior per capital phase
-- [ ] Graceful degradation when DOM depth data is limited or unavailable from broker feed
 
 ### Out of Scope
 
@@ -114,4 +113,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-27 after initialization*
+*Last updated: 2026-03-27 after Phase 1 completion*
