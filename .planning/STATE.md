@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-03-27T18:36:44.116Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-03-27T18:38:35.215Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 4
@@ -71,6 +71,7 @@ Progress: [████████░░] 77%
 | Phase 03 P05 | 6min | 2 tasks | 5 files |
 | Phase 04 P01 | 5min | 2 tasks | 9 files |
 | Phase 04 P02 | 5min | 2 tasks | 5 files |
+| Phase 04 P03 | 7min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -134,6 +135,9 @@ Recent decisions affecting current work:
 - [Phase 04]: Auto-incrementing trade_id via SELECT MAX + 1 for embedded DuckDB trade_log
 - [Phase 04]: Pure-function formatters separated from Textual widgets for testability without App instantiation
 - [Phase 04]: daily_drawdown excluded from breaker status OK/TRIPPED check since it is a value not a status flag
+- [Phase 04]: httpx ASGITransport for FastAPI endpoint testing without running a server
+- [Phase 04]: _sanitize_trades helper converts DuckDB timestamps and numpy scalars to JSON-safe types
+- [Phase 04]: Vendor JS libraries served locally from static/vendor/ -- no CDN dependency at runtime
 
 ### Pending Todos
 
@@ -147,17 +151,6 @@ None yet.
 
 ## Session Continuity
 
-<<<<<<< Updated upstream
-<<<<<<< HEAD
-Last session: 2026-03-27T18:36:44.114Z
-Stopped at: Completed 04-02-PLAN.md
-=======
-Last session: 2026-03-27T14:40:15.787Z
-Stopped at: Completed 03-05-PLAN.md
->>>>>>> worktree-agent-aab170ee
+Last session: 2026-03-27T18:38:35.213Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None
-=======
-Last session: 2026-03-27T17:59:04.851Z
-Stopped at: Phase 4 UI-SPEC approved
-Resume file: .planning/phases/04-observability-and-self-learning/04-UI-SPEC.md
->>>>>>> Stashed changes
