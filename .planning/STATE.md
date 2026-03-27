@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-03-PLAN.md
+stopped_at: Completed 02-04-PLAN.md
 last_updated: "2026-03-27T12:25:12.255Z"
 last_activity: 2026-03-27
 progress:
@@ -61,6 +61,7 @@ Progress: [███████░░░] 71%
 | Phase 02 P01 | 4min | 2 tasks | 12 files |
 | Phase 02 P02 | 6min | 2 tasks | 9 files |
 | Phase 02 P03 | 7min | 2 tasks | 8 files |
+| Phase 02 P04 | 5min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,9 @@ Recent decisions affecting current work:
 - [Phase 02]: Perfect unanimity z-score saturation: std=0 with nonzero mean gets z-score=10 (strongest signal)
 - [Phase 02]: 80/20 tick/DOM weighting per D-13: tick_direction = 0.6*delta + 0.2*aggression + 0.2*institutional
 - [Phase 02]: Ambiguous tick penalty: confidence reduced proportionally when ambiguous_pct > 30% per Research Pitfall 3
+- [Phase 02]: OLS regression for OU estimation rather than MLE -- simpler, robust, R-squared confidence directly
+- [Phase 02]: asyncio.to_thread wraps OU estimation to avoid blocking async event loop during numerical computation
+- [Phase 02]: 60/40 weighted confidence blend (OU 60% + phase transition 40%) scaled by urgency for timing signal
 
 ### Pending Todos
 
@@ -113,5 +117,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-27T12:25:12.253Z
-Stopped at: Completed 02-03-PLAN.md
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None

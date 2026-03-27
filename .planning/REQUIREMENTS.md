@@ -53,9 +53,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Quantum Timing
 
-- [ ] **QTIM-01**: Bot models price-time as coupled state variables and outputs probability-weighted entry windows (when to enter) and exit windows (when to exit)
-- [ ] **QTIM-02**: Bot estimates not just where price will move but when the move will begin and end, using phase transition modeling and energy representations of volatility
-- [ ] **QTIM-03**: Entry and exit windows include associated probability weights and confidence intervals — the bot acts on high-probability timing zones, not point predictions
+- [x] **QTIM-01**: Bot models price-time as coupled state variables and outputs probability-weighted entry windows (when to enter) and exit windows (when to exit)
+- [x] **QTIM-02**: Bot estimates not just where price will move but when the move will begin and end, using phase transition modeling and energy representations of volatility
+- [x] **QTIM-03**: Entry and exit windows include associated probability weights and confidence intervals — the bot acts on high-probability timing zones, not point predictions
 
 ### Signal Fusion & Decision
 
@@ -166,9 +166,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FLOW-04 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FLOW-05 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FLOW-06 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
-| QTIM-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| QTIM-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| QTIM-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| QTIM-01 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| QTIM-02 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| QTIM-03 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-01 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | FUSE-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
