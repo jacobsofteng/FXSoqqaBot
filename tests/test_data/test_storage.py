@@ -205,7 +205,7 @@ class TestStoreTradeEvent:
         assert row["ticket"] == 99999
         assert row["action"] == "sell"
         assert row["volume"] == 0.05
-        assert row["is_paper"] is False
+        assert row["is_paper"] == False  # noqa: E712 - numpy bool vs identity
 
 
 # ── query_ticks Tests ────────────────────────────────────────────────────
