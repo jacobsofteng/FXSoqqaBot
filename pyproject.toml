@@ -21,6 +21,14 @@ dependencies = [
     "scipy>=1.17",
     "numba>=0.64",
     "nolds>=0.6.3",
+    "textual>=8.1",
+    "fastapi[standard]>=0.115",
+    "uvicorn[standard]>=0.41",
+    "lightweight-charts>=2.1",
+    "plotly>=5.0",
+    "deap>=1.4",
+    "scikit-learn>=1.8",
+    "optuna>=4.8",
 ]
 
 [dependency-groups]

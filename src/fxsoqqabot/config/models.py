@@ -251,6 +251,38 @@ class SignalsConfig(BaseModel):
     fusion: FusionConfig = FusionConfig()
 
 
+class TUIConfig(BaseModel):
+    """TUI dashboard configuration per D-01/D-05."""
+
+    refresh_interval_s: float = 1.0  # D-05: 1-second refresh
+    enabled: bool = True
+
+
+class WebConfig(BaseModel):
+    """Web dashboard configuration per D-06/D-09/D-10."""
+
+    host: str = "0.0.0.0"  # D-10: local network access
+    port: int = 8080
+    api_key: str = "changeme"  # D-09: simple auth for kill/pause
+    enabled: bool = True
+
+
+class LearningConfig(BaseModel):
+    """Self-learning loop configuration per D-14/D-15/D-16/D-17/D-18/D-19."""
+
+    evolve_every_n_trades: int = 50  # D-15: GA trigger threshold
+    n_shadow_variants: int = 5  # D-17: 3-5 shadow variants
+    promotion_alpha: float = 0.05  # D-18: p < 0.05
+    min_promotion_trades: int = 50  # D-18: minimum virtual trades
+    retirement_threshold: float = 0.3  # D-19: EMA below this retires
+    retirement_min_trades: int = 50  # D-19: min trades before retirement
+    ga_population_size: int = 20
+    ga_crossover_prob: float = 0.5
+    ga_mutation_prob: float = 0.2
+    ga_tournament_size: int = 3
+    enabled: bool = False  # Off by default, enable when ready
+
+
 class BotSettings(BaseSettings):
     """Top-level settings container loaded from TOML files.
 
@@ -273,6 +305,9 @@ class BotSettings(BaseSettings):
     data: DataConfig = DataConfig()
     logging: LoggingConfig = LoggingConfig()
     signals: SignalsConfig = SignalsConfig()
+    tui: TUIConfig = TUIConfig()
+    web: WebConfig = WebConfig()
+    learning: LearningConfig = LearningConfig()
 
     @classmethod
     def settings_customise_sources(

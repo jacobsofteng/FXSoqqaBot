@@ -32,6 +32,11 @@ class EventType(str, Enum):
     CONNECTION_LOST = "connection_lost"
     CONNECTION_RESTORED = "connection_restored"
 
+    # Learning events
+    MUTATION = "mutation"
+    RULE_RETIRED = "rule_retired"
+    VARIANT_PROMOTED = "variant_promoted"
+
 
 @dataclass(frozen=True, slots=True)
 class TickEvent:
