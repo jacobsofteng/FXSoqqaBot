@@ -332,3 +332,167 @@ class TestConnectMT5:
 
         assert result is True
         engine._bridge.reconnect_loop.assert_awaited_once_with(max_retries=5)
+
+
+class TestWalkForwardValidatorWiring:
+    """Test walk-forward validator callback creation and wiring in engine."""
+
+    @pytest.mark.asyncio
+    async def test_learning_enabled_wires_walk_forward_validator(
+        self, settings: BotSettings
+    ) -> None:
+        """When learning is enabled, _initialize_components calls set_walk_forward_validator."""
+        settings.learning.enabled = True
+        engine = TradingEngine(settings)
+
+        with patch(
+            "fxsoqqabot.core.engine.StateManager.initialize",
+            new_callable=AsyncMock,
+        ), patch(
+            "fxsoqqabot.core.engine.StateManager.load_signal_weights",
+            new_callable=AsyncMock,
+            return_value={"accuracies": {}, "trade_count": 0},
+        ):
+            await engine._initialize_components()
+
+        # Learning loop should exist and have a validator set
+        assert engine._learning_loop is not None
+        assert engine._learning_loop._walk_forward_validator is not None
+        assert callable(engine._learning_loop._walk_forward_validator)
+
+    @pytest.mark.asyncio
+    async def test_learning_disabled_no_walk_forward_validator(
+        self, settings: BotSettings
+    ) -> None:
+        """When learning is disabled, no learning loop or validator exists."""
+        settings.learning.enabled = False
+        engine = TradingEngine(settings)
+
+        with patch(
+            "fxsoqqabot.core.engine.StateManager.initialize",
+            new_callable=AsyncMock,
+        ), patch(
+            "fxsoqqabot.core.engine.StateManager.load_signal_weights",
+            new_callable=AsyncMock,
+            return_value={"accuracies": {}, "trade_count": 0},
+        ):
+            await engine._initialize_components()
+
+        # No learning loop when disabled
+        assert engine._learning_loop is None
+
+    @pytest.mark.asyncio
+    async def test_validator_callback_returns_false_on_wf_fail(
+        self, settings: BotSettings
+    ) -> None:
+        """Validator callback returns False when walk-forward fails (passes_threshold=False)."""
+        settings.learning.enabled = True
+        engine = TradingEngine(settings)
+
+        with patch(
+            "fxsoqqabot.core.engine.StateManager.initialize",
+            new_callable=AsyncMock,
+        ), patch(
+            "fxsoqqabot.core.engine.StateManager.load_signal_weights",
+            new_callable=AsyncMock,
+            return_value={"accuracies": {}, "trade_count": 0},
+        ):
+            await engine._initialize_components()
+
+        callback = engine._learning_loop._walk_forward_validator
+        assert callback is not None
+
+        # Mock the WalkForwardValidator to return passes_threshold=False
+        mock_wf_result = MagicMock()
+        mock_wf_result.passes_threshold = False
+
+        with patch(
+            "fxsoqqabot.backtest.validation.WalkForwardValidator"
+        ) as MockWFV, patch(
+            "fxsoqqabot.backtest.historical.HistoricalDataLoader"
+        ), patch(
+            "fxsoqqabot.backtest.engine.BacktestEngine"
+        ):
+            mock_validator_instance = MagicMock()
+            mock_validator_instance.run_walk_forward = AsyncMock(
+                return_value=mock_wf_result
+            )
+            MockWFV.return_value = mock_validator_instance
+
+            result = callback({"param1": 0.5})
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_validator_callback_returns_true_on_wf_pass(
+        self, settings: BotSettings
+    ) -> None:
+        """Validator callback returns True when walk-forward passes (passes_threshold=True)."""
+        settings.learning.enabled = True
+        engine = TradingEngine(settings)
+
+        with patch(
+            "fxsoqqabot.core.engine.StateManager.initialize",
+            new_callable=AsyncMock,
+        ), patch(
+            "fxsoqqabot.core.engine.StateManager.load_signal_weights",
+            new_callable=AsyncMock,
+            return_value={"accuracies": {}, "trade_count": 0},
+        ):
+            await engine._initialize_components()
+
+        callback = engine._learning_loop._walk_forward_validator
+        assert callback is not None
+
+        # Mock the WalkForwardValidator to return passes_threshold=True
+        mock_wf_result = MagicMock()
+        mock_wf_result.passes_threshold = True
+
+        with patch(
+            "fxsoqqabot.backtest.validation.WalkForwardValidator"
+        ) as MockWFV, patch(
+            "fxsoqqabot.backtest.historical.HistoricalDataLoader"
+        ), patch(
+            "fxsoqqabot.backtest.engine.BacktestEngine"
+        ):
+            mock_validator_instance = MagicMock()
+            mock_validator_instance.run_walk_forward = AsyncMock(
+                return_value=mock_wf_result
+            )
+            MockWFV.return_value = mock_validator_instance
+
+            result = callback({"param1": 0.5})
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_validator_callback_returns_false_on_error(
+        self, settings: BotSettings
+    ) -> None:
+        """Validator callback returns False (fail-safe) when error occurs."""
+        settings.learning.enabled = True
+        engine = TradingEngine(settings)
+
+        with patch(
+            "fxsoqqabot.core.engine.StateManager.initialize",
+            new_callable=AsyncMock,
+        ), patch(
+            "fxsoqqabot.core.engine.StateManager.load_signal_weights",
+            new_callable=AsyncMock,
+            return_value={"accuracies": {}, "trade_count": 0},
+        ):
+            await engine._initialize_components()
+
+        callback = engine._learning_loop._walk_forward_validator
+        assert callback is not None
+
+        # Mock HistoricalDataLoader to raise an error (e.g., no data dir)
+        with patch(
+            "fxsoqqabot.backtest.historical.HistoricalDataLoader",
+            side_effect=FileNotFoundError("No historical data directory"),
+        ), patch(
+            "fxsoqqabot.backtest.engine.BacktestEngine"
+        ):
+            result = callback({"param1": 0.5})
+
+        assert result is False

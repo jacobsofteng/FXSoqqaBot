@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -240,6 +241,16 @@ class TradingEngine:
                 equity=self._settings.risk.aggressive_max,
             )
 
+            # Wire walk-forward validation gate (LEARN-06)
+            try:
+                validator_cb = self._create_walk_forward_validator()
+                self._learning_loop.set_walk_forward_validator(validator_cb)
+            except Exception:
+                self._logger.warning(
+                    "walk_forward_validator_setup_failed", exc_info=True
+                )
+                # Learning loop will operate without WF gate (statistical-only mode)
+
         # Phase 4: Web dashboard server
         if self._web_enabled:
             from fxsoqqabot.dashboard.web.server import DashboardServer
@@ -261,6 +272,78 @@ class TradingEngine:
             web_enabled=self._web_enabled,
             learning_enabled=self._learning_enabled,
         )
+
+    def _create_walk_forward_validator(self) -> Callable[[dict[str, float]], bool]:
+        """Create a walk-forward validation callback for LEARN-06.
+
+        Returns a closure that runs WalkForwardValidator.run_walk_forward()
+        synchronously (via a new event loop) and returns passes_threshold.
+        On ANY error, returns False (fail-safe: reject promotion rather than
+        allow through per existing decision).
+
+        The params dict is received but not applied to settings in this
+        implementation -- the walk-forward validates the CURRENT strategy
+        parameters, acting as a baseline gate. Applying per-variant params
+        is a future enhancement.
+        """
+        from fxsoqqabot.backtest.config import BacktestConfig
+
+        bt_config = BacktestConfig()
+        settings = self._settings
+
+        def _run_async_in_thread(coro: Any) -> Any:
+            """Run an async coroutine in a new thread with its own event loop.
+
+            Required because _check_promotions runs in the main async context
+            where an event loop is already running -- asyncio.run() and
+            loop.run_until_complete() would raise RuntimeError.
+            """
+            import concurrent.futures
+
+            result_holder: list = []
+            exc_holder: list = []
+
+            def _target() -> None:
+                loop = asyncio.new_event_loop()
+                try:
+                    result_holder.append(loop.run_until_complete(coro))
+                except Exception as e:
+                    exc_holder.append(e)
+                finally:
+                    loop.close()
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_target)
+                future.result()  # Block until done, propagate thread errors
+
+            if exc_holder:
+                raise exc_holder[0]
+            return result_holder[0]
+
+        def _validate(params: dict[str, float]) -> bool:
+            from fxsoqqabot.backtest.engine import BacktestEngine as BtEngine
+            from fxsoqqabot.backtest.historical import HistoricalDataLoader
+            from fxsoqqabot.backtest.validation import WalkForwardValidator
+
+            try:
+                self._logger.debug(
+                    "walk_forward_validate_called",
+                    params_received=list(params.keys()),
+                )
+                loader = HistoricalDataLoader(bt_config)
+                engine = BtEngine(settings, bt_config)
+                validator = WalkForwardValidator(engine, loader, bt_config)
+
+                result = _run_async_in_thread(validator.run_walk_forward())
+
+                return result.passes_threshold
+            except Exception:
+                self._logger.error(
+                    "walk_forward_validate_error", exc_info=True
+                )
+                return False  # Fail-safe: reject promotion on error
+
+        return _validate
 
     # -- Connection -----------------------------------------------------------
 
