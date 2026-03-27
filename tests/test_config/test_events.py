@@ -31,6 +31,9 @@ class TestEventType:
             "kill_switch_activated",
             "connection_lost",
             "connection_restored",
+            "mutation",
+            "variant_promoted",
+            "rule_retired",
         }
         actual = {e.value for e in EventType}
         assert actual == expected
