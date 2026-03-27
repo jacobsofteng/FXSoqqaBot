@@ -1,3 +1,9 @@
-"""Entry point for python -m fxsoqqabot."""
+"""Entry point for python -m fxsoqqabot.
 
-print("FXSoqqaBot")
+Dispatches to CLI commands: run, kill, status, reset.
+"""
+
+from fxsoqqabot.cli import main
+
+if __name__ == "__main__":
+    main()
