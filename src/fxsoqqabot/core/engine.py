@@ -31,6 +31,15 @@ from fxsoqqabot.risk.circuit_breakers import CircuitBreakerManager
 from fxsoqqabot.risk.kill_switch import KillSwitch
 from fxsoqqabot.risk.session import SessionFilter
 from fxsoqqabot.risk.sizing import PositionSizer
+from fxsoqqabot.signals.base import SignalModule, SignalOutput
+from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+from fxsoqqabot.signals.flow.module import OrderFlowModule
+from fxsoqqabot.signals.fusion.core import FusionCore
+from fxsoqqabot.signals.fusion.phase_behavior import PhaseBehavior
+from fxsoqqabot.signals.fusion.trade_manager import TradeManager
+from fxsoqqabot.signals.fusion.weights import AdaptiveWeightTracker
+from fxsoqqabot.signals.timing.module import QuantumTimingModule
+from fxsoqqabot.signals.timing.phase_transition import compute_atr
 
 # Module-level alias for testability (same pattern as mt5_bridge.py)
 asyncio_sleep = asyncio.sleep
@@ -64,6 +73,13 @@ class TradingEngine:
         self._sizer: PositionSizer | None = None
         self._breakers: CircuitBreakerManager | None = None
         self._kill_switch: KillSwitch | None = None
+
+        # Signal pipeline slots -- initialized in _initialize_components()
+        self._signal_modules: list[SignalModule] = []
+        self._fusion_core: FusionCore | None = None
+        self._weight_tracker: AdaptiveWeightTracker | None = None
+        self._phase_behavior: PhaseBehavior | None = None
+        self._trade_manager: TradeManager | None = None
 
     # -- Properties -----------------------------------------------------------
 
@@ -140,10 +156,54 @@ class TradingEngine:
         # Kill switch (depend on state and order manager)
         self._kill_switch = KillSwitch(self._state, self._order_manager)
 
+        # Signal modules (Phase 2)
+        sig_config = self._settings.signals
+        chaos_module = ChaosRegimeModule(sig_config.chaos)
+        flow_module = OrderFlowModule(sig_config.flow)
+        timing_module = QuantumTimingModule(sig_config.timing)
+        self._signal_modules = [chaos_module, flow_module, timing_module]
+
+        # Initialize all signal modules (Numba warm-up etc.)
+        for mod in self._signal_modules:
+            await mod.initialize()
+
+        # Fusion core
+        self._fusion_core = FusionCore(sig_config.fusion)
+
+        # Adaptive weight tracker
+        module_names = [m.name for m in self._signal_modules]
+        self._weight_tracker = AdaptiveWeightTracker(
+            module_names=module_names,
+            alpha=sig_config.fusion.ema_alpha,
+            warmup_trades=sig_config.fusion.weight_warmup_trades,
+        )
+
+        # Load persisted weights (Pitfall 6 prevention)
+        weight_state = await self._state.load_signal_weights()
+        if weight_state.get("trade_count", 0) > 0:
+            # Add alpha/warmup from config for load_state compatibility
+            weight_state["alpha"] = sig_config.fusion.ema_alpha
+            weight_state["warmup"] = sig_config.fusion.weight_warmup_trades
+            self._weight_tracker.load_state(weight_state)
+            self._logger.info("signal_weights_loaded", trade_count=weight_state["trade_count"])
+
+        # Phase behavior
+        self._phase_behavior = PhaseBehavior(sig_config.fusion, self._settings.risk)
+
+        # Trade manager
+        self._trade_manager = TradeManager(
+            fusion_config=sig_config.fusion,
+            phase_behavior=self._phase_behavior,
+            order_manager=self._order_manager,
+            position_sizer=self._sizer,
+            breaker_manager=self._breakers,
+        )
+
         self._logger.info(
             "components_initialized",
             mode=exec_config.mode,
             symbol=exec_config.symbol,
+            signal_modules=[m.name for m in self._signal_modules],
         )
 
     # -- Connection -----------------------------------------------------------
@@ -342,6 +402,125 @@ class TradingEngine:
 
             await asyncio_sleep(10.0)
 
+    async def _signal_loop(self) -> None:
+        """Run signal analysis, fusion, and trade decisions.
+
+        Orchestrates: update all modules -> fuse signals -> evaluate trade -> execute.
+        Runs at bar refresh interval since regime detection operates on bar data.
+        """
+        assert self._tick_buffer is not None
+        assert self._bar_buffers is not None
+        assert self._fusion_core is not None
+        assert self._weight_tracker is not None
+        assert self._phase_behavior is not None
+        assert self._trade_manager is not None
+        assert self._bridge is not None
+
+        interval_s = self._settings.data.bar_refresh_interval_seconds
+
+        while self._running:
+            try:
+                # Prepare data for signal modules
+                tick_arrays = self._tick_buffer.as_arrays()
+                bar_arrays = {
+                    tf: self._bar_buffers[tf].as_arrays()
+                    for tf in self._bar_buffers.timeframes
+                }
+
+                # Get latest DOM snapshot (may be None)
+                dom = None
+
+                # Update all signal modules
+                signals: list[SignalOutput] = []
+                for module in self._signal_modules:
+                    try:
+                        signal_out = await module.update(tick_arrays, bar_arrays, dom)
+                        signals.append(signal_out)
+                    except Exception:
+                        self._logger.error(
+                            "signal_module_error",
+                            module=module.name,
+                            exc_info=True,
+                        )
+                        # Skip failed module -- fusion works with partial signals
+
+                if not signals:
+                    await asyncio_sleep(interval_s)
+                    continue
+
+                # Get adaptive weights
+                weights = self._weight_tracker.get_weights()
+
+                # Get equity for phase-aware threshold
+                account_info = await self._bridge.get_account_info()
+                equity = account_info.equity if account_info else 20.0
+
+                # Get confidence threshold for current equity
+                threshold = self._phase_behavior.get_confidence_threshold(equity)
+
+                # Fuse signals
+                fusion_result = self._fusion_core.fuse(signals, weights, threshold)
+
+                # Log fusion state
+                self._logger.debug(
+                    "fusion_state",
+                    regime=fusion_result.regime.value,
+                    direction=fusion_result.direction,
+                    composite=fusion_result.composite_score,
+                    confidence=fusion_result.fused_confidence,
+                    should_trade=fusion_result.should_trade,
+                    threshold=threshold,
+                    weights=weights,
+                    module_scores=fusion_result.module_scores,
+                )
+
+                # Compute ATR for SL/TP
+                m5_bars = bar_arrays.get("M5", {})
+                current_atr = 0.0
+                if "high" in m5_bars and len(m5_bars["high"]) > 0:
+                    atr_array = compute_atr(
+                        m5_bars["high"],
+                        m5_bars["low"],
+                        m5_bars["close"],
+                        period=self._settings.signals.fusion.sl_atr_period,
+                    )
+                    current_atr = float(atr_array[-1])
+
+                # Get current price
+                current_price = 0.0
+                if tick_arrays["bid"].size > 0:
+                    current_price = float(tick_arrays["bid"][-1])
+
+                # Evaluate and potentially execute trade
+                if current_atr > 0 and current_price > 0:
+                    decision = await self._trade_manager.evaluate_and_execute(
+                        fusion_result=fusion_result,
+                        equity=equity,
+                        current_price=current_price,
+                        atr=current_atr,
+                    )
+
+                    if decision.action in ("buy", "sell"):
+                        self._logger.info(
+                            "trade_executed",
+                            action=decision.action,
+                            lot_size=decision.lot_size,
+                            sl_distance=decision.sl_distance,
+                            tp_distance=decision.tp_distance,
+                            regime=decision.regime.value,
+                            confidence=decision.confidence,
+                        )
+
+                        # Persist weight state after trade
+                        await self._state.save_signal_weights(
+                            self._weight_tracker.get_state()
+                        )
+
+            except Exception:
+                self._logger.error("signal_loop_error", exc_info=True)
+
+            await asyncio_sleep(interval_s)
+
     # -- Helpers --------------------------------------------------------------
 
     def _compute_avg_spread(self) -> float:
@@ -388,6 +567,7 @@ class TradingEngine:
                 self._tick_loop(),
                 self._bar_loop(),
                 self._health_loop(),
+                self._signal_loop(),  # Phase 2 signal pipeline
             )
         except asyncio.CancelledError:
             self._logger.info("engine_loops_cancelled")

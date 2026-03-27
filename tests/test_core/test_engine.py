@@ -45,10 +45,14 @@ class TestInitializeComponents:
     @pytest.mark.asyncio
     async def test_creates_all_components(self, engine: TradingEngine) -> None:
         """_initialize_components creates all component instances."""
-        # Mock StateManager.initialize to avoid actual DB creation
+        # Mock StateManager.initialize and load_signal_weights to avoid actual DB
         with patch(
             "fxsoqqabot.core.engine.StateManager.initialize",
             new_callable=AsyncMock,
+        ), patch(
+            "fxsoqqabot.core.engine.StateManager.load_signal_weights",
+            new_callable=AsyncMock,
+            return_value={"accuracies": {}, "trade_count": 0},
         ):
             await engine._initialize_components()
 
@@ -64,6 +68,13 @@ class TestInitializeComponents:
         assert engine._breakers is not None
         assert engine._kill_switch is not None
 
+        # Phase 2: signal pipeline components
+        assert len(engine._signal_modules) == 3
+        assert engine._fusion_core is not None
+        assert engine._weight_tracker is not None
+        assert engine._phase_behavior is not None
+        assert engine._trade_manager is not None
+
     @pytest.mark.asyncio
     async def test_paper_mode_creates_paper_executor(
         self, engine: TradingEngine
@@ -73,6 +84,10 @@ class TestInitializeComponents:
         with patch(
             "fxsoqqabot.core.engine.StateManager.initialize",
             new_callable=AsyncMock,
+        ), patch(
+            "fxsoqqabot.core.engine.StateManager.load_signal_weights",
+            new_callable=AsyncMock,
+            return_value={"accuracies": {}, "trade_count": 0},
         ):
             await engine._initialize_components()
 
@@ -87,6 +102,10 @@ class TestInitializeComponents:
         with patch(
             "fxsoqqabot.core.engine.StateManager.initialize",
             new_callable=AsyncMock,
+        ), patch(
+            "fxsoqqabot.core.engine.StateManager.load_signal_weights",
+            new_callable=AsyncMock,
+            return_value={"accuracies": {}, "trade_count": 0},
         ):
             await engine._initialize_components()
 
