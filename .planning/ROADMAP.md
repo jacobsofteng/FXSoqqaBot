@@ -29,7 +29,16 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Position sizing engine correctly calculates lot size from equity, risk percentage, and SL distance for all three capital phases ($20-$100, $100-$300, $300+) and never exceeds safe exposure
   4. Daily drawdown circuit breaker halts trading when loss limit is hit, persists across restarts, and session time filter prevents trading outside configured hours
   5. Bot detects MT5 disconnection, automatically reconnects, and reconciles position state -- and recovers gracefully from a full Python restart with open positions
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+- [ ] 01-01-PLAN.md -- Project scaffolding, config models, event types, structured logging
+- [ ] 01-02-PLAN.md -- Async MT5 bridge and market data feed (ticks, bars, DOM)
+- [ ] 01-03-PLAN.md -- Rolling in-memory buffers and DuckDB/Parquet storage
+- [ ] 01-04-PLAN.md -- Order execution with server-side SL and paper trading engine
+- [ ] 01-05-PLAN.md -- Position sizing engine and session time filter
+- [ ] 01-06-PLAN.md -- Circuit breakers, kill switch, and SQLite state persistence
+- [ ] 01-07-PLAN.md -- Async engine orchestration, crash recovery, and CLI entry points
 
 ### Phase 2: Signal Pipeline and Decision Fusion
 **Goal**: The bot reads the market's true state through simplified versions of all analysis modules -- chaos regime, order flow, institutional footprint, quantum timing -- and fuses them into confidence-weighted trade decisions with phase-aware position sizing
@@ -75,7 +84,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Trading Infrastructure | 0/TBD | Not started | - |
+| 1. Trading Infrastructure | 0/7 | Planned | - |
 | 2. Signal Pipeline and Decision Fusion | 0/TBD | Not started | - |
 | 3. Backtesting and Validation | 0/TBD | Not started | - |
 | 4. Observability and Self-Learning | 0/TBD | Not started | - |
