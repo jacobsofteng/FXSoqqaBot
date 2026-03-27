@@ -320,3 +320,115 @@ class TestDetectPhaseTransition:
         assert isinstance(energy, float)
         assert isinstance(conf, float)
         assert state in ("compression", "expansion", "normal")
+
+
+# ---------------------------------------------------------------------------
+# QuantumTimingModule integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestQuantumTimingModule:
+    """Integration tests for the QuantumTimingModule."""
+
+    def test_name_is_timing(self) -> None:
+        """Module name property returns 'timing'."""
+        from fxsoqqabot.config.models import TimingConfig
+        from fxsoqqabot.signals.timing import QuantumTimingModule
+
+        module = QuantumTimingModule(TimingConfig())
+        assert module.name == "timing"
+
+    def test_implements_signal_module_protocol(self) -> None:
+        """isinstance(module, SignalModule) is True."""
+        from fxsoqqabot.config.models import TimingConfig
+        from fxsoqqabot.signals.base import SignalModule
+        from fxsoqqabot.signals.timing import QuantumTimingModule
+
+        module = QuantumTimingModule(TimingConfig())
+        assert isinstance(module, SignalModule)
+
+    @pytest.mark.asyncio
+    async def test_update_with_bar_data_returns_signal(self) -> None:
+        """update() with sufficient bar data returns valid SignalOutput."""
+        from fxsoqqabot.config.models import TimingConfig
+        from fxsoqqabot.signals.base import SignalOutput
+        from fxsoqqabot.signals.timing import QuantumTimingModule
+
+        config = TimingConfig()
+        module = QuantumTimingModule(config)
+
+        rng = np.random.default_rng(100)
+        n = 200
+        close = 100 + np.cumsum(rng.normal(0, 0.5, n))
+        high = close + rng.uniform(0.5, 2.0, n)
+        low = close - rng.uniform(0.5, 2.0, n)
+
+        bar_arrays: dict[str, dict[str, np.ndarray]] = {
+            "M5": {
+                "close": close,
+                "high": high,
+                "low": low,
+                "open": close + rng.normal(0, 0.1, n),
+                "tick_volume": rng.integers(100, 500, n).astype(np.float64),
+                "time": np.arange(n, dtype=np.float64),
+            }
+        }
+
+        signal = await module.update({}, bar_arrays, None)
+        assert isinstance(signal, SignalOutput)
+        assert signal.module_name == "timing"
+        assert -1.0 <= signal.direction <= 1.0
+        assert 0.0 <= signal.confidence <= 1.0
+        assert "kappa" in signal.metadata
+        assert "theta" in signal.metadata
+        assert "phase_state" in signal.metadata
+
+    @pytest.mark.asyncio
+    async def test_update_empty_bar_arrays_returns_neutral(self) -> None:
+        """update() with empty bar_arrays returns confidence=0.0."""
+        from fxsoqqabot.config.models import TimingConfig
+        from fxsoqqabot.signals.timing import QuantumTimingModule
+
+        module = QuantumTimingModule(TimingConfig())
+        signal = await module.update({}, {}, None)
+        assert signal.confidence == 0.0
+        assert signal.direction == 0.0
+
+    @pytest.mark.asyncio
+    async def test_update_missing_timeframe_returns_neutral(self) -> None:
+        """update() with wrong timeframe key returns neutral."""
+        from fxsoqqabot.config.models import TimingConfig
+        from fxsoqqabot.signals.timing import QuantumTimingModule
+
+        module = QuantumTimingModule(TimingConfig())
+        bar_arrays: dict[str, dict[str, np.ndarray]] = {
+            "H1": {"close": np.array([100.0, 101.0])}
+        }
+        signal = await module.update({}, bar_arrays, None)
+        assert signal.confidence == 0.0
+
+    @pytest.mark.asyncio
+    async def test_initialize_completes(self) -> None:
+        """initialize() completes without error."""
+        from fxsoqqabot.config.models import TimingConfig
+        from fxsoqqabot.signals.timing import QuantumTimingModule
+
+        module = QuantumTimingModule(TimingConfig())
+        await module.initialize()  # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_update_with_empty_close_returns_neutral(self) -> None:
+        """update() with zero-length close array returns neutral."""
+        from fxsoqqabot.config.models import TimingConfig
+        from fxsoqqabot.signals.timing import QuantumTimingModule
+
+        module = QuantumTimingModule(TimingConfig())
+        bar_arrays: dict[str, dict[str, np.ndarray]] = {
+            "M5": {
+                "close": np.array([]),
+                "high": np.array([]),
+                "low": np.array([]),
+            }
+        }
+        signal = await module.update({}, bar_arrays, None)
+        assert signal.confidence == 0.0
