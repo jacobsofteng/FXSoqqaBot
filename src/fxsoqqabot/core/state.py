@@ -165,7 +165,15 @@ class StateManager:
                 timestamp TEXT DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS signal_weights (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                weights_json TEXT DEFAULT '{}',
+                trade_count INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+
             INSERT OR IGNORE INTO circuit_breaker_state (id) VALUES (1);
+            INSERT OR IGNORE INTO signal_weights (id) VALUES (1);
         """)
         await self._db.commit()
         self._logger.info("state_db_initialized", path=str(self._db_path))
@@ -317,6 +325,30 @@ class StateManager:
             [equity, balance, margin, free_margin, margin_level],
         )
         await self._db.commit()
+
+    async def save_signal_weights(self, state: dict) -> None:
+        """Persist adaptive weight tracker state per Pitfall 6 (cold start)."""
+        import json
+
+        assert self._db is not None
+        await self._db.execute(
+            "UPDATE signal_weights SET weights_json=?, trade_count=?, updated_at=datetime('now') WHERE id=1",
+            [json.dumps(state.get("accuracies", {})), state.get("trade_count", 0)],
+        )
+        await self._db.commit()
+
+    async def load_signal_weights(self) -> dict:
+        """Load persisted adaptive weight state."""
+        import json
+
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT weights_json, trade_count FROM signal_weights WHERE id=1"
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row is None:
+                return {"accuracies": {}, "trade_count": 0}
+            return {"accuracies": json.loads(row[0]), "trade_count": row[1]}
 
     async def close(self) -> None:
         """Close the database connection."""
