@@ -403,7 +403,11 @@ def cmd_optimize(args: argparse.Namespace) -> None:
     from fxsoqqabot.optimization.optimizer import run_optimization
 
     settings = load_settings(args.config)
-    _setup_logging(settings)
+    # Force WARNING level for optimizer -- DEBUG floods 100K+ lines per trial
+    import logging
+    structlog.configure(
+        wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING),
+    )
 
     bt_config = BacktestConfig()
     run_optimization(
