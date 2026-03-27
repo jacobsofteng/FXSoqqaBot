@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-03-27T14:14:17Z"
-last_activity: 2026-03-27 -- Phase 03 Plan 01 completed
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-03-27T14:29:24.228Z"
+last_activity: 2026-03-27
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 18
-  completed_plans: 14
+  completed_plans: 15
   percent: 77
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 03 (backtesting-and-validation) — EXECUTING
-Plan: 2 of 5
-Status: Plan 01 complete, executing Plan 02
-Last activity: 2026-03-27 -- Phase 03 Plan 01 completed
+Plan: 3 of 5
+Status: Ready to execute
+Last activity: 2026-03-27
 
 Progress: [████████░░] 77%
 
@@ -65,6 +65,7 @@ Progress: [████████░░] 77%
 | Phase 02 P05 | 7min | 2 tasks | 6 files |
 | Phase 02 P06 | 5min | 2 tasks | 4 files |
 | Phase 03 P01 | 5min | 2 tasks | 8 files |
+| Phase 03 P03 | 9min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,9 @@ Recent decisions affecting current work:
 - [Phase 03]: SpreadModel uses session-aware UTC hour ranges for XAUUSD spread sampling per D-09
 - [Phase 03]: SlippageModel uses discrete probability distribution with exponential tail for 3+ pip per D-10
 - [Phase 03]: LiveDataFeedAdapter delegates to existing TickBuffer/BarBufferSet without modifying Phase 1 code
+- [Phase 03]: BacktestExecutor separate from PaperExecutor -- bar-based vs tick-based pricing requires different fill calculation
+- [Phase 03]: Fresh component instances per BacktestEngine.run() for clean walk-forward window state isolation
+- [Phase 03]: Numpy reshape-based M1 resampling for higher timeframes avoids pandas groupby overhead
 
 ### Pending Todos
 
@@ -129,6 +133,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T14:14:17Z
-Stopped at: Completed 03-01-PLAN.md
-Resume file: .planning/phases/03-backtesting-and-validation/03-01-SUMMARY.md
+Last session: 2026-03-27T14:29:24.226Z
+Stopped at: Completed 03-03-PLAN.md
+Resume file: None
