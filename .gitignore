@@ -31,5 +31,5 @@ htmlcov/
 # ruff
 .ruff_cache/
 
-# Data (generated at runtime)
-data/
+# Data (generated at runtime -- top-level only, not src/fxsoqqabot/data/)
+/data/
