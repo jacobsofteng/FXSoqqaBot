@@ -1,0 +1,51 @@
+Screen {
+    layout: horizontal;
+}
+
+#left-panel, #center-panel, #right-panel {
+    width: 1fr;
+    height: 100%;
+}
+
+.panel {
+    border: solid $accent;
+    margin: 1;
+    padding: 1;
+}
+
+#regime-panel {
+    height: 3;
+}
+
+#signals-panel {
+    height: auto;
+}
+
+#order-flow-panel {
+    height: 3;
+}
+
+#position-panel {
+    height: 5;
+}
+
+#risk-panel {
+    height: 3;
+}
+
+#trades-table {
+    height: 1fr;
+}
+
+#stats-panel {
+    height: 5;
+}
+
+#equity-spark {
+    height: 4;
+}
+
+#kill-btn {
+    dock: bottom;
+    width: 100%;
+}
