@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-03-PLAN.md
+stopped_at: Completed 04-04-PLAN.md
 last_updated: "2026-03-27T18:38:35.215Z"
 last_activity: 2026-03-27
 progress:
@@ -72,6 +72,7 @@ Progress: [████████░░] 77%
 | Phase 04 P01 | 5min | 2 tasks | 9 files |
 | Phase 04 P02 | 5min | 2 tasks | 5 files |
 | Phase 04 P03 | 7min | 2 tasks | 8 files |
+| Phase 04 P04 | 7min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,10 @@ Recent decisions affecting current work:
 - [Phase 04]: httpx ASGITransport for FastAPI endpoint testing without running a server
 - [Phase 04]: _sanitize_trades helper converts DuckDB timestamps and numpy scalars to JSON-safe types
 - [Phase 04]: Vendor JS libraries served locally from static/vendor/ -- no CDN dependency at runtime
+- [Phase 04]: DEAP creator.create at module level with hasattr guard to avoid duplicate registration
+- [Phase 04]: Profit factor capped at 10.0 to avoid infinity when no losses
+- [Phase 04]: Signal combination active threshold at 0.4 confidence for module detection
+- [Phase 04]: EMA-based retirement mirrors AdaptiveWeightTracker pattern with cooldown pool
 
 ### Pending Todos
 
@@ -152,5 +157,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-27T18:38:35.213Z
-Stopped at: Completed 04-03-PLAN.md
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None
