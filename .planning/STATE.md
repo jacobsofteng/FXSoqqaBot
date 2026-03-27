@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-03-27T09:09:22.396Z"
-last_activity: 2026-03-27 -- Completed 01-01-PLAN.md (project scaffolding, config models, events, logging)
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-03-27T09:27:23.448Z"
+last_activity: 2026-03-27
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 7
-  completed_plans: 1
+  completed_plans: 2
   percent: 14
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 1 of 4 (Trading Infrastructure)
-Plan: 1 of 7 in current phase
-Status: Executing
-Last activity: 2026-03-27 -- Completed 01-01-PLAN.md (project scaffolding, config models, events, logging)
+Plan: 2 of 7 in current phase
+Status: Ready to execute
+Last activity: 2026-03-27
 
 Progress: [█░░░░░░░░░] 14%
 
@@ -52,6 +52,7 @@ Progress: [█░░░░░░░░░] 14%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01 P02 | 12min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,9 @@ Recent decisions affecting current work:
 - [Roadmap]: Self-learning deferred to Phase 4 (needs 200+ trades or extensive backtesting before meaningful evolution)
 - [Phase 01]: BotSettings.from_toml() classmethod with dynamic subclass for safe TOML override without class-level mutation
 - [Phase 01]: datetime.now(UTC) over deprecated datetime.utcnow() for event timestamps
+- [Phase 01]: ThreadPoolExecutor(max_workers=1) enforces serialized MT5 access -- MT5 package uses global state and is not thread-safe
+- [Phase 01]: order_send is a thin wrapper -- pre-validation via order_check is the callers responsibility in orders.py
+- [Phase 01]: asyncio_sleep module-level alias pattern enables testable exponential backoff without global mock pollution
 
 ### Pending Todos
 
@@ -78,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T09:09:22.394Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-03-27T09:27:23.446Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None

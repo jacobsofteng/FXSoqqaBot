@@ -9,18 +9,18 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Data Infrastructure
 
-- [ ] **DATA-01**: Bot ingests real-time tick-level data (bid, ask, last, volume, flags) from MT5/RoboForex ECN for XAUUSD with sub-second polling
-- [ ] **DATA-02**: Bot retrieves DOM depth snapshots from MT5 when available, with graceful degradation to tick-only mode when DOM is limited or unavailable
-- [ ] **DATA-03**: Bot accesses bar data across multiple timeframes (M1, M5, M15, H1, H4) with aligned timestamps and efficient caching
+- [x] **DATA-01**: Bot ingests real-time tick-level data (bid, ask, last, volume, flags) from MT5/RoboForex ECN for XAUUSD with sub-second polling
+- [x] **DATA-02**: Bot retrieves DOM depth snapshots from MT5 when available, with graceful degradation to tick-only mode when DOM is limited or unavailable
+- [x] **DATA-03**: Bot accesses bar data across multiple timeframes (M1, M5, M15, H1, H4) with aligned timestamps and efficient caching
 - [ ] **DATA-04**: Bot loads and parses historical M1 bar data from histdata.com CSV files (2015-present) for backtesting
 - [ ] **DATA-05**: Bot stores tick data and trade events in DuckDB/Parquet for analytical queries and backtesting
 - [ ] **DATA-06**: Bot maintains rolling in-memory buffers of recent ticks and bars for real-time signal computation
 
 ### MT5 Bridge & Execution
 
-- [ ] **EXEC-01**: Python communicates with MT5 via MetaTrader5 Python package with all blocking calls wrapped in asyncio.to_thread() to avoid freezing the event loop
+- [x] **EXEC-01**: Python communicates with MT5 via MetaTrader5 Python package with all blocking calls wrapped in asyncio.to_thread() to avoid freezing the event loop
 - [ ] **EXEC-02**: Thin MQL5 EA executes orders (market orders, pending orders, SL/TP modification, partial close) with target sub-100ms round-trip on localhost
-- [ ] **EXEC-03**: Bot detects MT5 connection drops and automatically reconnects, reconciling expected vs actual position state on recovery
+- [x] **EXEC-03**: Bot detects MT5 connection drops and automatically reconnects, reconciling expected vs actual position state on recovery
 - [ ] **EXEC-04**: Bot recovers gracefully from Python crashes or machine reboots — checks for open positions on startup and resumes or closes as appropriate
 
 ### Risk & Safety
@@ -137,15 +137,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | Phase 1: Trading Infrastructure | Pending |
-| DATA-02 | Phase 1: Trading Infrastructure | Pending |
-| DATA-03 | Phase 1: Trading Infrastructure | Pending |
+| DATA-01 | Phase 1: Trading Infrastructure | Complete |
+| DATA-02 | Phase 1: Trading Infrastructure | Complete |
+| DATA-03 | Phase 1: Trading Infrastructure | Complete |
 | DATA-04 | Phase 3: Backtesting and Validation | Pending |
 | DATA-05 | Phase 1: Trading Infrastructure | Pending |
 | DATA-06 | Phase 1: Trading Infrastructure | Pending |
-| EXEC-01 | Phase 1: Trading Infrastructure | Pending |
+| EXEC-01 | Phase 1: Trading Infrastructure | Complete |
 | EXEC-02 | Phase 1: Trading Infrastructure | Pending |
-| EXEC-03 | Phase 1: Trading Infrastructure | Pending |
+| EXEC-03 | Phase 1: Trading Infrastructure | Complete |
 | EXEC-04 | Phase 1: Trading Infrastructure | Pending |
 | RISK-01 | Phase 1: Trading Infrastructure | Pending |
 | RISK-02 | Phase 1: Trading Infrastructure | Pending |

@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md -- Project scaffolding, config models, event types, structured logging
-- [ ] 01-02-PLAN.md -- Async MT5 bridge and market data feed (ticks, bars, DOM)
+- [x] 01-02-PLAN.md -- Async MT5 bridge and market data feed (ticks, bars, DOM)
 - [ ] 01-03-PLAN.md -- Rolling in-memory buffers and DuckDB/Parquet storage
 - [ ] 01-04-PLAN.md -- Order execution with server-side SL and paper trading engine
 - [ ] 01-05-PLAN.md -- Position sizing engine and session time filter
