@@ -38,7 +38,7 @@ Plans:
 - [x] 01-04-PLAN.md -- Order execution with server-side SL and paper trading engine
 - [x] 01-05-PLAN.md -- Position sizing engine and session time filter
 - [x] 01-06-PLAN.md -- Circuit breakers, kill switch, and SQLite state persistence
-- [ ] 01-07-PLAN.md -- Async engine orchestration, crash recovery, and CLI entry points
+- [x] 01-07-PLAN.md -- Async engine orchestration, crash recovery, and CLI entry points
 
 ### Phase 2: Signal Pipeline and Decision Fusion
 **Goal**: The bot reads the market's true state through simplified versions of all analysis modules -- chaos regime, order flow, institutional footprint, quantum timing -- and fuses them into confidence-weighted trade decisions with phase-aware position sizing

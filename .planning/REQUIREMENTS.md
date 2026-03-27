@@ -21,7 +21,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **EXEC-01**: Python communicates with MT5 via MetaTrader5 Python package with all blocking calls wrapped in asyncio.to_thread() to avoid freezing the event loop
 - [x] **EXEC-02**: Thin MQL5 EA executes orders (market orders, pending orders, SL/TP modification, partial close) with target sub-100ms round-trip on localhost
 - [x] **EXEC-03**: Bot detects MT5 connection drops and automatically reconnects, reconciling expected vs actual position state on recovery
-- [ ] **EXEC-04**: Bot recovers gracefully from Python crashes or machine reboots — checks for open positions on startup and resumes or closes as appropriate
+- [x] **EXEC-04**: Bot recovers gracefully from Python crashes or machine reboots — checks for open positions on startup and resumes or closes as appropriate
 
 ### Risk & Safety
 
@@ -146,7 +146,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EXEC-01 | Phase 1: Trading Infrastructure | Complete |
 | EXEC-02 | Phase 1: Trading Infrastructure | Complete |
 | EXEC-03 | Phase 1: Trading Infrastructure | Complete |
-| EXEC-04 | Phase 1: Trading Infrastructure | Pending |
+| EXEC-04 | Phase 1: Trading Infrastructure | Complete |
 | RISK-01 | Phase 1: Trading Infrastructure | Complete |
 | RISK-02 | Phase 1: Trading Infrastructure | Complete |
 | RISK-03 | Phase 1: Trading Infrastructure | Complete |
