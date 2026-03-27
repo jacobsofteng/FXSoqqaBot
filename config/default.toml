@@ -8,6 +8,10 @@ magic_number = 20260327
 deviation = 20
 mode = "paper"
 sl_atr_multiplier = 2.0
+mt5_path = "C:/Program Files/RoboForex MT5 Terminal/terminal64.exe"
+mt5_login = 67186454       
+mt5_password = "1qaz2wsx3EDC4$"   
+mt5_server = "RoboForex-ECN"  
 
 [risk]
 aggressive_max = 100.0
