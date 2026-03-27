@@ -51,3 +51,59 @@ H4 = 6
 [logging]
 json_mode = false
 level = "INFO"
+
+[signals.chaos]
+hurst_min_length = 100
+lyapunov_emb_dim = 10
+lyapunov_min_length = 300
+fractal_emb_dim = 10
+fractal_min_length = 200
+feigenbaum_order = 5
+entropy_bins = 50
+entropy_min_length = 100
+update_interval_bars = 1
+computation_timeout_ms = 50
+primary_timeframe = "M5"
+secondary_timeframe = "H1"
+
+[signals.flow]
+volume_delta_window = 100
+aggression_window = 200
+aggression_zscore_threshold = 2.0
+institutional_volume_threshold = 3.0
+institutional_price_tolerance = 0.5
+institutional_min_repeats = 3
+hft_tick_velocity_threshold = 5.0
+hft_spread_widen_multiplier = 2.0
+dom_quality_check_duration_seconds = 60
+dom_min_depth = 5
+dom_min_update_rate = 1.0
+dom_recheck_interval_minutes = 30
+
+[signals.timing]
+ou_min_length = 30
+ou_lookback_bars = 100
+phase_transition_atr_period = 14
+phase_transition_compression_threshold = 0.5
+phase_transition_expansion_threshold = 2.0
+primary_timeframe = "M5"
+
+[signals.fusion]
+aggressive_confidence_threshold = 0.5
+selective_confidence_threshold = 0.6
+conservative_confidence_threshold = 0.7
+ema_alpha = 0.1
+weight_warmup_trades = 10
+trending_rr_ratio = 3.0
+ranging_rr_ratio = 1.5
+high_chaos_rr_ratio = 2.0
+sl_atr_period = 14
+sl_atr_base_multiplier = 2.0
+sl_chaos_widen_factor = 1.5
+trending_trail_activation_atr = 1.0
+trending_trail_distance_atr = 0.5
+high_chaos_trail_distance_atr = 0.3
+high_chaos_confidence_boost = 0.15
+high_chaos_size_reduction = 0.5
+phase_transition_equity_buffer = 10.0
+max_concurrent_positions = 1

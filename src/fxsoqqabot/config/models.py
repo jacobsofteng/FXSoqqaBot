@@ -146,6 +146,111 @@ class LoggingConfig(BaseModel):
     level: str = "INFO"
 
 
+class ChaosConfig(BaseModel):
+    """Configuration for chaos/regime detection module.
+
+    Controls parameters for Hurst exponent, Lyapunov exponent,
+    fractal dimension, Feigenbaum bifurcation, and Shannon entropy
+    computations used in market regime classification.
+    """
+
+    hurst_min_length: int = 100  # Minimum data points for Hurst computation
+    lyapunov_emb_dim: int = 10  # Embedding dimension for Rosenstein algorithm
+    lyapunov_min_length: int = 300  # Minimum points for Lyapunov (from emb_dim)
+    fractal_emb_dim: int = 10  # Embedding dimension for correlation dimension
+    fractal_min_length: int = 200  # Minimum data points
+    feigenbaum_order: int = 5  # Peak detection order for argrelextrema
+    entropy_bins: int = 50  # Number of bins for Shannon entropy
+    entropy_min_length: int = 100  # Minimum data points for entropy
+    update_interval_bars: int = 1  # Recompute every N bar updates
+    computation_timeout_ms: int = 50  # Max time per module update in milliseconds
+    primary_timeframe: str = "M5"  # Timeframe for primary regime detection
+    secondary_timeframe: str = "H1"  # Timeframe for trend confirmation
+
+
+class FlowConfig(BaseModel):
+    """Configuration for order flow and institutional detection.
+
+    Parameters for volume delta, bid-ask aggression, institutional
+    footprint detection, HFT signature recognition, and DOM quality
+    checks per D-13/D-15.
+    """
+
+    volume_delta_window: int = 100  # Ticks for rolling volume delta
+    aggression_window: int = 200  # Ticks for bid-ask aggression
+    aggression_zscore_threshold: float = 2.0  # Z-score for significant imbalance
+    institutional_volume_threshold: float = 3.0  # Std devs above mean for large volume
+    institutional_price_tolerance: float = 0.5  # Points for "same price level" iceberg
+    institutional_min_repeats: int = 3  # Min repeats at same level for iceberg
+    hft_tick_velocity_threshold: float = 5.0  # Ticks/sec above mean for HFT signature
+    hft_spread_widen_multiplier: float = 2.0  # Spread widening multiplier for HFT
+    dom_quality_check_duration_seconds: int = 60  # D-15: DOM quality sampling window
+    dom_min_depth: int = 5  # D-15: Minimum depth levels each side
+    dom_min_update_rate: float = 1.0  # D-15: Minimum updates per second
+    dom_recheck_interval_minutes: int = 30  # D-15: Periodic DOM quality recheck
+
+
+class TimingConfig(BaseModel):
+    """Configuration for quantum timing engine.
+
+    Parameters for Ornstein-Uhlenbeck mean-reversion estimation
+    and phase transition detection via ATR compression/expansion.
+    """
+
+    ou_min_length: int = 30  # Minimum data points for OU estimation
+    ou_lookback_bars: int = 100  # Bars for OU parameter estimation
+    phase_transition_atr_period: int = 14  # ATR period for volatility energy
+    phase_transition_compression_threshold: float = 0.5  # ATR ratio for compression
+    phase_transition_expansion_threshold: float = 2.0  # ATR ratio for expansion
+    primary_timeframe: str = "M5"  # Timeframe for timing analysis
+
+
+class FusionConfig(BaseModel):
+    """Configuration for signal fusion and trade decisions per D-01 through D-12.
+
+    Covers confidence thresholds per capital phase (D-03/D-04), adaptive
+    weights (D-02), risk-reward per regime (D-09), ATR-based stop-loss
+    (D-09), trailing stops (D-10), high-chaos adjustments (D-06), phase
+    transition smoothing (FUSE-04), and position limits (D-11).
+    """
+
+    # Confidence thresholds per capital phase (D-03, D-04)
+    aggressive_confidence_threshold: float = 0.5  # $20-$100
+    selective_confidence_threshold: float = 0.6  # $100-$300
+    conservative_confidence_threshold: float = 0.7  # $300+
+    # Adaptive weights (D-02)
+    ema_alpha: float = 0.1  # EMA decay for accuracy tracking
+    weight_warmup_trades: int = 10  # Trades before weights diverge
+    # Risk-reward per regime (D-09)
+    trending_rr_ratio: float = 3.0  # Trending regime RR
+    ranging_rr_ratio: float = 1.5  # Ranging regime RR
+    high_chaos_rr_ratio: float = 2.0  # High-chaos regime RR
+    # ATR-based SL (D-09)
+    sl_atr_period: int = 14  # ATR lookback for SL computation
+    sl_atr_base_multiplier: float = 2.0  # Base ATR multiplier for SL
+    sl_chaos_widen_factor: float = 1.5  # Extra widen for high-chaos (D-06)
+    # Trailing stops per regime (D-10)
+    trending_trail_activation_atr: float = 1.0  # Activate after 1x SL distance profit
+    trending_trail_distance_atr: float = 0.5  # Trail at 0.5x ATR
+    high_chaos_trail_distance_atr: float = 0.3  # Aggressive trail at 0.3x ATR
+    # High-chaos behavior adjustments (D-06)
+    high_chaos_confidence_boost: float = 0.15  # Extra confidence required in chaos
+    high_chaos_size_reduction: float = 0.5  # Reduce position size by 50%
+    # Phase transition smoothing (D-04, FUSE-04)
+    phase_transition_equity_buffer: float = 10.0  # Sigmoid smoothing window in $
+    # Position limit (D-11)
+    max_concurrent_positions: int = 1
+
+
+class SignalsConfig(BaseModel):
+    """Container for all signal module configs."""
+
+    chaos: ChaosConfig = ChaosConfig()
+    flow: FlowConfig = FlowConfig()
+    timing: TimingConfig = TimingConfig()
+    fusion: FusionConfig = FusionConfig()
+
+
 class BotSettings(BaseSettings):
     """Top-level settings container loaded from TOML files.
 
@@ -167,6 +272,7 @@ class BotSettings(BaseSettings):
     execution: ExecutionConfig = ExecutionConfig()
     data: DataConfig = DataConfig()
     logging: LoggingConfig = LoggingConfig()
+    signals: SignalsConfig = SignalsConfig()
 
     @classmethod
     def settings_customise_sources(
