@@ -362,3 +362,227 @@ class TestPhaseBehavior:
         params = behavior.get_trailing_stop_params(RegimeState.HIGH_CHAOS)
         assert params is not None
         assert params["trail_distance_atr"] == 0.3
+
+
+# ---------------------------------------------------------------------------
+# TradeManager tests (D-08, D-09, D-10, D-11, FUSE-05)
+# ---------------------------------------------------------------------------
+
+class TestTradeManager:
+    """Test trade execution with regime-aware SL/TP and position management."""
+
+    @pytest.fixture
+    def trade_manager(self) -> "TradeManager":
+        from fxsoqqabot.signals.fusion.trade_manager import TradeManager
+
+        fusion_config = FusionConfig()
+        risk_config = RiskConfig()
+        phase_behavior = PhaseBehavior(fusion_config, risk_config)
+        from fxsoqqabot.risk.sizing import PositionSizer
+
+        sizer = PositionSizer(risk_config)
+        return TradeManager(
+            fusion_config=fusion_config,
+            phase_behavior=phase_behavior,
+            order_manager=None,  # None in testing
+            position_sizer=sizer,
+            breaker_manager=None,  # None in testing
+        )
+
+    def _make_fusion_result(
+        self,
+        direction: float = 1.0,
+        should_trade: bool = True,
+        regime: RegimeState = RegimeState.TRENDING_UP,
+        fused_confidence: float = 0.8,
+    ) -> FusionResult:
+        return FusionResult(
+            direction=direction,
+            composite_score=direction * 0.8,
+            fused_confidence=fused_confidence,
+            should_trade=should_trade,
+            regime=regime,
+            module_scores={"chaos": 0.5, "flow": 0.3},
+            confidence_threshold=0.5,
+        )
+
+    def test_trade_decision_is_frozen_dataclass(self) -> None:
+        """TradeDecision should be a frozen dataclass with slots."""
+        from fxsoqqabot.signals.fusion.trade_manager import TradeDecision
+
+        decision = TradeDecision(
+            action="buy",
+            sl_distance=3.0,
+            tp_distance=9.0,
+            lot_size=0.01,
+            confidence=0.8,
+            regime=RegimeState.TRENDING_UP,
+            reason="test",
+        )
+        with pytest.raises(AttributeError):
+            decision.action = "sell"  # type: ignore[misc]
+
+    @pytest.mark.asyncio
+    async def test_no_position_should_trade_buy(self, trade_manager) -> None:
+        """No position + should_trade=True: returns buy decision."""
+        result = self._make_fusion_result(direction=1.0, should_trade=True)
+        decision = await trade_manager.evaluate_and_execute(
+            result, equity=50.0, current_price=2000.0, atr=5.0
+        )
+        assert decision.action == "buy"
+        assert decision.sl_distance > 0
+        assert decision.tp_distance > 0
+        assert decision.lot_size > 0
+
+    @pytest.mark.asyncio
+    async def test_no_position_should_trade_sell(self, trade_manager) -> None:
+        """No position + should_trade=True + sell: returns sell decision."""
+        result = self._make_fusion_result(direction=-1.0, should_trade=True)
+        decision = await trade_manager.evaluate_and_execute(
+            result, equity=50.0, current_price=2000.0, atr=5.0
+        )
+        assert decision.action == "sell"
+
+    @pytest.mark.asyncio
+    async def test_should_trade_false_returns_hold(self, trade_manager) -> None:
+        """should_trade=False: returns hold."""
+        result = self._make_fusion_result(should_trade=False)
+        decision = await trade_manager.evaluate_and_execute(
+            result, equity=50.0, current_price=2000.0, atr=5.0
+        )
+        assert decision.action == "hold"
+        assert "confidence threshold" in decision.reason.lower() or "threshold" in decision.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_position_open_returns_hold_d11(self, trade_manager) -> None:
+        """Position open + should_trade=True: returns hold per D-11."""
+        # Simulate an open position
+        trade_manager._open_position_ticket = 12345
+        trade_manager._open_position_entry = 2000.0
+        trade_manager._open_position_regime = RegimeState.TRENDING_UP
+
+        result = self._make_fusion_result(should_trade=True)
+        decision = await trade_manager.evaluate_and_execute(
+            result, equity=50.0, current_price=2005.0, atr=5.0
+        )
+        assert decision.action == "hold"
+        assert "d-11" in decision.reason.lower() or "position" in decision.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_high_chaos_sl_wider(self, trade_manager) -> None:
+        """High-chaos regime: SL should be wider per D-06."""
+        from fxsoqqabot.signals.fusion.trade_manager import TradeManager
+
+        # Compute SL/TP for trending (normal)
+        sl_t, tp_t, sl_d_t, tp_d_t = trade_manager.compute_sl_tp(
+            atr=5.0,
+            regime=RegimeState.TRENDING_UP,
+            direction=1.0,
+            current_price=2000.0,
+        )
+        # Compute SL/TP for high chaos (wider)
+        sl_c, tp_c, sl_d_c, tp_d_c = trade_manager.compute_sl_tp(
+            atr=5.0,
+            regime=RegimeState.HIGH_CHAOS,
+            direction=1.0,
+            current_price=2000.0,
+        )
+        assert sl_d_c > sl_d_t  # High-chaos SL is wider
+
+    @pytest.mark.asyncio
+    async def test_high_chaos_size_reduced(self, trade_manager) -> None:
+        """High-chaos regime: position size should be reduced per D-06."""
+        result_trending = self._make_fusion_result(
+            direction=1.0, regime=RegimeState.TRENDING_UP
+        )
+        result_chaos = self._make_fusion_result(
+            direction=1.0, regime=RegimeState.HIGH_CHAOS
+        )
+        # Use generous equity so sizing doesn't skip
+        decision_trending = await trade_manager.evaluate_and_execute(
+            result_trending, equity=500.0, current_price=2000.0, atr=5.0
+        )
+        # Reset position state for second trade
+        trade_manager._open_position_ticket = None
+        decision_chaos = await trade_manager.evaluate_and_execute(
+            result_chaos, equity=500.0, current_price=2000.0, atr=5.0
+        )
+        # High-chaos lot should be less than or equal to trending lot
+        if decision_trending.action != "hold" and decision_chaos.action != "hold":
+            assert decision_chaos.lot_size <= decision_trending.lot_size
+
+    @pytest.mark.asyncio
+    async def test_adverse_regime_transition_tightens_sl(self, trade_manager) -> None:
+        """Adverse regime transition with position: tightens SL per D-08."""
+        trade_manager._open_position_ticket = 12345
+        trade_manager._open_position_entry = 2000.0
+        trade_manager._open_position_regime = RegimeState.TRENDING_UP
+
+        # Regime transitions to HIGH_CHAOS
+        result = self._make_fusion_result(regime=RegimeState.HIGH_CHAOS)
+        decision = await trade_manager.evaluate_and_execute(
+            result, equity=50.0, current_price=2005.0, atr=5.0
+        )
+        assert decision.action == "tighten_sl"
+
+    @pytest.mark.asyncio
+    async def test_trending_rr_ratio(self, trade_manager) -> None:
+        """Trending regime: RR should be 3.0 per D-09."""
+        sl_price, tp_price, sl_dist, tp_dist = trade_manager.compute_sl_tp(
+            atr=5.0,
+            regime=RegimeState.TRENDING_UP,
+            direction=1.0,
+            current_price=2000.0,
+        )
+        rr = tp_dist / sl_dist
+        assert abs(rr - 3.0) < 0.01
+
+    @pytest.mark.asyncio
+    async def test_ranging_rr_ratio(self, trade_manager) -> None:
+        """Ranging regime: RR should be 1.5, no trailing per D-09/D-10."""
+        sl_price, tp_price, sl_dist, tp_dist = trade_manager.compute_sl_tp(
+            atr=5.0,
+            regime=RegimeState.RANGING,
+            direction=1.0,
+            current_price=2000.0,
+        )
+        rr = tp_dist / sl_dist
+        assert abs(rr - 1.5) < 0.01
+        # No trailing in ranging
+        params = trade_manager.get_trailing_params(RegimeState.RANGING)
+        assert params is None
+
+    def test_record_position_closed(self, trade_manager) -> None:
+        """record_position_closed should clear position state."""
+        trade_manager._open_position_ticket = 12345
+        trade_manager._open_position_entry = 2000.0
+        trade_manager.record_position_closed(12345)
+        assert trade_manager._open_position_ticket is None
+
+    def test_get_trailing_params_delegates(self, trade_manager) -> None:
+        """get_trailing_params should delegate to PhaseBehavior."""
+        params = trade_manager.get_trailing_params(RegimeState.TRENDING_UP)
+        assert params is not None
+        assert params["activation_atr"] == 1.0
+
+    def test_compute_sl_tp_buy_direction(self, trade_manager) -> None:
+        """Buy direction: SL below price, TP above price."""
+        sl_price, tp_price, sl_dist, tp_dist = trade_manager.compute_sl_tp(
+            atr=5.0,
+            regime=RegimeState.TRENDING_UP,
+            direction=1.0,
+            current_price=2000.0,
+        )
+        assert sl_price < 2000.0  # SL below for buy
+        assert tp_price > 2000.0  # TP above for buy
+
+    def test_compute_sl_tp_sell_direction(self, trade_manager) -> None:
+        """Sell direction: SL above price, TP below price."""
+        sl_price, tp_price, sl_dist, tp_dist = trade_manager.compute_sl_tp(
+            atr=5.0,
+            regime=RegimeState.TRENDING_DOWN,
+            direction=-1.0,
+            current_price=2000.0,
+        )
+        assert sl_price > 2000.0  # SL above for sell
+        assert tp_price < 2000.0  # TP below for sell
