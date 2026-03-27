@@ -33,3 +33,6 @@ htmlcov/
 
 # Data (generated at runtime -- top-level only, not src/fxsoqqabot/data/)
 /data/
+
+# Claude Code worktrees (temporary agent execution artifacts)
+.claude/worktrees/
