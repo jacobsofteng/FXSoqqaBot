@@ -109,6 +109,23 @@ def create_parser() -> argparse.ArgumentParser:
         "reset", help="Reset kill switch (requires explicit action)"
     )
 
+    # backtest command
+    backtest_parser = subparsers.add_parser(
+        "backtest", help="Run full backtesting pipeline"
+    )
+    backtest_parser.add_argument(
+        "--config",
+        nargs="*",
+        default=None,
+        help="TOML config file(s) to load",
+    )
+    backtest_parser.add_argument(
+        "--skip-ingestion",
+        action="store_true",
+        default=False,
+        help="Skip CSV-to-Parquet ingestion (use existing Parquet data)",
+    )
+
     return parser
 
 
@@ -323,6 +340,22 @@ async def cmd_reset() -> None:
     await state.close()
 
 
+async def cmd_backtest(args: argparse.Namespace) -> None:
+    """Run the full backtesting pipeline.
+
+    Ingests histdata.com CSVs, runs walk-forward validation, OOS evaluation,
+    and Monte Carlo simulation with formatted results.
+    """
+    from fxsoqqabot.backtest.config import BacktestConfig
+    from fxsoqqabot.backtest.runner import run_full_backtest
+
+    settings = load_settings(args.config)
+    _setup_logging(settings)
+
+    bt_config = BacktestConfig()
+    await run_full_backtest(settings, bt_config, skip_ingestion=args.skip_ingestion)
+
+
 def _setup_logging(settings: BotSettings) -> None:
     """Configure structlog based on settings."""
     import logging
@@ -350,6 +383,7 @@ def main() -> None:
         "kill": cmd_kill,
         "status": cmd_status,
         "reset": cmd_reset,
+        "backtest": lambda: cmd_backtest(args),
     }
 
     coro = commands[args.command]()
