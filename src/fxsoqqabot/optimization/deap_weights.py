@@ -18,7 +18,7 @@ from deap import algorithms, base, creator, tools
 from fxsoqqabot.backtest.config import BacktestConfig
 from fxsoqqabot.backtest.engine import BacktestEngine
 from fxsoqqabot.backtest.historical import HistoricalDataLoader
-from fxsoqqabot.backtest.validation import WalkForwardValidator
+from fxsoqqabot.backtest.results import BacktestResult
 from fxsoqqabot.config.models import BotSettings
 from fxsoqqabot.learning.evolution import PARAM_BOUNDS
 from fxsoqqabot.optimization.search_space import apply_params_to_settings
@@ -97,14 +97,27 @@ async def evolve_weights(
     # Create data loader once -- reused across all fitness evaluations
     loader = HistoricalDataLoader(bt_config)
 
+    # Pre-compute the fast optimization window (same as optimizer.py _fast_backtest)
+    data_start, data_end = loader.get_time_range()
+    holdout_months_sec = bt_config.holdout_months * int(30.44 * 86400)
+    holdout_start = data_end - holdout_months_sec
+    opt_window_sec = 3 * int(30.44 * 86400)
+    opt_start = max(holdout_start - opt_window_sec, data_start)
+    opt_end = holdout_start
+    opt_bars = loader.load_bars(opt_start, opt_end)
+
     async def _evaluate(individual: list[float]) -> float:
-        """Evaluate a single individual's fitness via walk-forward."""
+        """Evaluate fitness via fast 3-month backtest (same proxy as Optuna)."""
         params = dict(zip(WEIGHT_NAMES, individual))
         trial_settings = apply_params_to_settings(base_settings, params)
+        if len(opt_bars) < 100:
+            return 0.0
         engine = BacktestEngine(trial_settings, bt_config)
-        validator = WalkForwardValidator(engine, loader, bt_config)
-        wf_result = await validator.run_walk_forward()
-        return min(wf_result.aggregate_profit_factor, 10.0)
+        result: BacktestResult = await engine.run(opt_bars, run_id="deap_fast")
+        pf = min(result.profit_factor, 10.0)
+        if result.n_trades < 5:
+            pf *= 0.1
+        return pf
 
     # Initialize population
     population = toolbox.population(n=population_size)
