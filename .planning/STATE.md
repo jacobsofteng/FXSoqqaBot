@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-04-PLAN.md
-last_updated: "2026-03-27T18:38:35.215Z"
+stopped_at: Completed 04-05-PLAN.md
+last_updated: "2026-03-27T18:49:24.273Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 24
-  completed_plans: 20
+  completed_plans: 23
   percent: 77
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 04 (observability-and-self-learning) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-03-27
 
@@ -73,6 +73,7 @@ Progress: [████████░░] 77%
 | Phase 04 P02 | 5min | 2 tasks | 5 files |
 | Phase 04 P03 | 7min | 2 tasks | 8 files |
 | Phase 04 P04 | 7min | 2 tasks | 6 files |
+| Phase 04 P05 | 5min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -143,6 +144,8 @@ Recent decisions affecting current work:
 - [Phase 04]: Profit factor capped at 10.0 to avoid infinity when no losses
 - [Phase 04]: Signal combination active threshold at 0.4 confidence for module detection
 - [Phase 04]: EMA-based retirement mirrors AdaptiveWeightTracker pattern with cooldown pool
+- [Phase 04]: Mann-Whitney U (non-parametric) over t-test for shadow variant promotion -- no normality assumption on P&L distributions
+- [Phase 04]: RandomForest with n_jobs=-1 for parallel regime prediction -- acceptable for single-machine deployment
 
 ### Pending Todos
 
@@ -156,6 +159,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T18:38:35.213Z
-Stopped at: Completed 04-04-PLAN.md
+Last session: 2026-03-27T18:49:24.270Z
+Stopped at: Completed 04-05-PLAN.md
 Resume file: None

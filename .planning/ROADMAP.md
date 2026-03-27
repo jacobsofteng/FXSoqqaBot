@@ -97,7 +97,7 @@ Plans:
 - [x] 04-02-PLAN.md -- TUI dashboard: Textual app with regime, signals, position, risk, trades, order flow panels
 - [x] 04-03-PLAN.md -- Web dashboard: FastAPI server, WebSocket/REST API, static HTML/JS/CSS frontend
 - [x] 04-04-PLAN.md -- GA evolution engine, signal combination analyzer, EMA rule retirement tracker
-- [ ] 04-05-PLAN.md -- Shadow mode variant management, ML regime classifier, statistical promotion
+- [x] 04-05-PLAN.md -- Shadow mode variant management, ML regime classifier, statistical promotion
 - [ ] 04-06-PLAN.md -- Engine integration: wire TUI, web, trade logger, and learning loop into TradingEngine
 
 ## Progress

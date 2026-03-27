@@ -69,10 +69,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **LEARN-01**: Bot logs every trade with full context: regime state, order flow conditions, signal combination and individual confidences, position size, entry/exit timing, win/loss, hold duration, spread at entry, slippage
 - [x] **LEARN-02**: Genetic algorithm evolves rule parameters (SL distance, entry thresholds, timeframe weights, signal fusion weights) using trade outcomes as fitness function
-- [ ] **LEARN-03**: ML classifiers (RandomForest/XGBoost) trained on trade context data to improve regime detection and win probability prediction over time
-- [ ] **LEARN-04**: Shadow mode tests strategy variants in parallel — mutated parameter sets run alongside live strategy without risking capital, promoted to live when they outperform
+- [x] **LEARN-03**: ML classifiers (RandomForest/XGBoost) trained on trade context data to improve regime detection and win probability prediction over time
+- [x] **LEARN-04**: Shadow mode tests strategy variants in parallel — mutated parameter sets run alongside live strategy without risking capital, promoted to live when they outperform
 - [x] **LEARN-05**: Learning loop identifies which signal combinations win above 70%, which regimes are most favorable, and which rules are degrading — retires underperforming rules automatically
-- [ ] **LEARN-06**: Walk-forward validation of evolved parameters prevents the learning loop from overfitting to recent market conditions
+- [x] **LEARN-06**: Walk-forward validation of evolved parameters prevents the learning loop from overfitting to recent market conditions
 
 ### Backtesting & Validation
 
@@ -188,10 +188,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OBS-05 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-01 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-02 | Phase 4: Observability and Self-Learning | Complete |
-| LEARN-03 | Phase 4: Observability and Self-Learning | Pending |
-| LEARN-04 | Phase 4: Observability and Self-Learning | Pending |
+| LEARN-03 | Phase 4: Observability and Self-Learning | Complete |
+| LEARN-04 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-05 | Phase 4: Observability and Self-Learning | Complete |
-| LEARN-06 | Phase 4: Observability and Self-Learning | Pending |
+| LEARN-06 | Phase 4: Observability and Self-Learning | Complete |
 | CONF-01 | Phase 1: Trading Infrastructure | Complete |
 | CONF-02 | Phase 1: Trading Infrastructure | Complete |
 
