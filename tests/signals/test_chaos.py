@@ -206,11 +206,12 @@ class TestDetectBifurcationProximity:
         assert 0.0 <= prox <= 1.0
 
     def test_feigenbaum_constant_used(self):
-        from fxsoqqabot.signals.chaos.feigenbaum import detect_bifurcation_proximity
-        # Just verifying the function exists and references the constant
+        import fxsoqqabot.signals.chaos.feigenbaum as feigenbaum_mod
+        # Verify the module references the Feigenbaum delta constant
         import inspect
-        src = inspect.getsource(detect_bifurcation_proximity)
+        src = inspect.getsource(feigenbaum_mod)
         assert "4.669201609" in src
+        assert "argrelextrema" in src
 
 
 # ---------------------------------------------------------------------------
