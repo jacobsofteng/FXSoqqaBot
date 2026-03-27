@@ -1,0 +1,6 @@
+# Live Trading Configuration
+# Overrides only mode-specific values; inherits defaults for everything else.
+# WARNING: Switching to live mode should be a deliberate manual action (D-02).
+
+[execution]
+mode = "live"

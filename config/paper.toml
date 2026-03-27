@@ -1,0 +1,5 @@
+# Paper Trading Configuration
+# Overrides only mode-specific values; inherits defaults for everything else.
+
+[execution]
+mode = "paper"

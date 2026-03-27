@@ -1,0 +1,53 @@
+# FXSoqqaBot Default Configuration
+# All values here match the Pydantic model defaults.
+# Override in paper.toml or live.toml for mode-specific settings.
+
+[execution]
+symbol = "XAUUSD"
+magic_number = 20260327
+deviation = 20
+mode = "paper"
+sl_atr_multiplier = 2.0
+
+[risk]
+aggressive_max = 100.0
+selective_max = 300.0
+aggressive_risk_pct = 0.10
+selective_risk_pct = 0.05
+conservative_risk_pct = 0.02
+daily_drawdown_pct = 0.05
+weekly_drawdown_pct = 0.10
+max_total_drawdown_pct = 0.25
+max_consecutive_losses = 5
+max_daily_trades = 20
+rapid_equity_drop_pct = 0.05
+rapid_equity_drop_window_minutes = 15
+spread_threshold_multiplier = 2.0
+spread_spike_multiplier = 5.0
+spread_spike_duration_seconds = 30
+
+[session]
+timezone = "UTC"
+reset_hour = 0
+
+[[session.windows]]
+start = "13:00"
+end = "17:00"
+
+[data]
+tick_buffer_size = 10000
+tick_poll_interval_ms = 100
+bar_refresh_interval_seconds = 5
+storage_path = "data/"
+parquet_partition_by = ["year", "month"]
+
+[data.bar_buffer_sizes]
+M1 = 1440
+M5 = 288
+M15 = 96
+H1 = 24
+H4 = 6
+
+[logging]
+json_mode = false
+level = "INFO"

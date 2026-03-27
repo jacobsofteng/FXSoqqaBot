@@ -239,9 +239,7 @@ class TestBotSettings:
         toml_file = tmp_path / "test_config.toml"
         toml_file.write_text(toml_content)
 
-        settings = BotSettings(
-            _toml_file=str(toml_file),
-        )
+        settings = BotSettings.from_toml(str(toml_file))
         # The TOML-loaded value should override the default
         assert settings.risk.aggressive_risk_pct == 0.08
 
@@ -274,7 +272,7 @@ class TestTomlOverrides:
         toml_file = tmp_path / "paper.toml"
         toml_file.write_text(toml_content)
 
-        settings = BotSettings(_toml_file=str(toml_file))
+        settings = BotSettings.from_toml(str(toml_file))
         assert settings.execution.mode == "paper"
 
     def test_live_toml_sets_live_mode(self, tmp_path: Path):
@@ -288,7 +286,7 @@ class TestTomlOverrides:
         toml_file = tmp_path / "live.toml"
         toml_file.write_text(toml_content)
 
-        settings = BotSettings(_toml_file=str(toml_file))
+        settings = BotSettings.from_toml(str(toml_file))
         assert settings.execution.mode == "live"
 
 
