@@ -44,11 +44,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Order Flow & Institutional Detection
 
-- [ ] **FLOW-01**: Bot computes cumulative volume delta (buying vs selling pressure) from tick-level trade data in real time
-- [ ] **FLOW-02**: Bot analyzes bid-ask aggression imbalances — detecting when aggressive buyers or sellers dominate the tape
-- [ ] **FLOW-03**: Bot processes DOM depth data (when available) to detect weight shifting to one side, large hidden orders, and liquidity absorption
-- [ ] **FLOW-04**: Bot detects institutional footprints: large order absorptions without price movement, iceberg order reload patterns at same price level, and volume clusters at key price levels
-- [ ] **FLOW-05**: Bot identifies HFT acceleration signatures and distinguishes institutional-directed flow from retail-driven noise
+- [x] **FLOW-01**: Bot computes cumulative volume delta (buying vs selling pressure) from tick-level trade data in real time
+- [x] **FLOW-02**: Bot analyzes bid-ask aggression imbalances — detecting when aggressive buyers or sellers dominate the tape
+- [x] **FLOW-03**: Bot processes DOM depth data (when available) to detect weight shifting to one side, large hidden orders, and liquidity absorption
+- [x] **FLOW-04**: Bot detects institutional footprints: large order absorptions without price movement, iceberg order reload patterns at same price level, and volume clusters at key price levels
+- [x] **FLOW-05**: Bot identifies HFT acceleration signatures and distinguishes institutional-directed flow from retail-driven noise
 - [x] **FLOW-06**: Bot degrades order flow analysis gracefully — full capability with DOM data, reduced but functional with tick-only data
 
 ### Quantum Timing
@@ -160,11 +160,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHAOS-04 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | CHAOS-05 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | CHAOS-06 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
-| FLOW-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| FLOW-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| FLOW-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| FLOW-04 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| FLOW-05 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FLOW-01 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| FLOW-02 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| FLOW-03 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| FLOW-04 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| FLOW-05 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FLOW-06 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | QTIM-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | QTIM-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |

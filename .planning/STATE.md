@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-03-27T12:12:38.509Z"
-last_activity: 2026-03-27 -- Plan 02-01 complete
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-03-27T12:25:12.255Z"
+last_activity: 2026-03-27
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 13
-  completed_plans: 8
+  completed_plans: 9
   percent: 71
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 02 (signal-pipeline-and-decision-fusion) — EXECUTING
-Plan: 1 of 6 (COMPLETE)
-Status: Executing Phase 02
-Last activity: 2026-03-27 -- Plan 02-01 complete
+Plan: 2 of 6 (COMPLETE)
+Status: Ready to execute
+Last activity: 2026-03-27
 
 Progress: [███████░░░] 71%
 
@@ -59,6 +59,7 @@ Progress: [███████░░░] 71%
 | Phase 01 P06 | 6min | 2 tasks | 7 files |
 | Phase 01 P07 | 5min | 3 tasks | 6 files |
 | Phase 02 P01 | 4min | 2 tasks | 12 files |
+| Phase 02 P03 | 7min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,9 @@ Recent decisions affecting current work:
 - [Phase 02]: Protocol over ABC for SignalModule -- structural typing allows duck-typing without inheritance
 - [Phase 02]: SignalsConfig container groups all signal configs under BotSettings.signals namespace
 - [Phase 02]: dict[str, Any] metadata field on SignalOutput for extensible module-specific debug data
+- [Phase 02]: Perfect unanimity z-score saturation: std=0 with nonzero mean gets z-score=10 (strongest signal)
+- [Phase 02]: 80/20 tick/DOM weighting per D-13: tick_direction = 0.6*delta + 0.2*aggression + 0.2*institutional
+- [Phase 02]: Ambiguous tick penalty: confidence reduced proportionally when ambiguous_pct > 30% per Research Pitfall 3
 
 ### Pending Todos
 
@@ -105,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T12:12:38.507Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-03-27T12:25:12.253Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
