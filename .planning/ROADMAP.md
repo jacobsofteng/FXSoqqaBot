@@ -70,7 +70,14 @@ Plans:
   3. Monte Carlo simulation randomizes trade sequences 10,000+ times and results are statistically significant (p < 0.05)
   4. Performance is measured separately across trending, ranging, high-volatility, and low-volatility regimes, and Feigenbaum stress testing verifies chaos module behavior during simulated regime transitions
   5. Out-of-sample holdout period (never touched during development) produces results consistent with in-sample performance
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 03-01-PLAN.md -- Interface abstraction: DataFeedProtocol, Clock Protocol, BacktestConfig, LiveDataFeedAdapter
+- [ ] 03-02-PLAN.md -- Historical data pipeline: histdata.com CSV parsing, validation, Parquet conversion
+- [ ] 03-03-PLAN.md -- Backtest engine: BacktestDataFeed, BacktestExecutor (spread/slippage/commission), BacktestEngine replay loop
+- [ ] 03-04-PLAN.md -- Walk-forward validation and out-of-sample holdout evaluation
+- [ ] 03-05-PLAN.md -- Monte Carlo simulation, regime-aware evaluation, and Feigenbaum stress testing
 
 ### Phase 4: Observability and Self-Learning
 **Goal**: The operator can monitor every aspect of the bot's behavior in real time through dashboards, and the bot evolves its own strategy through a hybrid genetic + ML learning loop that promotes improvements only after scientific validation
@@ -93,6 +100,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Trading Infrastructure | 7/7 | Complete | 2026-03-27 |
-| 2. Signal Pipeline and Decision Fusion | 5/6 | In Progress|  |
-| 3. Backtesting and Validation | 0/TBD | Not started | - |
+| 2. Signal Pipeline and Decision Fusion | 6/6 | Complete | 2026-03-27 |
+| 3. Backtesting and Validation | 0/5 | Not started | - |
 | 4. Observability and Self-Learning | 0/TBD | Not started | - |
