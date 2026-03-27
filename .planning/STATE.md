@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-08-PLAN.md
-last_updated: "2026-03-27T20:02:50.576Z"
+stopped_at: Completed quick/260328-1jh
+last_updated: "2026-03-27T20:14:55.722Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 4
@@ -155,6 +155,7 @@ Recent decisions affecting current work:
 - [Phase 04]: Extracted _handle_paper_close as separate async method for testability vs inlining in _tick_loop
 - [Phase 04]: Callback injection over direct WalkForwardValidator dependency -- full validator is too heavy for promotion hot path
 - [Phase 04]: Fail-safe on validator errors: reject promotion rather than allow through
+- [Phase quick]: Thread-based async-to-sync bridge for walk-forward callback: concurrent.futures.ThreadPoolExecutor because _check_promotions runs in async context
 
 ### Pending Todos
 
@@ -168,6 +169,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T00:00:00.000Z
-Stopped at: Completed 04-08-PLAN.md
+Last session: 2026-03-27T20:14:55.720Z
+Stopped at: Completed quick/260328-1jh
 Resume file: None
