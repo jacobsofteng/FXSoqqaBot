@@ -28,10 +28,10 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **RISK-01**: Every trade has a server-side stop-loss set at order placement time (never after), with ATR-based dynamic SL distance
 - [x] **RISK-02**: Position sizing engine calculates lot size from account equity, risk percentage (1-2%), SL distance, and current spread — never exceeding safe exposure for the current capital phase
 - [x] **RISK-03**: Bot filters trades when spread exceeds a configurable threshold (default: 2x average spread) and logs actual fill price vs requested price for slippage tracking
-- [ ] **RISK-04**: Daily drawdown circuit breaker halts all trading when daily loss exceeds configurable limit (default: 3-5%), persists across bot restarts, resets at session boundary
-- [ ] **RISK-05**: Kill switch immediately closes all positions, cancels all pending orders, and halts new trading — accessible from terminal command and dashboard
+- [x] **RISK-04**: Daily drawdown circuit breaker halts all trading when daily loss exceeds configurable limit (default: 3-5%), persists across bot restarts, resets at session boundary
+- [x] **RISK-05**: Kill switch immediately closes all positions, cancels all pending orders, and halts new trading — accessible from terminal command and dashboard
 - [x] **RISK-06**: Bot only trades during configurable session windows (default: London-NY overlap 13:00-17:00 UTC), auto-pauses outside liquid hours
-- [ ] **RISK-07**: Weekly drawdown limit and total max drawdown limit enforce multi-tier capital protection beyond daily limits
+- [x] **RISK-07**: Weekly drawdown limit and total max drawdown limit enforce multi-tier capital protection beyond daily limits
 
 ### Chaos & Regime Detection
 
@@ -150,10 +150,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RISK-01 | Phase 1: Trading Infrastructure | Complete |
 | RISK-02 | Phase 1: Trading Infrastructure | Complete |
 | RISK-03 | Phase 1: Trading Infrastructure | Complete |
-| RISK-04 | Phase 1: Trading Infrastructure | Pending |
-| RISK-05 | Phase 1: Trading Infrastructure | Pending |
+| RISK-04 | Phase 1: Trading Infrastructure | Complete |
+| RISK-05 | Phase 1: Trading Infrastructure | Complete |
 | RISK-06 | Phase 1: Trading Infrastructure | Complete |
-| RISK-07 | Phase 1: Trading Infrastructure | Pending |
+| RISK-07 | Phase 1: Trading Infrastructure | Complete |
 | CHAOS-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | CHAOS-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | CHAOS-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
