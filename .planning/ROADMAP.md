@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Trading Infrastructure** - Data pipeline, MT5 bridge, risk management, and configuration that keep a $20 account alive
 - [ ] **Phase 2: Signal Pipeline and Decision Fusion** - All analysis modules (chaos, order flow, quantum timing) simplified and fused into trade decisions
 - [ ] **Phase 3: Backtesting and Validation** - Scientific validation with walk-forward, Monte Carlo, and regime-aware evaluation on 2015-present XAUUSD data
-- [x] **Phase 4: Observability and Self-Learning** - Real-time dashboards (TUI + web) and self-learning mutation loop for continuous strategy evolution (completed 2026-03-27)
+- [ ] **Phase 4: Observability and Self-Learning** - Real-time dashboards (TUI + web) and self-learning mutation loop for continuous strategy evolution
 
 ## Phase Details
 
@@ -89,7 +89,7 @@ Plans:
   3. Bot logs every trade with full context (regime state, all signal confidences, position size, timing, outcome) and the genetic algorithm evolves rule parameters using trade outcomes as fitness
   4. Shadow mode tests mutated strategy variants alongside the live strategy without risking capital, and variants are promoted to live only after walk-forward validation confirms they outperform
   5. Learning loop identifies which signal combinations, regimes, and rules are performing or degrading -- and automatically retires underperforming rules
-**Plans**: 6 plans
+**Plans**: 8 plans
 **UI hint**: yes
 
 Plans:
@@ -99,6 +99,8 @@ Plans:
 - [x] 04-04-PLAN.md -- GA evolution engine, signal combination analyzer, EMA rule retirement tracker
 - [x] 04-05-PLAN.md -- Shadow mode variant management, ML regime classifier, statistical promotion
 - [x] 04-06-PLAN.md -- Engine integration: wire TUI, web, trade logger, and learning loop into TradingEngine
+- [ ] 04-07-PLAN.md -- Gap closure: fix trade logging pipeline (FillEvent return, close logging, learning loop wiring)
+- [ ] 04-08-PLAN.md -- Gap closure: add walk-forward validation gate to shadow variant promotion
 
 ## Progress
 
@@ -110,4 +112,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Trading Infrastructure | 7/7 | Complete | 2026-03-27 |
 | 2. Signal Pipeline and Decision Fusion | 6/6 | Complete | 2026-03-27 |
 | 3. Backtesting and Validation | 0/5 | Not started | - |
-| 4. Observability and Self-Learning | 6/6 | Complete   | 2026-03-27 |
+| 4. Observability and Self-Learning | 6/8 | Gap closure | - |
