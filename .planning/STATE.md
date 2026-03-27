@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed quick/260328-27e
-last_updated: "2026-03-28T00:35:00.000Z"
-last_activity: 2026-03-28
+stopped_at: "Completed quick task 260328-31c: Numba JIT chaos signal module"
+last_updated: "2026-03-27T21:45:25.427Z"
+last_activity: 2026-03-27
 progress:
   total_phases: 4
   completed_phases: 4
@@ -156,6 +156,9 @@ Recent decisions affecting current work:
 - [Phase 04]: Callback injection over direct WalkForwardValidator dependency -- full validator is too heavy for promotion hot path
 - [Phase 04]: Fail-safe on validator errors: reject promotion rather than allow through
 - [Phase quick]: Thread-based async-to-sync bridge for walk-forward callback: concurrent.futures.ThreadPoolExecutor because _check_promotions runs in async context
+- [Phase quick-260328-31c]: Keep nolds.measures.poly_fit for RANSAC final fits outside JIT boundary
+- [Phase quick-260328-31c]: Match nolds correlation sum counting with diagonal self-matches for numerical equivalence
+- [Phase quick-260328-31c]: Replicate nolds nb_neighbors lag check in lyapunov to prevent orbit-too-small on short data
 
 ### Pending Todos
 
@@ -173,9 +176,10 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260328-1jh | Wire set_walk_forward_validator in engine.py | 2026-03-27 | abdcd4c | [260328-1jh-wire-set-walk-forward-validator-in-engin](./quick/260328-1jh-wire-set-walk-forward-validator-in-engin/) |
 | 260328-27e | Run backtesting end-to-end with histdata | 2026-03-28 | 033a8b0 | [260328-27e-run-backtesting-end-to-end-with-histdata](./quick/260328-27e-run-backtesting-end-to-end-with-histdata/) |
+| 260328-31c | Numba JIT compile chaos signal module hot loops | 2026-03-28 | 23ddfcb | [260328-31c-numba-jit-compile-chaos-signal-module-ho](./quick/260328-31c-numba-jit-compile-chaos-signal-module-ho/) |
 
 ## Session Continuity
 
-Last session: 2026-03-27T20:43:53Z
-Stopped at: Completed quick task 260328-27e: Run backtesting end-to-end with histdata
+Last session: 2026-03-27T21:45:17.394Z
+Stopped at: Completed quick task 260328-31c: Numba JIT chaos signal module
 Resume file: None
