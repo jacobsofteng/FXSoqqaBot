@@ -40,7 +40,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **CHAOS-03**: Bot computes Fractal Dimension to measure complexity and self-similarity of price action across timeframes
 - [ ] **CHAOS-04**: Bot detects Feigenbaum bifurcation proximity by measuring period-doubling ratios in price oscillations to anticipate regime transitions before they complete
 - [ ] **CHAOS-05**: Bot models crowd entropy through statistical mechanics — detecting entropy spikes that signal crowd panic or euphoria tipping points
-- [ ] **CHAOS-06**: Bot classifies the current market into discrete regime states (trending-up, trending-down, ranging, high-chaos, pre-bifurcation) and outputs confidence levels, not point estimates
+- [x] **CHAOS-06**: Bot classifies the current market into discrete regime states (trending-up, trending-down, ranging, high-chaos, pre-bifurcation) and outputs confidence levels, not point estimates
 
 ### Order Flow & Institutional Detection
 
@@ -49,7 +49,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **FLOW-03**: Bot processes DOM depth data (when available) to detect weight shifting to one side, large hidden orders, and liquidity absorption
 - [ ] **FLOW-04**: Bot detects institutional footprints: large order absorptions without price movement, iceberg order reload patterns at same price level, and volume clusters at key price levels
 - [ ] **FLOW-05**: Bot identifies HFT acceleration signatures and distinguishes institutional-directed flow from retail-driven noise
-- [ ] **FLOW-06**: Bot degrades order flow analysis gracefully — full capability with DOM data, reduced but functional with tick-only data
+- [x] **FLOW-06**: Bot degrades order flow analysis gracefully — full capability with DOM data, reduced but functional with tick-only data
 
 ### Quantum Timing
 
@@ -59,7 +59,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Signal Fusion & Decision
 
-- [ ] **FUSE-01**: Decision core fuses signals from all upstream modules (chaos regime, order flow, institutional, quantum timing) into a single trade decision using confidence-weighted combination
+- [x] **FUSE-01**: Decision core fuses signals from all upstream modules (chaos regime, order flow, institutional, quantum timing) into a single trade decision using confidence-weighted combination
 - [ ] **FUSE-02**: Each module produces a signal with a confidence score; fusion weights adapt based on which modules have been accurate in the recent rolling window
 - [ ] **FUSE-03**: Bot applies phase-aware position sizing: aggressive leverage utilization ($20-$100), selective with tighter risk ($100-$300), conservative capital preservation ($300+)
 - [ ] **FUSE-04**: Bot auto-transitions between capital phases based on equity, with smooth behavioral transitions (no sudden strategy flip at exact threshold)
@@ -159,17 +159,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHAOS-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | CHAOS-04 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | CHAOS-05 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| CHAOS-06 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| CHAOS-06 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FLOW-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | FLOW-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | FLOW-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | FLOW-04 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | FLOW-05 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| FLOW-06 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FLOW-06 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | QTIM-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | QTIM-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | QTIM-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
-| FUSE-01 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
+| FUSE-01 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-02 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | FUSE-03 | Phase 2: Signal Pipeline and Decision Fusion | Pending |
 | FUSE-04 | Phase 2: Signal Pipeline and Decision Fusion | Pending |

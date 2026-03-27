@@ -53,7 +53,7 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Signal pipeline foundation: dependencies, Protocol/dataclass types, config models
+- [x] 02-01-PLAN.md -- Signal pipeline foundation: dependencies, Protocol/dataclass types, config models
 - [ ] 02-02-PLAN.md -- Chaos/regime module: Hurst, Lyapunov, fractal, Feigenbaum, entropy, regime classifier
 - [ ] 02-03-PLAN.md -- Order flow module: volume delta, aggression, DOM analysis, institutional footprints, HFT detection
 - [ ] 02-04-PLAN.md -- Quantum timing module: OU mean-reversion timing, phase transition detection
