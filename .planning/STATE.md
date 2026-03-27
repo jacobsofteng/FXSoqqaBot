@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** The bot reads the market's true state through the fusion of all eight modules and trades with the dominant forces. The edge is the fusion.
-**Current focus:** Phase 03 — backtesting-and-validation
+**Current focus:** Phase 04 — observability-and-self-learning
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-03-27
+Phase: 04 (observability-and-self-learning) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 04
+Last activity: 2026-03-27 -- Phase 04 execution started
 
 Progress: [████████░░] 77%
 
@@ -144,6 +144,7 @@ None yet.
 
 ## Session Continuity
 
+<<<<<<< Updated upstream
 <<<<<<< HEAD
 Last session: 2026-03-27T18:28:14.720Z
 Stopped at: Completed 04-01-PLAN.md
@@ -152,3 +153,8 @@ Last session: 2026-03-27T14:40:15.787Z
 Stopped at: Completed 03-05-PLAN.md
 >>>>>>> worktree-agent-aab170ee
 Resume file: None
+=======
+Last session: 2026-03-27T17:59:04.851Z
+Stopped at: Phase 4 UI-SPEC approved
+Resume file: .planning/phases/04-observability-and-self-learning/04-UI-SPEC.md
+>>>>>>> Stashed changes
