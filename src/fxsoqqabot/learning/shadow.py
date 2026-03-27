@@ -235,6 +235,7 @@ class ShadowManager:
             "variant_fitness": variant.fitness_score,
             "live_fitness": live_fitness,
             "reason": f"Statistically significant improvement (p={p_value:.4f})",
+            "walk_forward_pass": None,  # Populated by LearningLoopManager
         }
 
     def promote_variant(self, variant_id: str) -> dict[str, float]:

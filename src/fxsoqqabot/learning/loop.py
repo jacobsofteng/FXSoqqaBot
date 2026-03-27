@@ -15,7 +15,7 @@ Key behaviors:
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Callable
 
 import structlog
 
@@ -70,6 +70,11 @@ class LearningLoopManager:
         self._trades_since_retrain: int = 0
         self._total_trades: int = 0
 
+        # Walk-forward validation gate for variant promotion (LEARN-06)
+        # Callable that takes variant params and returns bool (pass/fail)
+        # Injected by engine or set to None for statistical-only mode
+        self._walk_forward_validator: Callable[[dict[str, float]], bool] | None = None
+
         # Mutation event log for TUI display
         self._last_mutation_events: list[dict] = []
 
@@ -78,6 +83,21 @@ class LearningLoopManager:
             evolve_every=config.evolve_every_n_trades,
             n_shadow_variants=config.n_shadow_variants,
         )
+
+    def set_walk_forward_validator(
+        self, validator: Callable[[dict[str, float]], bool]
+    ) -> None:
+        """Set the walk-forward validation callback for LEARN-06.
+
+        The callback receives a dict of variant params (param_name -> value)
+        and returns True if walk-forward validation passes, False otherwise.
+        Called only when a variant passes the Mann-Whitney statistical gate.
+
+        Args:
+            validator: Callable that takes param dict and returns bool.
+        """
+        self._walk_forward_validator = validator
+        logger.info("walk_forward_validator_set")
 
     async def on_trade_closed(self, trade_result: dict) -> list[dict]:
         """Main entry point called when a live trade closes.
@@ -157,8 +177,9 @@ class LearningLoopManager:
         """Evaluate each shadow variant for promotion to live.
 
         For each variant, runs Mann-Whitney U evaluation against live
-        trades. If statistically significant, promotes the variant
-        (applies its params) and creates a mutation event.
+        trades. If statistically significant, applies walk-forward
+        validation gate (LEARN-06) before promoting. Both gates must
+        pass for promotion.
 
         Returns:
             List of mutation event dicts for tracking/display.
@@ -173,6 +194,43 @@ class LearningLoopManager:
             )
 
             if eval_result.get("should_promote", False):
+                # LEARN-06: Walk-forward validation gate
+                wf_pass = True  # Default if no validator
+                if self._walk_forward_validator is not None:
+                    try:
+                        wf_pass = self._walk_forward_validator(
+                            variant.mutated_params
+                        )
+                        logger.info(
+                            "walk_forward_gate_result",
+                            variant_id=variant.variant_id,
+                            walk_forward_pass=wf_pass,
+                        )
+                    except Exception:
+                        logger.error(
+                            "walk_forward_gate_error",
+                            variant_id=variant.variant_id,
+                            exc_info=True,
+                        )
+                        wf_pass = False  # Fail-safe: reject on error
+                else:
+                    logger.warning(
+                        "walk_forward_validator_not_set",
+                        variant_id=variant.variant_id,
+                        msg="Promoting on statistical significance only -- LEARN-06 gate inactive",
+                    )
+
+                if not wf_pass:
+                    logger.info(
+                        "variant_promotion_rejected_walk_forward",
+                        variant_id=variant.variant_id,
+                        p_value=eval_result.get("p_value"),
+                    )
+                    # Reset variant since it passed stats but failed walk-forward
+                    self._shadow.reset_variant(variant.variant_id)
+                    continue
+
+                # Both gates passed -- promote
                 promoted_params = self._shadow.promote_variant(
                     variant.variant_id
                 )
@@ -182,7 +240,7 @@ class LearningLoopManager:
                     "param": "multiple",
                     "old": "live_params",
                     "new": str(promoted_params),
-                    "reason": f"variant promoted p={eval_result.get('p_value', 0.0):.4f}",
+                    "reason": f"variant promoted p={eval_result.get('p_value', 0.0):.4f}, walk-forward={'pass' if wf_pass else 'fail'}",
                 }
                 mutations.append(mutation_event)
                 self._last_mutation_events.append(mutation_event)
@@ -191,6 +249,7 @@ class LearningLoopManager:
                     "variant_promoted_to_live",
                     variant_id=variant.variant_id,
                     p_value=eval_result.get("p_value"),
+                    walk_forward_pass=wf_pass,
                 )
 
         return mutations

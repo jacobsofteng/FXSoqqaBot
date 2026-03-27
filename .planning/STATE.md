@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-07-PLAN.md
-last_updated: "2026-03-27T19:50:04.017Z"
+stopped_at: Completed 04-08-PLAN.md
+last_updated: "2026-03-28T00:00:00.000Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 4
@@ -76,6 +76,7 @@ Progress: [████████░░] 77%
 | Phase 04 P05 | 5min | 2 tasks | 4 files |
 | Phase 04 P06 | 5min | 2 tasks | 5 files |
 | Phase 04 P07 | 9min | 2 tasks | 4 files |
+| Phase 04 P08 | 4min | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,8 @@ Recent decisions affecting current work:
 - [Phase 04]: Learning disabled by default (enabled=false) until explicitly enabled -- prevents accidental evolution before sufficient trade history
 - [Phase 04]: Tuple return (TradeDecision, FillEvent | None) over adding fill field to frozen TradeDecision -- preserves immutability
 - [Phase 04]: Extracted _handle_paper_close as separate async method for testability vs inlining in _tick_loop
+- [Phase 04]: Callback injection over direct WalkForwardValidator dependency -- full validator is too heavy for promotion hot path
+- [Phase 04]: Fail-safe on validator errors: reject promotion rather than allow through
 
 ### Pending Todos
 
@@ -165,6 +168,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T19:50:04.015Z
-Stopped at: Completed 04-07-PLAN.md
+Last session: 2026-03-28T00:00:00.000Z
+Stopped at: Completed 04-08-PLAN.md
 Resume file: None
