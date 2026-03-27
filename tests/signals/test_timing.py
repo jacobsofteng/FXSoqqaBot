@@ -221,15 +221,25 @@ class TestDetectPhaseTransition:
     """Tests for detect_phase_transition()."""
 
     def test_compression_detected(self) -> None:
-        """Low volatility returns 'compression' state."""
+        """Low volatility at end vs high earlier returns 'compression' state."""
         from fxsoqqabot.signals.timing.phase_transition import detect_phase_transition
 
-        # Create a series that starts volatile then compresses
+        # Start with high volatility, then compress to very low
+        # This makes the long-term ATR average high while current ATR is low
         rng = np.random.default_rng(10)
         n = 100
-        close = 100 + np.cumsum(rng.normal(0, 0.01, n))  # Very low vol
-        high = close + 0.01  # Tiny range -> very low ATR
-        low = close - 0.01
+        close_volatile = 100 + np.cumsum(rng.normal(0, 5.0, 70))
+        close_calm = close_volatile[-1] + np.cumsum(rng.normal(0, 0.01, 30))
+        close = np.concatenate([close_volatile, close_calm])
+
+        high = close.copy()
+        low = close.copy()
+        # Volatile phase: wide ranges
+        high[:70] += rng.uniform(5.0, 15.0, 70)
+        low[:70] -= rng.uniform(5.0, 15.0, 70)
+        # Calm phase: tiny ranges
+        high[70:] += 0.01
+        low[70:] -= 0.01
 
         state, energy, conf = detect_phase_transition(close, high, low)
         assert state == "compression", f"Expected compression, got {state}"
