@@ -4,6 +4,7 @@ Supports commands:
 - run: Start the trading bot (with optional --no-tui, --no-web, --no-learning)
 - dashboard: Run web dashboard only
 - learning: Show learning loop status
+- optimize: Run Optuna + DEAP parameter optimization
 - kill: Activate kill switch (close all positions, halt trading)
 - status: Show circuit breaker states and counters
 - reset: Reset kill switch (explicit manual action per D-10)
@@ -120,6 +121,41 @@ def create_parser() -> argparse.ArgumentParser:
         help="TOML config file(s) to load",
     )
     backtest_parser.add_argument(
+        "--skip-ingestion",
+        action="store_true",
+        default=False,
+        help="Skip CSV-to-Parquet ingestion (use existing Parquet data)",
+    )
+
+    # optimize command
+    optimize_parser = subparsers.add_parser(
+        "optimize", help="Optimize strategy parameters via Optuna + DEAP"
+    )
+    optimize_parser.add_argument(
+        "--config",
+        nargs="*",
+        default=None,
+        help="TOML config file(s) to load (e.g., config/paper.toml)",
+    )
+    optimize_parser.add_argument(
+        "--n-trials",
+        type=int,
+        default=50,
+        help="Number of Optuna trials (default: 50)",
+    )
+    optimize_parser.add_argument(
+        "--n-generations",
+        type=int,
+        default=10,
+        help="Number of DEAP GA generations for weight evolution (default: 10)",
+    )
+    optimize_parser.add_argument(
+        "--output",
+        type=str,
+        default="config/optimized.toml",
+        help="Path to write optimized config (default: config/optimized.toml)",
+    )
+    optimize_parser.add_argument(
         "--skip-ingestion",
         action="store_true",
         default=False,
@@ -356,6 +392,30 @@ async def cmd_backtest(args: argparse.Namespace) -> None:
     await run_full_backtest(settings, bt_config, skip_ingestion=args.skip_ingestion)
 
 
+def cmd_optimize(args: argparse.Namespace) -> None:
+    """Run parameter optimization. Synchronous -- Optuna drives the event loop.
+
+    Each Optuna objective call uses its own asyncio.run() to bridge to
+    async BacktestEngine. This function must NOT be wrapped in asyncio.run()
+    by the CLI dispatcher (Pitfall 2).
+    """
+    from fxsoqqabot.backtest.config import BacktestConfig
+    from fxsoqqabot.optimization.optimizer import run_optimization
+
+    settings = load_settings(args.config)
+    _setup_logging(settings)
+
+    bt_config = BacktestConfig()
+    run_optimization(
+        settings=settings,
+        bt_config=bt_config,
+        n_trials=args.n_trials,
+        n_generations=args.n_generations,
+        output_path=args.output,
+        skip_ingestion=args.skip_ingestion,
+    )
+
+
 def _setup_logging(settings: BotSettings) -> None:
     """Configure structlog based on settings."""
     import logging
@@ -384,10 +444,13 @@ def main() -> None:
         "status": cmd_status,
         "reset": cmd_reset,
         "backtest": lambda: cmd_backtest(args),
+        "optimize": lambda: cmd_optimize(args),
     }
 
-    coro = commands[args.command]()
-    asyncio.run(coro)
+    result = commands[args.command]()
+    if asyncio.iscoroutine(result):
+        asyncio.run(result)
+    # If result is None (sync command like optimize), nothing to do
 
 
 if __name__ == "__main__":
