@@ -94,8 +94,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Configuration
 
-- [ ] **CONF-01**: All risk parameters, signal thresholds, trading hours, position sizes, and module weights are configurable via YAML/TOML files without code changes
-- [ ] **CONF-02**: Separate configuration profiles for each growth phase ($20-$100, $100-$300, $300+) with automatic profile switching based on equity
+- [x] **CONF-01**: All risk parameters, signal thresholds, trading hours, position sizes, and module weights are configurable via YAML/TOML files without code changes
+- [x] **CONF-02**: Separate configuration profiles for each growth phase ($20-$100, $100-$300, $300+) with automatic profile switching based on equity
 
 ## v2 Requirements
 
@@ -192,8 +192,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LEARN-04 | Phase 4: Observability and Self-Learning | Pending |
 | LEARN-05 | Phase 4: Observability and Self-Learning | Pending |
 | LEARN-06 | Phase 4: Observability and Self-Learning | Pending |
-| CONF-01 | Phase 1: Trading Infrastructure | Pending |
-| CONF-02 | Phase 1: Trading Infrastructure | Pending |
+| CONF-01 | Phase 1: Trading Infrastructure | Complete |
+| CONF-02 | Phase 1: Trading Infrastructure | Complete |
 
 **Coverage:**
 - v1 requirements: 47 total
