@@ -5,6 +5,7 @@ status: draft
 shadcn_initialized: false
 preset: none
 created: 2026-03-27
+revised: 2026-03-27
 ---
 
 # Phase 4 -- UI Design Contract
@@ -78,10 +79,12 @@ Terminal renders in monospace at whatever size the user's terminal is configured
 
 | Role | Size | Weight | Line Height | CSS Variable |
 |------|------|--------|-------------|-------------|
-| Body | 14px | 400 (regular) | 1.5 | `--font-body` |
-| Label | 12px | 500 (medium) | 1.4 | `--font-label` |
-| Heading | 18px | 600 (semibold) | 1.2 | `--font-heading` |
-| Display | 28px | 700 (bold) | 1.1 | `--font-display` |
+| Label | 12px | 400 (regular) | 1.4 | `--font-label` |
+| Body | 16px | 400 (regular) | 1.5 | `--font-body` |
+| Heading | 20px | 600 (semibold) | 1.2 | `--font-heading` |
+| Display | 28px | 600 (semibold) | 1.1 | `--font-display` |
+
+**Weights used: exactly 2.** Regular (400) for body and label text. Semibold (600) for heading and display text. No other weights are permitted.
 
 Font family: `system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` for all roles.
 
@@ -377,26 +380,28 @@ Single-page application with tabbed navigation. Dark theme.
 |----------|-------------|-------------|
 | shadcn official | none | not applicable -- Python project |
 | Third-party | none | not applicable |
-| npm / CDN | TradingView Lightweight Charts JS (CDN in HTML) | Pinned version URL, SRI hash required |
+| npm / CDN | none | not applicable -- local bundling approach (see below) |
 | PyPI | textual, fastapi, uvicorn, plotly, deap, scikit-learn, optuna, lightweight-charts | Versions pinned in pyproject.toml, installed via uv lockfile |
 
-**CDN dependency:** The web dashboard includes TradingView's Lightweight Charts JS library via CDN script tag. Pin to a specific version and include a subresource integrity (SRI) hash:
+**JS dependency strategy: Local bundling (no CDN).**
+
+The web dashboard bundles all third-party JavaScript files locally in `dashboard/web/static/vendor/` and serves them via FastAPI's `StaticFiles` mount. This eliminates external network dependencies at runtime, which is correct for a trading machine that should not depend on CDN availability.
+
+Files to bundle locally:
+
+| Library | Source | Local Path |
+|---------|--------|------------|
+| TradingView Lightweight Charts | `https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js` | `dashboard/web/static/vendor/lightweight-charts-4.1.3.js` |
+| Plotly.js | `https://cdn.plot.ly/plotly-2.35.0.min.js` | `dashboard/web/static/vendor/plotly-2.35.0.min.js` |
+
+**Bundling procedure:** Download each file once during project setup, commit to the repository. The HTML template references local paths:
 
 ```html
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"
-        integrity="{sha384-hash}"
-        crossorigin="anonymous"></script>
+<script src="/static/vendor/lightweight-charts-4.1.3.js"></script>
+<script src="/static/vendor/plotly-2.35.0.min.js"></script>
 ```
 
-Plotly is served via its Python-generated JSON + Plotly.js CDN:
-
-```html
-<script src="https://cdn.plot.ly/plotly-2.35.0.min.js"
-        integrity="{sha384-hash}"
-        crossorigin="anonymous"></script>
-```
-
-**Alternative to CDN:** Bundle the JS files in `dashboard/web/static/vendor/` and serve from FastAPI. Eliminates external network dependency. Recommended for production since the bot runs offline on a trading machine.
+No SRI hashes are required for locally-served files (integrity is guaranteed by the repository). Version upgrades are handled by downloading the new file, updating the filename, and updating the HTML reference.
 
 ---
 
