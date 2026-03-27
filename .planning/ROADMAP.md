@@ -36,7 +36,7 @@ Plans:
 - [x] 01-02-PLAN.md -- Async MT5 bridge and market data feed (ticks, bars, DOM)
 - [x] 01-03-PLAN.md -- Rolling in-memory buffers and DuckDB/Parquet storage
 - [ ] 01-04-PLAN.md -- Order execution with server-side SL and paper trading engine
-- [ ] 01-05-PLAN.md -- Position sizing engine and session time filter
+- [x] 01-05-PLAN.md -- Position sizing engine and session time filter
 - [ ] 01-06-PLAN.md -- Circuit breakers, kill switch, and SQLite state persistence
 - [ ] 01-07-PLAN.md -- Async engine orchestration, crash recovery, and CLI entry points
 
