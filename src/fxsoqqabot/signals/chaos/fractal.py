@@ -4,13 +4,16 @@ CHAOS-03: Correlation dimension via Grassberger-Procaccia algorithm.
 Low fractal dimension (~1.0) indicates simple dynamics, high fractal
 dimension (~2.0) indicates complex/random dynamics.
 
-Uses nolds.corr_dim as the core computation.
+Inner distance matrix and correlation sums JIT-compiled via _numba_core.
+Final RANSAC line fit via nolds.measures.poly_fit (called once per bar).
 """
 
 from __future__ import annotations
 
 import numpy as np
-import nolds
+from nolds.measures import poly_fit as _nolds_poly_fit
+
+from fxsoqqabot.signals.chaos._numba_core import _corr_dim_core, _delay_embedding
 
 
 def compute_fractal_dimension(
@@ -35,7 +38,40 @@ def compute_fractal_dimension(
         return (1.5, 0.0)
 
     try:
-        fd_val = float(nolds.corr_dim(close_prices, emb_dim=emb_dim))
+        data = np.ascontiguousarray(close_prices, dtype=np.float64)
+
+        # Compute rvals: logarithmic range from 0.1*std to 0.5*std, factor 1.03
+        sd = float(np.std(data, ddof=1))
+        if sd == 0.0:
+            return (1.5, 0.0)
+
+        rvals_list: list[float] = []
+        r = 0.1 * sd
+        upper = 0.5 * sd
+        while r < upper:
+            rvals_list.append(r)
+            r *= 1.03
+        if len(rvals_list) == 0:
+            return (1.5, 0.0)
+        rvals = np.array(rvals_list, dtype=np.float64)
+
+        # JIT-compiled delay embedding (lag=1 default)
+        orbit = _delay_embedding(data, emb_dim, 1)
+
+        # JIT-compiled correlation sums
+        csums = _corr_dim_core(orbit, rvals)
+
+        # Filter zeros
+        nonzero = csums != 0
+        rvals_nz = rvals[nonzero]
+        csums_nz = csums[nonzero]
+
+        if len(csums_nz) < 2:
+            return (1.5, 0.0)
+
+        # RANSAC line fit on log(r) vs log(C(r))
+        poly = _nolds_poly_fit(np.log(rvals_nz), np.log(csums_nz), 1, fit="RANSAC")
+        fd_val = float(poly[0])
     except Exception:
         return (1.5, 0.0)
 

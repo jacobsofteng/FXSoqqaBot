@@ -18,6 +18,7 @@ import structlog
 from fxsoqqabot.config.models import ChaosConfig
 from fxsoqqabot.core.events import DOMSnapshot
 from fxsoqqabot.signals.base import RegimeState, SignalOutput
+from fxsoqqabot.signals.chaos._numba_core import warmup_jit
 from fxsoqqabot.signals.chaos.entropy import compute_crowd_entropy
 from fxsoqqabot.signals.chaos.feigenbaum import detect_bifurcation_proximity
 from fxsoqqabot.signals.chaos.fractal import compute_fractal_dimension
@@ -48,8 +49,9 @@ class ChaosRegimeModule:
         return "chaos"
 
     async def initialize(self) -> None:
-        """One-time async setup. No-op for now (Numba warm-up later)."""
-        logger.info("chaos_module_initialized")
+        """One-time async setup. Warms up Numba JIT cache for chaos functions."""
+        await asyncio.to_thread(warmup_jit)
+        logger.info("chaos_module_initialized", jit_warmed_up=True)
 
     async def update(
         self,
