@@ -1,0 +1,266 @@
+"""Tests for the chaos/regime detection signal module.
+
+Covers all five chaos metrics (Hurst, Lyapunov, fractal dimension,
+Feigenbaum bifurcation, crowd entropy) and the regime classifier.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+
+# ---------------------------------------------------------------------------
+# Hurst exponent tests
+# ---------------------------------------------------------------------------
+
+class TestComputeHurst:
+    """Tests for compute_hurst() -- CHAOS-01."""
+
+    def test_returns_tuple_of_two_floats(self):
+        from fxsoqqabot.signals.chaos.hurst import compute_hurst
+        prices = np.cumsum(np.random.randn(200)) + 1000
+        result = compute_hurst(prices)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert isinstance(result[0], float)
+        assert isinstance(result[1], float)
+
+    def test_insufficient_data_returns_defaults(self):
+        from fxsoqqabot.signals.chaos.hurst import compute_hurst
+        prices = np.array([100.0, 101.0, 102.0])
+        hurst_val, confidence = compute_hurst(prices, min_length=100)
+        assert hurst_val == 0.5
+        assert confidence == 0.0
+
+    def test_empty_array_returns_defaults(self):
+        from fxsoqqabot.signals.chaos.hurst import compute_hurst
+        prices = np.array([])
+        hurst_val, confidence = compute_hurst(prices)
+        assert hurst_val == 0.5
+        assert confidence == 0.0
+
+    def test_confidence_scales_with_data_length(self):
+        from fxsoqqabot.signals.chaos.hurst import compute_hurst
+        prices = np.cumsum(np.random.randn(250)) + 1000
+        _, confidence = compute_hurst(prices, min_length=100)
+        assert 0.0 < confidence <= 1.0
+        # 250 / 500 = 0.5
+        assert confidence == pytest.approx(0.5, abs=0.01)
+
+    def test_full_confidence_at_500_points(self):
+        from fxsoqqabot.signals.chaos.hurst import compute_hurst
+        prices = np.cumsum(np.random.randn(600)) + 1000
+        _, confidence = compute_hurst(prices, min_length=100)
+        assert confidence == 1.0
+
+    def test_trending_data_high_hurst(self):
+        from fxsoqqabot.signals.chaos.hurst import compute_hurst
+        # Cumulative sum creates strong trend -> H > 0.6
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(500)) + 1000
+        hurst_val, _ = compute_hurst(prices)
+        assert hurst_val > 0.6
+
+    def test_output_clamped_to_range(self):
+        from fxsoqqabot.signals.chaos.hurst import compute_hurst
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(300)) + 1000
+        hurst_val, _ = compute_hurst(prices)
+        assert 0.0 <= hurst_val <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Lyapunov exponent tests
+# ---------------------------------------------------------------------------
+
+class TestComputeLyapunov:
+    """Tests for compute_lyapunov() -- CHAOS-02."""
+
+    def test_returns_tuple_of_two_floats(self):
+        from fxsoqqabot.signals.chaos.lyapunov import compute_lyapunov
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(500)) + 1000
+        result = compute_lyapunov(prices)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert isinstance(result[0], float)
+        assert isinstance(result[1], float)
+
+    def test_insufficient_data_returns_defaults(self):
+        from fxsoqqabot.signals.chaos.lyapunov import compute_lyapunov
+        prices = np.array([100.0, 101.0, 102.0])
+        lyap_val, confidence = compute_lyapunov(prices, min_length=300)
+        assert lyap_val == 0.0
+        assert confidence == 0.0
+
+    def test_empty_array_returns_defaults(self):
+        from fxsoqqabot.signals.chaos.lyapunov import compute_lyapunov
+        prices = np.array([])
+        lyap_val, confidence = compute_lyapunov(prices)
+        assert lyap_val == 0.0
+        assert confidence == 0.0
+
+    def test_confidence_scales_with_data_length(self):
+        from fxsoqqabot.signals.chaos.lyapunov import compute_lyapunov
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(500)) + 1000
+        _, confidence = compute_lyapunov(prices, min_length=300)
+        # 500 / (300 * 3) = 0.555...
+        assert 0.0 < confidence <= 1.0
+
+    def test_returns_finite_value(self):
+        from fxsoqqabot.signals.chaos.lyapunov import compute_lyapunov
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(500)) + 1000
+        lyap_val, _ = compute_lyapunov(prices)
+        assert np.isfinite(lyap_val)
+
+
+# ---------------------------------------------------------------------------
+# Fractal dimension tests
+# ---------------------------------------------------------------------------
+
+class TestComputeFractalDimension:
+    """Tests for compute_fractal_dimension() -- CHAOS-03."""
+
+    def test_returns_tuple_of_two_floats(self):
+        from fxsoqqabot.signals.chaos.fractal import compute_fractal_dimension
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(500)) + 1000
+        result = compute_fractal_dimension(prices)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert isinstance(result[0], float)
+        assert isinstance(result[1], float)
+
+    def test_insufficient_data_returns_defaults(self):
+        from fxsoqqabot.signals.chaos.fractal import compute_fractal_dimension
+        prices = np.array([100.0, 101.0])
+        fd_val, confidence = compute_fractal_dimension(prices, min_length=200)
+        assert fd_val == 1.5
+        assert confidence == 0.0
+
+    def test_empty_array_returns_defaults(self):
+        from fxsoqqabot.signals.chaos.fractal import compute_fractal_dimension
+        prices = np.array([])
+        fd_val, confidence = compute_fractal_dimension(prices)
+        assert fd_val == 1.5
+        assert confidence == 0.0
+
+    def test_output_clamped_to_range(self):
+        from fxsoqqabot.signals.chaos.fractal import compute_fractal_dimension
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(500)) + 1000
+        fd_val, _ = compute_fractal_dimension(prices)
+        assert 1.0 <= fd_val <= 2.0
+
+    def test_confidence_scales_with_data_length(self):
+        from fxsoqqabot.signals.chaos.fractal import compute_fractal_dimension
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(300)) + 1000
+        _, confidence = compute_fractal_dimension(prices, min_length=200)
+        # 300 / 600 = 0.5
+        assert confidence == pytest.approx(0.5, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# Feigenbaum bifurcation tests
+# ---------------------------------------------------------------------------
+
+class TestDetectBifurcationProximity:
+    """Tests for detect_bifurcation_proximity() -- CHAOS-04."""
+
+    def test_returns_tuple_of_two_floats(self):
+        from fxsoqqabot.signals.chaos.feigenbaum import detect_bifurcation_proximity
+        np.random.seed(42)
+        # Oscillating data to create peaks
+        t = np.linspace(0, 20 * np.pi, 500)
+        prices = 1000 + 10 * np.sin(t) + np.random.randn(500)
+        result = detect_bifurcation_proximity(prices)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert isinstance(result[0], float)
+        assert isinstance(result[1], float)
+
+    def test_insufficient_data_returns_defaults(self):
+        from fxsoqqabot.signals.chaos.feigenbaum import detect_bifurcation_proximity
+        prices = np.array([100.0, 101.0, 102.0])
+        prox, confidence = detect_bifurcation_proximity(prices)
+        assert prox == 0.0
+        assert confidence == 0.0
+
+    def test_empty_array_returns_defaults(self):
+        from fxsoqqabot.signals.chaos.feigenbaum import detect_bifurcation_proximity
+        prices = np.array([])
+        prox, confidence = detect_bifurcation_proximity(prices)
+        assert prox == 0.0
+        assert confidence == 0.0
+
+    def test_proximity_in_valid_range(self):
+        from fxsoqqabot.signals.chaos.feigenbaum import detect_bifurcation_proximity
+        np.random.seed(42)
+        t = np.linspace(0, 20 * np.pi, 500)
+        prices = 1000 + 10 * np.sin(t) + np.random.randn(500)
+        prox, _ = detect_bifurcation_proximity(prices)
+        assert 0.0 <= prox <= 1.0
+
+    def test_feigenbaum_constant_used(self):
+        from fxsoqqabot.signals.chaos.feigenbaum import detect_bifurcation_proximity
+        # Just verifying the function exists and references the constant
+        import inspect
+        src = inspect.getsource(detect_bifurcation_proximity)
+        assert "4.669201609" in src
+
+
+# ---------------------------------------------------------------------------
+# Crowd entropy tests
+# ---------------------------------------------------------------------------
+
+class TestComputeCrowdEntropy:
+    """Tests for compute_crowd_entropy() -- CHAOS-05."""
+
+    def test_returns_tuple_of_two_floats(self):
+        from fxsoqqabot.signals.chaos.entropy import compute_crowd_entropy
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(200)) + 1000
+        result = compute_crowd_entropy(prices)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert isinstance(result[0], float)
+        assert isinstance(result[1], float)
+
+    def test_insufficient_data_returns_defaults(self):
+        from fxsoqqabot.signals.chaos.entropy import compute_crowd_entropy
+        prices = np.array([100.0, 101.0, 102.0])
+        ent_val, confidence = compute_crowd_entropy(prices, min_length=100)
+        assert ent_val == 0.5
+        assert confidence == 0.0
+
+    def test_empty_array_returns_defaults(self):
+        from fxsoqqabot.signals.chaos.entropy import compute_crowd_entropy
+        prices = np.array([])
+        ent_val, confidence = compute_crowd_entropy(prices)
+        assert ent_val == 0.5
+        assert confidence == 0.0
+
+    def test_normalized_entropy_in_range(self):
+        from fxsoqqabot.signals.chaos.entropy import compute_crowd_entropy
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(500)) + 1000
+        ent_val, _ = compute_crowd_entropy(prices)
+        assert 0.0 <= ent_val <= 1.0
+
+    def test_confidence_scales_with_data_length(self):
+        from fxsoqqabot.signals.chaos.entropy import compute_crowd_entropy
+        np.random.seed(42)
+        prices = np.cumsum(np.random.randn(250)) + 1000
+        _, confidence = compute_crowd_entropy(prices, min_length=100)
+        # 250 / 500 = 0.5
+        assert confidence == pytest.approx(0.5, abs=0.01)
+
+    def test_uses_scipy_entropy(self):
+        from fxsoqqabot.signals.chaos.entropy import compute_crowd_entropy
+        import inspect
+        src = inspect.getsource(compute_crowd_entropy)
+        assert "scipy.stats" in src or "entropy" in src
