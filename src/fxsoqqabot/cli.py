@@ -7,7 +7,7 @@ Supports commands:
 - backtest: Run full backtesting pipeline (6 steps)
 - validate-regimes: Run regime-aware evaluation on backtest data (TEST-05)
 - stress-test: Run Feigenbaum stress test on chaos module (TEST-06)
-- optimize: Run Optuna + DEAP parameter optimization
+- optimize: Run Optuna NSGA-II multi-objective parameter optimization
 - kill: Activate kill switch (close all positions, halt trading)
 - status: Show circuit breaker states and counters
 - reset: Reset kill switch (explicit manual action per D-10)
@@ -160,7 +160,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     # optimize command
     optimize_parser = subparsers.add_parser(
-        "optimize", help="Optimize strategy parameters via Optuna + DEAP"
+        "optimize", help="Optimize strategy parameters via Optuna NSGA-II"
     )
     optimize_parser.add_argument(
         "--config",
@@ -172,13 +172,7 @@ def create_parser() -> argparse.ArgumentParser:
         "--n-trials",
         type=int,
         default=50,
-        help="Number of Optuna trials (default: 50)",
-    )
-    optimize_parser.add_argument(
-        "--n-generations",
-        type=int,
-        default=10,
-        help="Number of DEAP GA generations for weight evolution (default: 10)",
+        help="Number of Optuna NSGA-II trials (default: 50)",
     )
     optimize_parser.add_argument(
         "--output",
@@ -191,6 +185,12 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Skip CSV-to-Parquet ingestion (use existing Parquet data)",
+    )
+    optimize_parser.add_argument(
+        "--storage",
+        type=str,
+        default="sqlite:///data/optuna_study.db",
+        help="Optuna study storage URL for warm-start (default: sqlite:///data/optuna_study.db)",
     )
 
     return parser
@@ -529,17 +529,16 @@ def _print_stress_test(result) -> None:
 
 
 def cmd_optimize(args: argparse.Namespace) -> None:
-    """Run parameter optimization. Synchronous -- Optuna drives the event loop.
+    """Run parameter optimization. Synchronous -- Optuna NSGA-II drives the loop.
 
-    Each Optuna objective call uses its own asyncio.run() to bridge to
-    async BacktestEngine. This function must NOT be wrapped in asyncio.run()
-    by the CLI dispatcher (Pitfall 2).
+    Each objective call uses its own asyncio.run() to bridge to
+    async BacktestEngine. This function must NOT be wrapped in asyncio.run().
     """
     from fxsoqqabot.backtest.config import BacktestConfig
     from fxsoqqabot.optimization.optimizer import run_optimization
 
     settings = load_settings(args.config)
-    # Force WARNING level for optimizer -- DEBUG floods 100K+ lines per trial
+    # Suppress structlog during optimization per D-11
     import logging
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING),
@@ -550,9 +549,9 @@ def cmd_optimize(args: argparse.Namespace) -> None:
         settings=settings,
         bt_config=bt_config,
         n_trials=args.n_trials,
-        n_generations=args.n_generations,
         output_path=args.output,
         skip_ingestion=args.skip_ingestion,
+        storage_url=args.storage,
     )
 
 
