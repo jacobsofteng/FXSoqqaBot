@@ -1,11 +1,14 @@
 """End-to-end backtest orchestrator.
 
 Wires all existing backtest components (HistoricalDataLoader, BacktestEngine,
-WalkForwardValidator, Monte Carlo) into a single pipeline that runs:
+WalkForwardValidator, Monte Carlo, RegimeTagger, FeigenbaumStressTest) into a
+single pipeline that runs:
 1. CSV ingestion (histdata.com -> Parquet)
 2. Walk-forward validation (rolling windows)
 3. Out-of-sample holdout evaluation
 4. Monte Carlo simulation (trade sequence shuffling)
+5. Regime-aware evaluation (per-regime performance breakdown)
+6. Feigenbaum stress test (chaos module transition detection)
 
 Usage: called from the CLI `backtest` subcommand.
 """
@@ -20,7 +23,10 @@ from fxsoqqabot.backtest.config import BacktestConfig
 from fxsoqqabot.backtest.engine import BacktestEngine
 from fxsoqqabot.backtest.historical import HistoricalDataLoader
 from fxsoqqabot.backtest.monte_carlo import run_monte_carlo
-from fxsoqqabot.backtest.validation import WalkForwardValidator
+from fxsoqqabot.backtest.regime_tagger import RegimeTagger
+from fxsoqqabot.backtest.results import TradeRecord
+from fxsoqqabot.backtest.stress_test import FeigenbaumStressTest
+from fxsoqqabot.backtest.validation import MONTH_SECONDS, WalkForwardValidator
 from fxsoqqabot.config.models import BotSettings
 
 
@@ -61,9 +67,9 @@ async def run_full_backtest(
     print()
 
     # ----------------------------------------------------------------
-    # [1/4] Data Ingestion
+    # [1/6] Data Ingestion
     # ----------------------------------------------------------------
-    print("[1/4] Data Ingestion")
+    print("[1/6] Data Ingestion")
     print("-" * 40)
 
     if skip_ingestion:
@@ -91,9 +97,9 @@ async def run_full_backtest(
     print()
 
     # ----------------------------------------------------------------
-    # [2/4] Walk-Forward Validation
+    # [2/6] Walk-Forward Validation
     # ----------------------------------------------------------------
-    print("[2/4] Walk-Forward Validation")
+    print("[2/6] Walk-Forward Validation")
     print("-" * 40)
 
     loader = HistoricalDataLoader(config)
@@ -121,9 +127,9 @@ async def run_full_backtest(
         print()
 
     # ----------------------------------------------------------------
-    # [3/4] Out-of-Sample Evaluation
+    # [3/6] Out-of-Sample Evaluation
     # ----------------------------------------------------------------
-    print("[3/4] Out-of-Sample Evaluation")
+    print("[3/6] Out-of-Sample Evaluation")
     print("-" * 40)
 
     oos_result = await validator.evaluate_oos(wf_result)
@@ -139,9 +145,9 @@ async def run_full_backtest(
     print()
 
     # ----------------------------------------------------------------
-    # [4/4] Monte Carlo Simulation
+    # [4/6] Monte Carlo Simulation
     # ----------------------------------------------------------------
-    print("[4/4] Monte Carlo Simulation")
+    print("[4/6] Monte Carlo Simulation")
     print("-" * 40)
 
     # Collect ALL trade PnLs from validation windows
@@ -174,13 +180,71 @@ async def run_full_backtest(
         print()
 
     # ----------------------------------------------------------------
+    # [5/6] Regime-Aware Evaluation
+    # ----------------------------------------------------------------
+    print("[5/6] Regime-Aware Evaluation")
+    print("-" * 40)
+
+    # Collect all validation trades for regime evaluation
+    all_val_trades: list[TradeRecord] = []
+    for w in wf_result.windows:
+        all_val_trades.extend(w.val_result.trades)
+
+    if len(all_val_trades) == 0:
+        print("  WARNING: No validation trades. Skipping regime evaluation.")
+        regime_eval = None
+    else:
+        # Tag bars from the walk-forward data range (not full dataset -- Pitfall 5)
+        data_start, data_end = loader.get_time_range()
+        holdout_start = data_end - config.holdout_months * MONTH_SECONDS
+        wf_bars = loader.load_bars(data_start, holdout_start)
+
+        tagger = RegimeTagger(settings.signals.chaos)
+        tags = await tagger.tag_bars(wf_bars)
+        regime_eval = tagger.evaluate_regime_performance(tuple(all_val_trades), tags)
+
+        print(f"  Regimes with trades:  {regime_eval.regimes_with_trades}/5")
+        print(f"  Best regime:          {regime_eval.best_regime}")
+        print(f"  Worst regime:         {regime_eval.worst_regime}")
+        print()
+        # Per-regime table
+        print(f"  {'Regime':<20}  {'Trades':>7}  {'WinRate':>8}  {'PF':>8}  {'AvgPnL':>10}  {'TotalPnL':>10}")
+        print(f"  {'--------------------':<20}  {'-------':>7}  {'--------':>8}  {'--------':>8}  {'----------':>10}  {'----------':>10}")
+        for regime, perf in regime_eval.regime_performance.items():
+            if perf.n_trades == 0:
+                continue
+            pf_str = f"{perf.profit_factor:.2f}" if perf.profit_factor != float("inf") else "inf"
+            print(f"  {regime:<20}  {perf.n_trades:>7}  {perf.win_rate*100:>7.1f}%  {pf_str:>8}  ${perf.avg_pnl:>9.2f}  ${perf.total_pnl:>9.2f}")
+
+    print()
+
+    # ----------------------------------------------------------------
+    # [6/6] Feigenbaum Stress Test
+    # ----------------------------------------------------------------
+    print("[6/6] Feigenbaum Stress Test")
+    print("-" * 40)
+
+    stress = FeigenbaumStressTest(settings.signals.chaos)
+    stress_result = await stress.run_stress_test()
+
+    print(f"  Pre-transition:        {stress_result.pre_transition_regime} (stable: {_pass_fail(stress_result.pre_transition_detected)})")
+    print(f"  Transition:            {stress_result.transition_regime} (detected: {_pass_fail(stress_result.transition_detected)})")
+    print(f"  Post-transition:       {stress_result.post_transition_regime} (chaos: {_pass_fail(stress_result.chaos_detected)})")
+    print(f"  Bifurcation proximity: {stress_result.bifurcation_proximity_at_transition:.4f}")
+    print(f"  Status:                {_pass_fail(stress_result.passes)}")
+    print()
+
+    # ----------------------------------------------------------------
     # Final Summary
     # ----------------------------------------------------------------
     print("=" * 70)
+    # Regime eval is informational only (no pass/fail gate per Research recommendation)
+    stress_passed = stress_result.passes
     overall_pass = (
         wf_result.passes_threshold
         and oos_result.passes_threshold
         and mc_passed
+        and stress_passed
     )
     if overall_pass:
         print(f"  OVERALL: \033[32mPASS\033[0m - Strategy passes all validation gates")
@@ -193,6 +257,8 @@ async def run_full_backtest(
             failures.append("OOS")
         if not mc_passed:
             failures.append("Monte Carlo")
+        if not stress_passed:
+            failures.append("Stress Test")
         print(f"  Failed:  {', '.join(failures)}")
     print("=" * 70)
     print()
