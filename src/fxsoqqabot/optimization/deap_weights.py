@@ -108,6 +108,8 @@ async def evolve_weights(
 
     async def _evaluate(individual: list[float]) -> float:
         """Evaluate fitness via fast 3-month backtest (same proxy as Optuna)."""
+        import math
+
         params = dict(zip(WEIGHT_NAMES, individual))
         trial_settings = apply_params_to_settings(base_settings, params)
         if len(opt_bars) < 100:
@@ -115,9 +117,11 @@ async def evolve_weights(
         engine = BacktestEngine(trial_settings, bt_config)
         result: BacktestResult = await engine.run(opt_bars, run_id="deap_fast")
         pf = min(result.profit_factor, 10.0)
-        if result.n_trades < 5:
-            pf *= 0.1
-        return pf
+        n_trades = result.n_trades
+        if n_trades < 10:
+            return 0.0
+        freq_multiplier = 0.5 + min(1.0, math.log10(max(n_trades, 1)) / math.log10(5000))
+        return pf * freq_multiplier
 
     # Initialize population
     population = toolbox.population(n=population_size)
