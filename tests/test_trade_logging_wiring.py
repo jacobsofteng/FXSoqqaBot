@@ -91,10 +91,12 @@ class TestTradeManagerTupleReturn:
 
         # Mock position sizer
         sizer = MagicMock()
+        sizer._config = risk_config
         sizing_result = MagicMock()
         sizing_result.can_trade = True
         sizing_result.lot_size = 0.01
         sizing_result.skip_reason = None
+        sizing_result.risk_amount = 3.0
         sizer.calculate_lot_size.return_value = sizing_result
 
         return TradeManager(

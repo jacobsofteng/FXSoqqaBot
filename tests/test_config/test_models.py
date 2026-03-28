@@ -24,11 +24,11 @@ class TestRiskConfig:
     """Tests for the three-phase risk model per D-03."""
 
     def test_aggressive_phase_risk(self):
-        """$50 equity falls within aggressive phase (<$100), risk should be 10%."""
+        """$50 equity falls within aggressive phase (<$100), risk should be 15%."""
         from fxsoqqabot.config.models import RiskConfig
 
         cfg = RiskConfig()
-        assert cfg.get_risk_pct(equity=50.0) == 0.10
+        assert cfg.get_risk_pct(equity=50.0) == 0.15
 
     def test_selective_phase_risk(self):
         """$150 equity falls within selective phase ($100-$300), risk should be 5%."""
@@ -86,7 +86,7 @@ class TestRiskConfig:
         cfg = RiskConfig()
         assert cfg.aggressive_max == 100.0
         assert cfg.selective_max == 300.0
-        assert cfg.aggressive_risk_pct == 0.10
+        assert cfg.aggressive_risk_pct == 0.15
         assert cfg.selective_risk_pct == 0.05
         assert cfg.conservative_risk_pct == 0.02
         assert cfg.daily_drawdown_pct == 0.05
@@ -139,13 +139,15 @@ class TestSessionConfig:
     """Tests for session configuration."""
 
     def test_default_windows(self):
-        """Default session window should be 13:00-17:00 UTC."""
+        """Default session windows: London 08:00-12:00 and London-NY overlap 13:00-17:00."""
         from fxsoqqabot.config.models import SessionConfig
 
         cfg = SessionConfig()
-        assert len(cfg.windows) == 1
-        assert cfg.windows[0]["start"] == "13:00"
-        assert cfg.windows[0]["end"] == "17:00"
+        assert len(cfg.windows) == 2
+        assert cfg.windows[0]["start"] == "08:00"
+        assert cfg.windows[0]["end"] == "12:00"
+        assert cfg.windows[1]["start"] == "13:00"
+        assert cfg.windows[1]["end"] == "17:00"
 
     def test_custom_windows(self):
         """Should accept custom session windows."""
@@ -216,7 +218,7 @@ class TestBotSettings:
 
         settings = BotSettings()
         assert settings.execution.mode == "paper"
-        assert settings.risk.aggressive_risk_pct == 0.10
+        assert settings.risk.aggressive_risk_pct == 0.15
         assert settings.session.timezone == "UTC"
         assert settings.data.tick_buffer_size == 10000
         assert settings.logging.json_mode is False
