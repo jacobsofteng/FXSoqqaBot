@@ -772,6 +772,45 @@ class TradingEngine:
                     except Exception:
                         self._logger.error("learning_loop_trade_closed_error", exc_info=True)
 
+                # FUSE-02: Update adaptive weights based on trade outcome
+                if self._weight_tracker and self._last_signals:
+                    try:
+                        module_signals = {
+                            sig.module_name: sig.direction
+                            for sig in self._last_signals
+                        }
+                        actual_direction = 1.0 if pnl > 0 else -1.0
+                        self._weight_tracker.record_outcome(
+                            module_signals, actual_direction
+                        )
+                        await self._state.save_signal_weights(
+                            self._weight_tracker.get_state()
+                        )
+                    except Exception:
+                        self._logger.error(
+                            "weight_tracker_record_error", exc_info=True
+                        )
+
+                # LEARN-04: Record trade for ALL shadow variants
+                if self._learning_loop and self._learning_enabled:
+                    try:
+                        shadow_mgr = self._learning_loop.get_shadow_manager()
+                        trade_result_for_shadow = {
+                            "pnl": pnl,
+                            "equity": self._paper_executor.balance,
+                            "ticket": ticket,
+                            "exit_price": close_fill.fill_price,
+                            "exit_regime": exit_regime,
+                        }
+                        for variant in shadow_mgr.get_variants():
+                            shadow_mgr.record_variant_trade(
+                                variant.variant_id, trade_result_for_shadow
+                            )
+                    except Exception:
+                        self._logger.error(
+                            "shadow_variant_record_error", exc_info=True
+                        )
+
                 # Clear trade manager position state
                 if self._trade_manager:
                     self._trade_manager.record_position_closed(ticket)
