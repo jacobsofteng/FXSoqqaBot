@@ -111,6 +111,41 @@ class PhaseBehavior:
 
         return threshold
 
+    def get_daily_drawdown_limit(self, equity: float) -> float:
+        """Return phase-aware daily drawdown limit with smooth transitions per RISK-02.
+
+        Drawdown limits per capital phase (D-12, D-13):
+        - Aggressive ($20-$100): 18% -- allows 3-4 losing trades at $20
+        - Selective ($100-$300): 10% -- moderate protection
+        - Conservative ($300+): 5% -- capital preservation
+
+        Uses the same sigmoid interpolation pattern as get_confidence_threshold
+        for smooth transitions at phase boundaries per FUSE-04.
+
+        Args:
+            equity: Current account equity in USD.
+
+        Returns:
+            Daily drawdown limit as a decimal (e.g., 0.18 = 18%).
+        """
+        buffer = self._fusion.phase_transition_equity_buffer
+        agg_max = self._risk.aggressive_max
+        sel_max = self._risk.selective_max
+
+        # Start with aggressive drawdown limit (18%)
+        dd_limit = 0.18
+
+        # Smooth step down at aggressive_max boundary: 18% -> 10%
+        scale = buffer / 4.0 if buffer > 0 else 1.0
+        step1_blend = self._sigmoid((equity - agg_max) / scale)
+        dd_limit += (0.10 - 0.18) * step1_blend
+
+        # Smooth step down at selective_max boundary: 10% -> 5%
+        step2_blend = self._sigmoid((equity - sel_max) / scale)
+        dd_limit += (0.05 - 0.10) * step2_blend
+
+        return dd_limit
+
     def get_regime_adjustments(self, regime: RegimeState) -> dict[str, float]:
         """Return regime-specific behavior adjustments per D-06/D-07.
 

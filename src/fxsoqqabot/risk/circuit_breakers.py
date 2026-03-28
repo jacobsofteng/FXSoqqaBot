@@ -126,8 +126,17 @@ class CircuitBreakerManager:
                 tripped.append(name)
         return tripped
 
-    async def record_trade_outcome(self, pnl: float, equity: float) -> None:
-        """Update state after a trade completes. Checks all breakers."""
+    async def record_trade_outcome(
+        self, pnl: float, equity: float, daily_drawdown_limit: float | None = None
+    ) -> None:
+        """Update state after a trade completes. Checks all breakers.
+
+        Args:
+            pnl: Profit/loss of the completed trade.
+            equity: Current account equity after the trade.
+            daily_drawdown_limit: Phase-aware drawdown limit per RISK-02.
+                If None, falls back to config.daily_drawdown_pct (flat 5%).
+        """
         self._snapshot.daily_pnl += pnl
         self._snapshot.daily_trade_count += 1
 
@@ -144,7 +153,8 @@ class CircuitBreakerManager:
         self._snapshot.last_equity = equity
         self._snapshot.last_equity_time = datetime.now(timezone.utc).isoformat()
 
-        # Check daily drawdown (RISK-04)
+        # Check daily drawdown (RISK-04, phase-aware per RISK-02)
+        dd_limit = daily_drawdown_limit if daily_drawdown_limit is not None else self._config.daily_drawdown_pct
         if self._snapshot.daily_starting_equity > 0:
             daily_dd = (
                 abs(self._snapshot.daily_pnl)
@@ -152,12 +162,13 @@ class CircuitBreakerManager:
             )
             if (
                 self._snapshot.daily_pnl < 0
-                and daily_dd >= self._config.daily_drawdown_pct
+                and daily_dd >= dd_limit
             ):
                 self._snapshot.daily_drawdown = BreakerState.TRIPPED
                 self._logger.warning(
                     "daily_drawdown_tripped",
                     daily_dd=daily_dd,
+                    dd_limit=dd_limit,
                     pnl=self._snapshot.daily_pnl,
                 )
 
