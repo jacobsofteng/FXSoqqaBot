@@ -121,6 +121,7 @@ class ChaosRegimeModule:
             entropy=entropy_val,
             entropy_conf=entropy_conf,
             price_direction=price_direction,
+            config=self._config,
         )
 
         # Map regime to direction based on configured mode per D-01/D-02

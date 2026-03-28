@@ -170,6 +170,12 @@ class ChaosConfig(BaseModel):
     primary_timeframe: str = "M5"  # Timeframe for primary regime detection
     secondary_timeframe: str = "H1"  # Timeframe for trend confirmation
     direction_mode: Literal["zero", "drift", "flow_follow"] = "drift"
+    # Regime classification thresholds (searchable via Optuna per D-05)
+    hurst_trending_threshold: float = 0.6     # Hurst > this -> TRENDING
+    hurst_ranging_threshold: float = 0.45     # Hurst < this -> RANGING
+    lyapunov_chaos_threshold: float = 0.5     # Lyapunov > this -> HIGH_CHAOS candidate
+    entropy_chaos_threshold: float = 0.7      # Entropy > this -> HIGH_CHAOS candidate
+    bifurcation_threshold: float = 0.7        # Bifurcation > this -> PRE_BIFURCATION
 
 
 class FlowConfig(BaseModel):
@@ -206,6 +212,7 @@ class TimingConfig(BaseModel):
     phase_transition_atr_period: int = 14  # ATR period for volatility energy
     phase_transition_compression_threshold: float = 0.5  # ATR ratio for compression
     phase_transition_expansion_threshold: float = 2.0  # ATR ratio for expansion
+    urgency_floor: float = 0.0  # Minimum urgency value before scaling (searchable)
     primary_timeframe: str = "M5"  # Timeframe for timing analysis
 
 

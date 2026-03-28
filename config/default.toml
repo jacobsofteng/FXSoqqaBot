@@ -74,6 +74,12 @@ computation_timeout_ms = 50
 primary_timeframe = "M5"
 secondary_timeframe = "H1"
 direction_mode = "drift"
+# Regime classification thresholds (searchable via Optuna)
+hurst_trending_threshold = 0.6
+hurst_ranging_threshold = 0.45
+lyapunov_chaos_threshold = 0.5
+entropy_chaos_threshold = 0.7
+bifurcation_threshold = 0.7
 
 [signals.flow]
 volume_delta_window = 100
@@ -95,6 +101,7 @@ ou_lookback_bars = 100
 phase_transition_atr_period = 14
 phase_transition_compression_threshold = 0.5
 phase_transition_expansion_threshold = 2.0
+urgency_floor = 0.0
 primary_timeframe = "M5"
 
 [signals.fusion]
