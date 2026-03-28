@@ -8,11 +8,22 @@ A self-learning, self-adapting Forex scalping bot for XAUUSD (Gold) on MetaTrade
 
 The bot reads the market's true state through the fusion of all analysis modules and trades with the dominant forces. The edge is not in any single module but in the fusion. If everything else fails, the multi-module state reading must work.
 
+## Current Milestone: v1.1 Live Demo Launch
+
+**Goal:** Make the bot trade 10-20 times/day with optimized signals and run unattended on the RoboForex demo account for a 1-week observation period.
+
+**Target features:**
+- Signal pipeline overhaul (chaos direction, timing urgency, fusion thresholds, position sizing)
+- Backtesting pipeline fix (performance, complete execution)
+- Automated optimization (single command, no manual intervention)
+- Live MT5 execution (real orders on demo account)
+- Demo hardening (logging, recovery, monitoring)
+
 ## Current State
 
 **Shipped:** v1.0 MVP (2026-03-28)
 **Codebase:** 14,811 LOC Python source, 14,594 LOC tests (772+ tests passing)
-**Status:** Feature-complete for all v1 requirements. Ready for live MT5 testing.
+**Status:** Starting v1.1 — signal pipeline needs overhaul for adequate trade frequency.
 
 ## Requirements
 
@@ -33,7 +44,12 @@ The bot reads the market's true state through the fusion of all analysis modules
 
 ### Active
 
-None — next milestone requirements to be defined via `/gsd:new-milestone`.
+**v1.1 — Live Demo Launch:**
+- [ ] Signal pipeline overhaul — fix chaos direction, timing urgency, fusion thresholds for 10-20 trades/day
+- [ ] Backtesting pipeline fix — performance optimization, complete 6-step pipeline
+- [ ] Automated optimization — single command backtest → optimize → validate → write config
+- [ ] Live MT5 execution — real order_send() on demo account, position tracking, reconnection
+- [ ] Demo hardening — log levels, session management, crash recovery, monitoring
 
 ### Out of Scope
 
@@ -112,4 +128,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-28 after v1.0 milestone completion*
+*Last updated: 2026-03-28 after v1.1 milestone start*
