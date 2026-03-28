@@ -23,7 +23,7 @@ The bot reads the market's true state through the fusion of all analysis modules
 
 **Shipped:** v1.0 MVP (2026-03-28)
 **Codebase:** 14,811 LOC Python source, 14,594 LOC tests (772+ tests passing)
-**Status:** Starting v1.1 — signal pipeline needs overhaul for adequate trade frequency.
+**Status:** v1.1 Phase 8 complete — signal pipeline calibrated (chaos direction modes, timing fix, phase-aware risk). Next: backtest pipeline & automated optimization.
 
 ## Requirements
 
@@ -128,4 +128,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-28 after v1.1 milestone start*
+*Last updated: 2026-03-28 after Phase 8 signal & risk calibration complete*
