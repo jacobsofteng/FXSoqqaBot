@@ -134,7 +134,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01-PLAN.md -- Fix all 4 dashboard wiring bugs in engine, state snapshot, circuit breakers, and web server
+- [x] 06-01-PLAN.md -- Fix all 4 dashboard wiring bugs in engine, state snapshot, circuit breakers, and web server
 - [ ] 06-02-PLAN.md -- Unit tests for all 4 success criteria (equity, is_killed, history/weights, pause)
 
 ### Phase 7: Validation Pipeline Entry Points

@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Phase 6 UI-SPEC approved
-last_updated: "2026-03-28T08:14:10.915Z"
+status: executing
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-03-28T08:38:10.113Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 28
-  completed_plans: 28
+  total_plans: 30
+  completed_plans: 29
   percent: 96
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** The bot reads the market's true state through the fusion of all eight modules and trades with the dominant forces. The edge is the fusion.
-**Current focus:** Phase 05 — self-learning-feedback-loop-wiring
+**Current focus:** Phase 06 — dashboard-live-state-wiring
 
 ## Current Position
 
-Phase: 06
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 06 (dashboard-live-state-wiring) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-03-28
 
 Progress: [██████████] 96%
@@ -79,6 +79,7 @@ Progress: [██████████] 96%
 | Phase 04 P08 | 4min | 1 tasks | 3 files |
 | Phase 05 P01 | 4min | 2 tasks | 2 files |
 | Phase 05 P02 | 4min | 1 tasks | 1 files |
+| Phase 06 P01 | 4min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -166,6 +167,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Promote callback rebuilds only FusionCore/PhaseBehavior/TradeManager -- not bridge, buffers, storage, or signal modules
 - [Phase 05]: Late import of apply_params_to_settings inside _create_promote_callback to avoid circular imports
 - [Phase 05]: Test at component level (not full TradingEngine) to avoid MT5 dependency -- real sub-components with mocked I/O
+- [Phase 06]: Synchronous is_killed reads from CircuitBreakerSnapshot in-memory state, not async KillSwitch.is_killed DB call
+- [Phase 06]: Equity history capped at 1000 entries with trim-to-500 to avoid unbounded growth
+- [Phase 06]: to_dict() sends last 50 equity_history entries over WebSocket for bandwidth efficiency
 
 ### Pending Todos
 
@@ -188,6 +192,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T08:14:10.913Z
-Stopped at: Phase 6 UI-SPEC approved
-Resume file: .planning/phases/06-dashboard-live-state-wiring/06-UI-SPEC.md
+Last session: 2026-03-28T08:38:10.110Z
+Stopped at: Completed 06-01-PLAN.md
+Resume file: None
