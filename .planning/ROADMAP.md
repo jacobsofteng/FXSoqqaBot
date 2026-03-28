@@ -55,7 +55,7 @@ Plans:
   4. An optimized.toml file exists on disk with all tuned parameters, and the user can see what changed from defaults via config diff output
 **Plans:** 2 plans
 Plans:
-- [ ] 09-01-PLAN.md -- Search space expansion: ~20 params across fusion/weights/risk/chaos/timing, configurable regime thresholds
+- [x] 09-01-PLAN.md -- Search space expansion: ~20 params across fusion/weights/risk/chaos/timing, configurable regime thresholds
 - [ ] 09-02-PLAN.md -- Unified NSGA-II optimizer: Pareto front, Rich progress, hang guard, warm-start, config diff, CLI update
 
 ### Phase 10: Live Execution & Demo Launch

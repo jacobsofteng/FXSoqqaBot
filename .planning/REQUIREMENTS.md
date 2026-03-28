@@ -24,7 +24,7 @@ Requirements for Live Demo Launch milestone. Each maps to roadmap phases.
 ### Backtesting & Optimization
 
 - [ ] **OPT-01**: Backtest pipeline completes full 6-step run on 3.8M bars of historical data without hanging or log flooding
-- [ ] **OPT-02**: Optimization search space expanded from 11 to ~20 parameters including chaos thresholds, timing urgency, risk/SL config
+- [x] **OPT-02**: Optimization search space expanded from 11 to ~20 parameters including chaos thresholds, timing urgency, risk/SL config
 - [ ] **OPT-03**: Multi-objective optimization maximizes profit factor AND normalized trade count via Pareto front
 - [ ] **OPT-04**: Optimization supports warm-start from previous study and displays config diff after completion
 
@@ -73,7 +73,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RISK-03 | Phase 8 | Complete |
 | RISK-04 | Phase 8 | Complete |
 | OPT-01 | Phase 9 | Pending |
-| OPT-02 | Phase 9 | Pending |
+| OPT-02 | Phase 9 | Complete |
 | OPT-03 | Phase 9 | Pending |
 | OPT-04 | Phase 9 | Pending |
 | EXEC-01 | Phase 10 | Pending |

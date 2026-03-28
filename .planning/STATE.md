@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Live Demo Launch
-status: verifying
-stopped_at: Phase 9 context gathered
-last_updated: "2026-03-28T13:35:32.642Z"
-last_activity: 2026-03-28
+status: executing
+stopped_at: Completed 09-01-PLAN.md
+last_updated: "2026-03-28T14:28:01Z"
+last_activity: 2026-03-28 -- Phase 09 Plan 01 complete
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 50
+  total_plans: 4
+  completed_plans: 3
+  percent: 75
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-28)
 
 **Core value:** The bot reads the market's true state through the fusion of all analysis modules and trades with the dominant forces. The edge is the fusion.
-**Current focus:** Phase 8 — Signal & Risk Calibration
+**Current focus:** Phase 09 — backtest-pipeline-automated-optimization
 
 ## Current Position
 
-Phase: 9
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-28
+Phase: 09 (backtest-pipeline-automated-optimization) — EXECUTING
+Plan: 2 of 2
+Status: Executing Phase 09
+Last activity: 2026-03-28 -- Phase 09 Plan 01 complete
 
-Progress: [=====-----] 50%
+Progress: [========--] 75%
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Progress: [=====-----] 50%
 |-------|-------|-------|----------|
 | 08 | 1 | 7min | 7min |
 | Phase 08 P02 | 6min | 3 tasks | 5 files |
+| Phase 09 P01 | 5min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -58,6 +59,9 @@ Progress: [=====-----] 50%
 - [Phase 08]: 08-02: Inversion of control for circuit breaker drawdown limit (caller passes, not breaker queries)
 - [Phase 08]: 08-02: OpenPosition dataclass with risk_amount for per-position budget tracking
 - [Phase 08]: 08-02: Backtest engine already reads config - no code changes needed for sync
+- 09-01: Default threshold values match previous hardcoded values for backward compatibility
+- 09-01: DEAP weight seeds folded into unified Optuna search space per D-08
+- 09-01: Confidence floor checks (>0.3, >0.2) left hardcoded -- not tunable thresholds
 
 ### Pending Todos
 
@@ -81,6 +85,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-28T13:35:32.640Z
-Stopped at: Phase 9 context gathered
-Resume file: .planning/phases/09-backtest-pipeline-automated-optimization/09-CONTEXT.md
+Last session: 2026-03-28T14:28:01Z
+Stopped at: Completed 09-01-PLAN.md
+Resume file: .planning/phases/09-backtest-pipeline-automated-optimization/09-01-SUMMARY.md
