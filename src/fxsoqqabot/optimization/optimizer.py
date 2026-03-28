@@ -60,21 +60,19 @@ def _fmt_duration(seconds: float) -> str:
     return f"{hours:.1f}h"
 
 
-async def _fast_backtest_detailed(
+async def _fast_backtest(
     settings: BotSettings,
     bt_config: BacktestConfig,
     loader: HistoricalDataLoader,
-) -> tuple[float, int, float]:
+) -> float:
     """Run a FAST single backtest on 3 months of recent data.
 
     Uses the most recent 3 months before the OOS holdout period as a
-    representative sample.
+    representative sample. Returns profit factor capped at 10.0.
 
-    Returns:
-        Tuple of (fitness, n_trades, profit_factor).
+    This is the optimization proxy objective -- fast enough for 50+ trials.
+    Full walk-forward is only used for final validation.
     """
-    import math
-
     data_start, data_end = loader.get_time_range()
     holdout_months_sec = bt_config.holdout_months * int(30.44 * 86400)
     holdout_start = data_end - holdout_months_sec
@@ -89,26 +87,17 @@ async def _fast_backtest_detailed(
 
     bars = loader.load_bars(opt_start, opt_end)
     if len(bars) < 100:
-        return 0.0, 0, 0.0
+        return 0.0
 
     engine = BacktestEngine(settings, bt_config)
     result: BacktestResult = await engine.run(bars, run_id="opt_fast")
 
+    # Fitness: profit factor (capped), with penalty for too few trades
     pf = min(result.profit_factor, 10.0)
-    n_trades = result.n_trades
+    if result.n_trades < 5:
+        pf *= 0.1  # Harsh penalty for strategies that barely trade
 
-    # Hard penalty for too few trades (scalping bot MUST trade frequently)
-    if n_trades < 10:
-        return 0.0, n_trades, pf
-
-    # Trade frequency bonus: reward strategies that trade more
-    # Scale: 100 trades = 0.5x, 1000 = 1.0x, 5000+ = 1.5x
-    freq_multiplier = 0.5 + min(1.0, math.log10(max(n_trades, 1)) / math.log10(5000))
-
-    # Combined fitness: profitable AND frequent
-    fitness = pf * freq_multiplier
-
-    return fitness, n_trades, pf
+    return pf
 
 
 def run_optimization(
@@ -176,21 +165,18 @@ def run_optimization(
     trial_times: list[float] = []
 
     def objective(trial: optuna.Trial) -> float:
-        """Optuna objective: fast backtest fitness (PF * frequency)."""
+        """Optuna objective: fast backtest profit factor."""
         t0 = time.time()
         params = sample_trial(trial)
         trial_settings = apply_params_to_settings(settings, params)
-        fitness, n_trades, pf = asyncio.run(
-            _fast_backtest_detailed(trial_settings, bt_config, opt_loader)
-        )
+        pf = asyncio.run(_fast_backtest(trial_settings, bt_config, opt_loader))
         elapsed = time.time() - t0
         trial_times.append(elapsed)
         print(
             f"  Trial {trial.number:>3}/{n_trials}: "
-            f"fitness={fitness:.4f}  PF={pf:.2f}  trades={n_trades}  "
-            f"({_fmt_duration(elapsed)})"
+            f"PF={pf:.4f}  ({_fmt_duration(elapsed)})"
         )
-        return fitness
+        return pf
 
     # Suppress Optuna's verbose trial logging
     optuna.logging.set_verbosity(optuna.logging.WARNING)
