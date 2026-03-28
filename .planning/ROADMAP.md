@@ -135,7 +135,7 @@ Plans:
 
 Plans:
 - [x] 06-01-PLAN.md -- Fix all 4 dashboard wiring bugs in engine, state snapshot, circuit breakers, and web server
-- [ ] 06-02-PLAN.md -- Unit tests for all 4 success criteria (equity, is_killed, history/weights, pause)
+- [x] 06-02-PLAN.md -- Unit tests for all 4 success criteria (equity, is_killed, history/weights, pause)
 
 ### Phase 7: Validation Pipeline Entry Points
 **Goal**: RegimeTagger and FeigenbaumStressTest are callable from the backtest CLI and runner — completing the validation pipeline with regime-aware evaluation and chaos stress testing
