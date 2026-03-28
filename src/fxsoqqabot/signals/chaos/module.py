@@ -42,6 +42,11 @@ class ChaosRegimeModule:
 
     def __init__(self, config: ChaosConfig) -> None:
         self._config = config
+        self._last_flow_direction: float = 0.0
+
+    def set_flow_direction(self, direction: float) -> None:
+        """Cache the latest flow module direction for flow_follow mode."""
+        self._last_flow_direction = direction
 
     @property
     def name(self) -> str:
@@ -118,14 +123,35 @@ class ChaosRegimeModule:
             price_direction=price_direction,
         )
 
-        # Map regime to direction
-        direction_map = {
-            RegimeState.TRENDING_UP: 1.0,
-            RegimeState.TRENDING_DOWN: -1.0,
-            RegimeState.RANGING: 0.0,
-            RegimeState.HIGH_CHAOS: 0.0,
-            RegimeState.PRE_BIFURCATION: 0.0,
-        }
+        # Map regime to direction based on configured mode per D-01/D-02
+        mode = self._config.direction_mode
+        if mode == "drift":
+            # Non-trending regimes use recent price momentum per D-01
+            direction_map = {
+                RegimeState.TRENDING_UP: 1.0,
+                RegimeState.TRENDING_DOWN: -1.0,
+                RegimeState.RANGING: price_direction,
+                RegimeState.HIGH_CHAOS: price_direction,
+                RegimeState.PRE_BIFURCATION: price_direction,
+            }
+        elif mode == "flow_follow":
+            # Non-trending regimes borrow flow module direction per D-03
+            flow_dir = self._last_flow_direction
+            direction_map = {
+                RegimeState.TRENDING_UP: 1.0,
+                RegimeState.TRENDING_DOWN: -1.0,
+                RegimeState.RANGING: flow_dir,
+                RegimeState.HIGH_CHAOS: flow_dir,
+                RegimeState.PRE_BIFURCATION: flow_dir,
+            }
+        else:  # "zero" -- original behavior
+            direction_map = {
+                RegimeState.TRENDING_UP: 1.0,
+                RegimeState.TRENDING_DOWN: -1.0,
+                RegimeState.RANGING: 0.0,
+                RegimeState.HIGH_CHAOS: 0.0,
+                RegimeState.PRE_BIFURCATION: 0.0,
+            }
         direction = direction_map.get(regime_state, 0.0)
 
         logger.debug(

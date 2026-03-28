@@ -123,8 +123,8 @@ def compute_entry_window(
     if half_life < 5.0:
         urgency = min(1.0, urgency * 1.5)
 
-    # Window confidence: fit quality scaled by urgency
-    window_confidence = confidence * min(1.0, urgency)
+    # Window confidence: fit quality only (urgency applied once in module.py line 136)
+    window_confidence = confidence
 
     return direction, float(urgency), float(window_confidence)
 
