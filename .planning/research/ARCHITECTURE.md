@@ -1,669 +1,622 @@
-# Architecture Research
+# Architecture Research: v1.1 Live Demo Launch
 
-**Domain:** Python-first XAUUSD scalping bot with 8 interconnected modules on MetaTrader 5
-**Researched:** 2026-03-27
-**Confidence:** HIGH (MT5 Python API is well-documented; event-driven trading architectures are a mature pattern)
+**Domain:** Signal recalibration, live execution, and automated optimization for XAUUSD scalping bot
+**Researched:** 2026-03-28
+**Confidence:** HIGH (codebase fully analyzed, all integration points traced through source)
 
-## System Overview
+## Executive Summary
+
+The v1.0 architecture is well-structured with clean separation between signal modules, fusion, execution, and persistence. The v1.1 changes required to reach live demo trading do NOT require new architectural layers or fundamental restructuring. Instead, they require targeted modifications across five areas: (1) signal module recalibration parameters, (2) backtest pipeline performance, (3) optimization pipeline completion, (4) live execution wiring, and (5) unattended operation hardening.
+
+The critical architectural insight is that the paper-to-live transition is already designed into the system. The `OrderManager.place_market_order()` method (orders.py:110-228) has a clean branch: `if self._config.mode == "paper"` routes to `PaperExecutor`, else executes real orders via `MT5Bridge.order_send()`. The live path already handles `order_check()` pre-validation, slippage tracking, and filling mode detection. The gap is not in the order flow -- it is in position lifecycle management, crash recovery for live positions, and the absence of a position monitoring loop for live mode.
+
+## Current Architecture (as-built v1.0)
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         LAYER 0: DATA INGESTION                          │
-│                                                                          │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │              MT5 Bridge (polling loop, ~100ms cycle)               │  │
-│  │  symbol_info_tick() | market_book_get() | copy_ticks_from()       │  │
-│  └──────────────────────────────┬─────────────────────────────────────┘  │
-│                                 │ raw ticks, DOM snapshots, bars         │
-├─────────────────────────────────┼────────────────────────────────────────┤
-│                         LAYER 1: SENSING                                 │
-│                                 │                                        │
-│  ┌──────────────────────────────▼─────────────────────────────────────┐  │
-│  │              [1] Market Microstructure Sensor                      │  │
-│  │  tick normalization, volume delta, bid-ask spread, DOM parsing    │  │
-│  └──┬───────────────────────┬──────────────────────┬──────────────────┘  │
-│     │ normalized ticks      │ volume profile        │ DOM state          │
-├─────┼───────────────────────┼──────────────────────┼─────────────────────┤
-│                         LAYER 2: ANALYSIS                                │
-│     │                       │                      │                     │
-│  ┌──▼───────────────┐  ┌───▼──────────────┐  ┌────▼─────────────────┐   │
-│  │ [2] Institutional │  │ [4] Chaos/Fractal│  │ [3] Quantum Timing  │   │
-│  │ Footprint Detector│  │ Regime Classifier│  │     Engine          │   │
-│  │                   │  │                  │  │                     │   │
-│  │ absorption,       │  │ fractal dim,     │  │ price-time states,  │   │
-│  │ iceberg detect,   │  │ Lyapunov exp,    │  │ probability windows,│   │
-│  │ flow imbalance    │  │ bifurcation prox │  │ entry/exit timing   │   │
-│  └────────┬──────────┘  └────────┬─────────┘  └──────────┬──────────┘   │
-│           │ inst_signal          │ regime_state           │ timing_signal│
-├───────────┼──────────────────────┼────────────────────────┼──────────────┤
-│                         LAYER 3: DECISION                                │
-│           │                      │                        │              │
-│  ┌────────▼──────────────────────▼────────────────────────▼──────────┐   │
-│  │              [5] Decision and Execution Core                      │   │
-│  │  signal fusion | confidence weighting | position sizing           │   │
-│  │  phase-aware risk (aggressive/selective/conservative)             │   │
-│  └──────────────────────────────┬────────────────────────────────────┘   │
-│                                 │ trade_request                          │
-├─────────────────────────────────┼────────────────────────────────────────┤
-│                         LAYER 4: EXECUTION                               │
-│                                 │                                        │
-│  ┌──────────────────────────────▼────────────────────────────────────┐   │
-│  │              MT5 Bridge (order_send / order_check)                 │   │
-│  │  order validation | slippage guard | execution confirmation       │   │
-│  └──────────────────────────────┬────────────────────────────────────┘   │
-│                                 │ trade_result                           │
-├═════════════════════════════════╪════════════════════════════════════════╡
-│                     CROSS-CUTTING SYSTEMS                                │
-│                                 │                                        │
-│  ┌──────────────────────────────▼────────────────────────────────────┐   │
-│  │              [6] Self-Learning Mutation Loop                       │   │
-│  │  trade journal | forward labeling | genetic param evolution       │   │
-│  │  regime-aware performance attribution | shadow model training     │   │
-│  └───────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-│  ┌───────────────────────────────────────────────────────────────────┐   │
-│  │              [7] Dashboard and Telemetry                           │   │
-│  │  Textual TUI (primary) | FastAPI web dashboard (secondary)        │   │
-│  │  subscribes to all layers via event bus                           │   │
-│  └───────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-│  ┌───────────────────────────────────────────────────────────────────┐   │
-│  │              [8] Backtesting and Anti-Overfitting Framework        │   │
-│  │  replays historical ticks through same pipeline                   │   │
-│  │  walk-forward | Monte Carlo | regime-aware evaluation             │   │
-│  └───────────────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────────────┘
+                          ┌─────────────────────────────┐
+                          │          CLI Layer           │
+                          │ run | backtest | optimize    │
+                          │ kill | status | reset        │
+                          └─────────┬───────────────────┘
+                                    │
+                          ┌─────────▼───────────────────┐
+                          │      TradingEngine          │
+                          │  asyncio.gather(4 loops)    │
+                          └──┬────┬────┬────┬───────────┘
+                             │    │    │    │
+                ┌────────────┘    │    │    └────────────────┐
+                │                 │    │                     │
+         ┌──────▼──────┐  ┌──────▼────▼──┐  ┌──────────────▼─┐
+         │  tick_loop   │  │  bar_loop    │  │  health_loop   │
+         │  100ms poll  │  │  5s refresh  │  │  10s equity/   │
+         │  ticks+DOM   │  │  M1-H4 bars  │  │  breakers      │
+         └──────────────┘  └──────────────┘  └────────────────┘
+                                    │
+                          ┌─────────▼───────────────────┐
+                          │      signal_loop (5s)       │
+                          │                             │
+                          │  ┌───────┐ ┌─────┐ ┌──────┐│
+                          │  │Chaos  │ │Flow │ │Timing││
+                          │  │Module │ │Mod  │ │Module││
+                          │  └───┬───┘ └──┬──┘ └──┬───┘│
+                          │      │        │       │    │
+                          │  ┌───▼────────▼───────▼──┐ │
+                          │  │      FusionCore       │ │
+                          │  │ weighted_score fusion  │ │
+                          │  └──────────┬────────────┘ │
+                          │             │              │
+                          │  ┌──────────▼────────────┐ │
+                          │  │    TradeManager       │ │
+                          │  │ SL/TP + sizing + exec │ │
+                          │  └──────────┬────────────┘ │
+                          └─────────────┼──────────────┘
+                                        │
+                          ┌─────────────▼──────────────┐
+                          │      OrderManager          │
+                          │  mode=="paper" → Paper     │
+                          │  mode=="live"  → MT5Bridge │
+                          └────────────────────────────┘
 ```
 
 ### Component Responsibilities
 
-| Component | Responsibility | Boundary |
+| Component | Responsibility | Key File |
 |-----------|----------------|----------|
-| **MT5 Bridge** | All communication with MetaTrader 5 terminal. Wraps the synchronous `MetaTrader5` Python package. Sole owner of `mt5.initialize()`, `mt5.shutdown()`, and all `mt5.*` calls. No other module touches MT5 directly. | Ingestion + Execution boundaries. Produces `RawTick`, `DOMSnapshot`, `BarData`. Consumes `TradeRequest`. |
-| **[1] Microstructure Sensor** | Normalizes raw ticks into usable market state: volume delta, bid-ask spread dynamics, tick intensity, DOM depth parsing (when available), order flow imbalance. Acts as the nervous system. | Consumes raw data from MT5 Bridge. Produces `MarketState` dataclass consumed by all Layer 2 modules. |
-| **[2] Institutional Footprint** | Classifies activity as institutional vs. retail: absorption detection, iceberg pattern recognition, large-lot flow imbalance, HFT signature detection. | Consumes `MarketState`. Produces `InstitutionalSignal` with flow direction, confidence, magnitude. |
-| **[3] Quantum Timing** | Models price-time as coupled state variables. Calculates probability-weighted entry/exit windows using wave-function-inspired modeling. | Consumes `MarketState`. Produces `TimingSignal` with entry/exit probability distributions. |
-| **[4] Chaos/Fractal Regime** | Detects dynamical market state: fractal dimension, Lyapunov exponents, Hurst exponent, bifurcation proximity, crowd entropy estimation. | Consumes `MarketState`. Produces `RegimeState` classifying market as trending/mean-reverting/chaotic/bifurcating. |
-| **[5] Decision Core** | Fuses upstream signals into trade decisions. Weights signals by regime context. Applies phase-aware position sizing ($20/$100/$300 thresholds). Manages open positions. | Consumes all Layer 2 outputs. Produces `TradeRequest` or `NoAction`. Owns risk management logic. |
-| **[6] Self-Learning Loop** | Logs complete trade context (all signals at entry/exit). Forward-labels outcomes. Runs offline genetic optimization of module parameters. Trains shadow models. Promotes improvements via versioned config swap. | Reads trade journal + historical `MarketState` sequences. Writes updated parameter configs. Runs asynchronously from the trading loop. |
-| **[7] Dashboard/Telemetry** | Displays real-time system state. Textual TUI for primary monitoring. Optional FastAPI web dashboard. Read-only subscriber to all events. | Subscribes to event bus. Never produces trading signals. Pure observation layer. |
-| **[8] Backtesting** | Replays historical tick data through the same module pipeline. Walk-forward validation, Monte Carlo simulation, out-of-sample testing. | Replaces MT5 Bridge with a `HistoricalDataFeed` that emits the same `RawTick`/`DOMSnapshot` interfaces. All other modules are unaware they are in backtest mode. |
+| **TradingEngine** | Lifecycle orchestration, loop management, component wiring | `core/engine.py` (1090 lines) |
+| **ChaosRegimeModule** | Hurst + Lyapunov + fractal + Feigenbaum + entropy -> RegimeState | `signals/chaos/module.py` |
+| **OrderFlowModule** | Volume delta + aggression + institutional + HFT -> flow direction | `signals/flow/module.py` |
+| **QuantumTimingModule** | OU mean-reversion + ATR phase transition -> timing urgency | `signals/timing/module.py` |
+| **FusionCore** | Confidence-weighted signal fusion -> composite direction + should_trade | `signals/fusion/core.py` |
+| **AdaptiveWeightTracker** | EMA accuracy tracking -> normalized module weights | `signals/fusion/weights.py` |
+| **PhaseBehavior** | Capital phase -> confidence threshold + regime RR adjustments | `signals/fusion/phase_behavior.py` |
+| **TradeManager** | ATR SL/TP + regime adjustments + sizing + single-position limit | `signals/fusion/trade_manager.py` |
+| **OrderManager** | Paper/live branch, order_check, order_send, filling mode, close | `execution/orders.py` |
+| **PaperExecutor** | Paper fills, slippage simulation, virtual balance, SL/TP checks | `execution/paper.py` |
+| **MT5Bridge** | Async wrapper around blocking MT5 package, single-thread executor | `execution/mt5_bridge.py` |
+| **PositionSizer** | Three-phase risk model -> lot size from equity + SL distance | `risk/sizing.py` |
+| **CircuitBreakerManager** | 5 breakers + kill switch + session filter | `risk/circuit_breakers.py` |
+| **BacktestEngine** | Synchronous bar replay using same signal pipeline as live | `backtest/engine.py` |
+| **Optimizer** | Optuna TPE (11 params) + DEAP GA (3 weights) + final validation | `optimization/optimizer.py` |
 
-## Recommended Project Structure
+## v1.1 Integration Analysis
+
+### Area 1: Signal Recalibration
+
+**Problem:** Chaos module produces direction=0 too often; timing module urgency is not calibrated; fusion thresholds reject too many signals. Result: 0-1 trades/day instead of target 10-20.
+
+**What needs to change:**
+
+| Component | Current State | Required Change | Type |
+|-----------|--------------|-----------------|------|
+| `classify_regime()` in `signals/chaos/regime.py` | Returns regime but direction comes from price_direction parameter only, no chaos-driven directional bias | Chaos module must contribute a meaningful `direction` value, not just regime classification. Direction should derive from Hurst+price combined with regime strength | **Modify** |
+| `ChaosRegimeModule.update()` | Produces `direction` from a simple price delta sign (+/-1 or 0) | Needs calibrated direction signal: weighted sum of Hurst trend persistence, volume momentum, regime confidence. Currently direction is binary/neutral, needs to be continuous [-1,1] | **Modify** |
+| `QuantumTimingModule.update()` | Produces `direction` from OU displacement and `confidence` from fit quality | Timing urgency needs recalibration. Current compression/expansion thresholds (0.5/2.0) may be too extreme for XAUUSD M5. Needs parameter sweep or heuristic tuning | **Modify** |
+| `FusionConfig` confidence thresholds | aggressive=0.5, selective=0.6, conservative=0.7 | These may be too high given that fused_confidence = sum(conf * weight) and with 3 modules the theoretical max is ~0.33 per module contribution. Need to understand actual distribution from backtests | **Tune** |
+| `FusionCore.fuse()` | `fused_confidence = total_confidence_weight` where total is `sum(conf * weight)` | Need to verify math: with 3 equal-weight modules at 0.33 each, even perfect confidence signals produce fused_confidence = 0.33 + 0.33 + 0.33 = 1.0 max. But individual module confidence is rarely 1.0. Need data on actual distributions | **Analyze** |
+
+**Integration points affected:**
 
 ```
-fxsoqqabot/
-├── core/                       # Shared infrastructure
-│   ├── __init__.py
-│   ├── event_bus.py            # In-process pub/sub event system
-│   ├── types.py                # All shared dataclasses and type definitions
-│   ├── config.py               # Configuration loading (TOML-based)
-│   ├── clock.py                # Abstracted clock (real or simulated for backtest)
-│   └── logging.py              # Structured logging setup
-│
-├── bridge/                     # MT5 communication boundary
-│   ├── __init__.py
-│   ├── mt5_client.py           # Wraps all mt5.* calls, async via to_thread
-│   ├── data_feed.py            # Polling loop: ticks, DOM, bars
-│   └── order_executor.py       # order_send, order_check, position management
-│
-├── sensor/                     # Module 1: Market Microstructure Sensor
-│   ├── __init__.py
-│   ├── tick_processor.py       # Tick normalization, volume delta
-│   ├── spread_analyzer.py      # Bid-ask spread dynamics
-│   ├── dom_parser.py           # DOM depth parsing (graceful degradation)
-│   └── market_state.py         # Assembles MarketState from all sub-signals
-│
-├── institutional/              # Module 2: Institutional Footprint Detector
-│   ├── __init__.py
-│   ├── flow_classifier.py      # Retail vs. institutional classification
-│   ├── absorption_detector.py  # Absorption/iceberg pattern detection
-│   └── footprint.py            # Produces InstitutionalSignal
-│
-├── quantum/                    # Module 3: Quantum Timing Engine
-│   ├── __init__.py
-│   ├── state_model.py          # Price-time coupled state variables
-│   ├── probability_windows.py  # Entry/exit probability calculation
-│   └── timing.py               # Produces TimingSignal
-│
-├── chaos/                      # Module 4: Chaos/Fractal/Feigenbaum Regime
-│   ├── __init__.py
-│   ├── fractal_dimension.py    # Fractal dimension calculation
-│   ├── lyapunov.py             # Lyapunov exponent estimation
-│   ├── hurst.py                # Hurst exponent (R/S analysis)
-│   ├── bifurcation.py          # Feigenbaum bifurcation proximity
-│   └── regime.py               # Produces RegimeState
-│
-├── decision/                   # Module 5: Decision and Execution Core
-│   ├── __init__.py
-│   ├── signal_fusion.py        # Weighted combination of all upstream signals
-│   ├── risk_manager.py         # Phase-aware position sizing, drawdown limits
-│   ├── position_tracker.py     # Open position state management
-│   └── execution.py            # Trade decision logic, produces TradeRequest
-│
-├── learning/                   # Module 6: Self-Learning Mutation Loop
-│   ├── __init__.py
-│   ├── trade_journal.py        # Full-context trade logging
-│   ├── forward_labeler.py      # Outcome labeling after trade closes
-│   ├── genetic_optimizer.py    # Genetic algorithm for parameter evolution
-│   ├── shadow_trainer.py       # ML model training (runs offline)
-│   └── config_promoter.py      # Versioned config swap mechanism
-│
-├── dashboard/                  # Module 7: Dashboard and Telemetry
-│   ├── __init__.py
-│   ├── tui/                    # Textual TUI application
-│   │   ├── app.py              # Main Textual app
-│   │   ├── widgets/            # Custom widgets (regime display, signal panel, etc.)
-│   │   └── screens/            # TUI screen definitions
-│   └── web/                    # FastAPI web dashboard (optional, later phase)
-│       ├── app.py              # FastAPI application
-│       └── routes/             # API endpoints + SSE streams
-│
-├── backtest/                   # Module 8: Backtesting Framework
-│   ├── __init__.py
-│   ├── historical_feed.py      # Replays historical data as RawTick stream
-│   ├── simulator.py            # Simulated order execution with slippage model
-│   ├── walk_forward.py         # Walk-forward validation engine
-│   ├── monte_carlo.py          # Monte Carlo simulation
-│   └── evaluator.py            # Performance metrics, regime-aware scoring
-│
-├── storage/                    # Persistence layer
-│   ├── __init__.py
-│   ├── tick_store.py           # SQLite for tick/trade writes
-│   ├── analytics_store.py      # DuckDB for analytical queries
-│   └── migrations/             # Schema versioning
-│
-├── main.py                     # Entry point: live trading mode
-├── backtest_runner.py          # Entry point: backtesting mode
-└── config/
-    ├── default.toml            # Default configuration
-    ├── live.toml               # Live trading overrides
-    └── backtest.toml           # Backtest-specific config
+classify_regime()
+    └→ ChaosRegimeModule.update()  [SignalOutput: direction, confidence, regime]
+         └→ signal_loop() collects signals
+              └→ FusionCore.fuse(signals, weights, threshold)
+                   └→ FusionResult.should_trade = abs(composite) > 0 AND fused_confidence >= threshold
+                        └→ TradeManager.evaluate_and_execute()
 ```
 
-### Structure Rationale
+**Key architectural insight:** The signal recalibration does NOT change any interfaces. `SignalOutput` is frozen with `direction: float`, `confidence: float`, `regime: RegimeState`. All changes are INTERNAL to individual signal module `update()` methods and to FusionConfig parameter values. This is the cleanest possible change.
 
-- **`core/`:** Shared infrastructure that every module depends on. The event bus, type definitions, and clock abstraction live here. This is the foundation that must be built first.
-- **`bridge/`:** Hard boundary around all MT5 communication. No module except `bridge/` imports `MetaTrader5`. This makes the backtesting swap trivial -- replace `bridge/data_feed.py` with `backtest/historical_feed.py` and everything else works identically.
-- **One folder per module (sensor/, institutional/, quantum/, chaos/, decision/):** Each analysis module is a self-contained package. They share no internal state. They receive `MarketState` via the event bus and publish their signal type. This makes modules independently testable and replaceable.
-- **`learning/`:** Deliberately separated from the trading pipeline. It reads trade results and historical data but never injects into the live decision path synchronously. Its output is configuration updates, not trading signals.
-- **`storage/`:** Dual-database strategy (detailed below). Centralized persistence so modules write through a clean API, not directly to files.
-- **`config/`:** TOML-based configuration with layered overrides. The learning module's output is a new TOML parameter set that gets promoted to the active config.
+**Suggested build order for recalibration:**
+1. Add backtest instrumentation to log actual direction/confidence distributions from each module
+2. Use these distributions to set realistic fusion thresholds
+3. Tune chaos direction computation for continuous [-1,1] output
+4. Tune timing urgency thresholds for XAUUSD M5 characteristics
+5. Run optimization pipeline to find optimal parameters
+
+### Area 2: Backtest Pipeline Performance
+
+**Problem:** Backtest runner was stuck on the first walk-forward window with 147K+ debug log entries. The pipeline needs to complete end-to-end efficiently.
+
+**What needs to change:**
+
+| Component | Current State | Required Change | Type |
+|-----------|--------------|-----------------|------|
+| `run_full_backtest()` in `backtest/runner.py` | Runs 6-step pipeline sequentially but floods with debug logs | Force WARNING-level logging during backtest (like optimizer does) and profile bottlenecks | **Modify** |
+| `BacktestEngine.run()` in `backtest/engine.py` | Creates fresh signal modules per run including Numba JIT warmup | JIT warmup should happen ONCE before walk-forward loop, not per window. Cache initialized modules or pre-warm | **Modify** |
+| `cmd_backtest()` in `cli.py` | Uses default logging setup | Add `structlog.make_filtering_bound_logger(logging.WARNING)` like `cmd_optimize()` already does (line 544) | **Modify** |
+| `WalkForwardValidator.run_walk_forward()` | Iterates windows, creates BacktestEngine per window | Pass pre-warmed module instances or pre-compile Numba cache before loop | **Modify** |
+
+**Integration points affected:**
+
+```
+cmd_backtest()
+    └→ run_full_backtest()
+         └→ WalkForwardValidator.run_walk_forward()
+              └→ [for each window]
+                   └→ BacktestEngine(settings, config)  ← fresh instance
+                        └→ engine.run(bars_df)
+                             └→ chaos_module.initialize()  ← redundant JIT warmup
+                                  └→ warmup_jit()  ← expensive first time only
+```
+
+**Key optimization:** Numba JIT compilation is expensive on first call (seconds) but cached on disk after that. The real performance issue is likely the log volume, not the computation. The optimizer already solved this (line 542-546 in cli.py) by forcing WARNING level. Apply the same pattern to backtest.
+
+### Area 3: Optimization Pipeline Completion
+
+**Problem:** Optimization needs to run end-to-end and write `config/optimized.toml` that the bot can load on next start.
+
+**What needs to change:**
+
+| Component | Current State | Required Change | Type |
+|-----------|--------------|-----------------|------|
+| `run_optimization()` | Writes `config/optimized.toml` with `[signals.fusion]` section | Works as designed. Need to verify it runs end-to-end with performance fix | **Verify** |
+| `config/optimized.toml` | Written by optimizer but not auto-loaded | CLI needs `--config config/optimized.toml config/live.toml` to load both. Config merge is TOML-layered via `BotSettings.from_toml([files])`. Already supported. | **Documented** |
+| Config loading chain | `load_settings(config_files)` -> `BotSettings.from_toml(config_files)` | Need to verify TOML layering: optimized.toml provides `[signals.fusion]` params, live.toml provides `[execution] mode="live"`. Default.toml fills everything else. | **Verify** |
+
+**Data flow for optimization -> live deployment:**
+
+```
+optimize command
+    └→ run_optimization()
+         └→ Phase A: Optuna TPE (50 trials) -> best 11 fusion params
+         └→ Phase B: DEAP GA (10 gens) -> best 3 weight seeds
+         └→ Validation: walk-forward + OOS + Monte Carlo
+         └→ Write config/optimized.toml
+              └→ [signals.fusion]
+                   aggressive_confidence_threshold = X
+                   selective_confidence_threshold = Y
+                   ... (14 params total)
+
+run command with --config config/optimized.toml config/live.toml
+    └→ load_settings(["config/optimized.toml", "config/live.toml"])
+         └→ BotSettings.from_toml(files)  # layers: default <- optimized <- live
+              └→ signals.fusion.* from optimized.toml
+              └→ execution.mode = "live" from live.toml
+              └→ everything else from defaults
+```
+
+**Key insight:** The optimization pipeline is architecturally complete. The issue is operational -- it needs to actually run to completion (blocked by backtest performance) and the output needs to be loadable by the run command. Both paths already exist in code.
+
+### Area 4: Live Execution
+
+**Problem:** Paper mode tracks positions internally via `PaperExecutor._positions`. Live mode sends orders via MT5 but has gaps in position lifecycle management.
+
+**What currently works in live mode:**
+
+1. `OrderManager.place_market_order()` with `mode="live"` correctly calls `order_check()` then `order_send()` (orders.py:184-228)
+2. `OrderManager.close_position()` handles opposite-order closing (orders.py:230-300)
+3. `OrderManager.close_all_positions()` iterates `bridge.get_positions()` (orders.py:302-321)
+4. `MT5Bridge` wraps all blocking MT5 calls in single-thread executor (mt5_bridge.py:59-66)
+5. `TradeManager` tracks `_open_position_ticket` for single-position limit (trade_manager.py:85-87)
+
+**What is MISSING for live mode:**
+
+| Gap | Description | Impact | Required Component |
+|-----|-------------|--------|-------------------|
+| **Live position monitoring** | Paper mode checks SL/TP via `PaperExecutor.check_sl_tp()` in tick_loop. Live mode relies on server-side SL/TP (set in order request). But `TradeManager._open_position_ticket` is never cleared in live mode when MT5 server closes a position | TradeManager thinks position is still open indefinitely, blocks new trades | **New: Position sync loop** |
+| **Position reconciliation** | No mechanism to detect when MT5 server-side SL/TP fires. `bridge.get_positions()` exists but is not polled in live mode | Stale position state causes missed trades or doubled positions | **New: Position sync in health_loop or tick_loop** |
+| **Live trade logging** | `_handle_paper_close()` handles paper position closes with full logging/learning. No equivalent for live closes | Trade history, weight adaptation, and learning loop miss live trade outcomes | **New: Live close handler** |
+| **Crash recovery for live** | Current crash recovery closes ALL open positions on restart (engine.py:429-441). This is aggressive for live | Could close profitable positions unnecessarily on restart | **Modify: Optional preserve-positions flag** |
+| **OrderManager.modify_sl** | Referenced in TradeManager.evaluate_and_execute() line 176-178 but NOT implemented on OrderManager | Adverse regime SL tightening silently fails | **New: Add modify_sl method** |
+
+**New component: Position Monitor**
+
+This is the single genuinely new component needed. It must:
+1. Poll `bridge.get_positions(symbol)` on each tick loop cycle (or dedicated loop)
+2. Compare against `TradeManager._open_position_ticket`
+3. When position disappears from MT5 (server closed by SL/TP/margin), detect it
+4. Compute PnL from position history or deal history
+5. Call equivalent pipeline to `_handle_paper_close()`: trade logging, weight update, learning loop
+
+**Suggested implementation pattern:**
+
+```python
+# In engine.py, within _tick_loop or as separate _position_sync_loop:
+
+async def _check_live_positions(self) -> None:
+    """Detect server-side position closures in live mode."""
+    if self._settings.execution.mode != "live":
+        return
+    if self._trade_manager._open_position_ticket is None:
+        return
+
+    # Check if our tracked position still exists
+    positions = await self._bridge.get_positions(
+        symbol=self._settings.execution.symbol
+    )
+    open_tickets = {p.ticket for p in (positions or [])}
+
+    tracked = self._trade_manager._open_position_ticket
+    if tracked not in open_tickets:
+        # Position was closed server-side (SL/TP hit or manual close)
+        # Fetch deal history to get close price and PnL
+        await self._handle_live_close(tracked)
+```
+
+**MT5 deal history retrieval:**
+
+```python
+# New method on MT5Bridge:
+async def get_deal_history(self, ticket: int) -> Any:
+    """Fetch deal history for a position ticket."""
+    return await self._run_mt5(mt5.history_deals_get, position=ticket)
+```
+
+**Integration into existing architecture:**
+
+```
+_tick_loop() or _health_loop()
+    └→ _check_live_positions()
+         └→ bridge.get_positions(symbol)  [check if tracked ticket still open]
+              └→ if missing: bridge.get_deal_history(ticket)  [get close details]
+                   └→ _handle_live_close(ticket)  [mirrors _handle_paper_close]
+                        ├→ trade_logger.log_trade_close()
+                        ├→ weight_tracker.record_outcome()
+                        ├→ learning_loop.on_trade_closed()
+                        └→ trade_manager.record_position_closed()
+```
+
+**OrderManager.modify_sl implementation:**
+
+```python
+# New method on OrderManager:
+async def modify_sl(self, ticket: int, new_sl: float) -> bool:
+    """Modify stop-loss of an open position."""
+    if self._config.mode == "paper":
+        # Update paper position SL
+        if self._paper_executor and ticket in self._paper_executor._positions:
+            self._paper_executor._positions[ticket].sl = new_sl
+            return True
+        return False
+
+    # Live mode: MT5 position modification
+    request = {
+        "action": mt5.TRADE_ACTION_SLTP,
+        "position": ticket,
+        "symbol": self._config.symbol,
+        "sl": new_sl,
+    }
+    result = await self._bridge.order_send(request)
+    return result is not None and result.retcode == TRADE_RETCODE_DONE
+```
+
+### Area 5: Demo Hardening (Unattended Operation)
+
+**Problem:** Bot needs to run unattended for 1 week on demo account without crashing, hanging, or silently stopping.
+
+**What needs to change:**
+
+| Component | Current State | Required Change | Type |
+|-----------|--------------|-----------------|------|
+| **Logging levels** | Default `INFO` level floods with tick data every 100ms | Production logging: WARNING for tick/bar loops, INFO for trades/decisions, DEBUG only on explicit flag | **Modify** |
+| **Session management** | Single window `13:00-17:00 UTC` | May need multiple windows (London + NY overlap is prime XAUUSD time, but Asian session gold moves matter). Session filter already supports multiple windows in config | **Tune** |
+| **Reconnection** | `reconnect_loop(max_retries=5)` on startup, `reconnect_loop(max_retries=3)` in tick_loop | 5 retries = 63 seconds max before giving up forever. For unattended week-long operation, needs infinite retry (max_retries=0) with capped backoff | **Modify** |
+| **Heartbeat/watchdog** | None | Need a periodic "I am alive" log entry + optional watchdog mechanism to detect if engine is stuck | **New: simple** |
+| **State persistence frequency** | Signal weights saved on every trade, breaker state saved on every check | Adequate. Consider adding periodic state dump (every 5 min) as crash recovery checkpoint | **Minor enhance** |
+| **Graceful shutdown on Windows** | `add_signal_handler` may fail on Windows (engine.py catches NotImplementedError) | Windows SIGINT handling is limited. Consider using `signal.signal(signal.SIGINT, handler)` which works on Windows, or a file-based kill mechanism | **Modify** |
+
+**New component: Watchdog heartbeat (lightweight)**
+
+```python
+# In engine.py, add to health_loop or as simple addition:
+async def _health_loop(self):
+    # ... existing checks ...
+
+    # Periodic heartbeat for monitoring
+    self._logger.info(
+        "heartbeat",
+        uptime_minutes=(time.time() - self._start_time) / 60,
+        trades_today=self._engine_state.breaker_status.get("daily_trade_count", 0),
+        equity=self._current_equity,
+        mode=self._settings.execution.mode,
+    )
+```
+
+This is trivially added to the existing health_loop's 10-second cycle but should be throttled to once per minute or once per 5 minutes.
+
+## Recommended Project Structure Changes
+
+```
+src/fxsoqqabot/
+├── config/
+│   ├── loader.py          # No changes needed
+│   └── models.py          # Possible: add production logging profile
+├── core/
+│   ├── engine.py          # MODIFY: add _check_live_positions(), heartbeat, reconnect fixes
+│   ├── events.py          # No changes needed
+│   ├── state.py           # No changes needed
+│   └── state_snapshot.py  # No changes needed
+├── execution/
+│   ├── mt5_bridge.py      # MODIFY: add get_deal_history()
+│   ├── orders.py          # MODIFY: add modify_sl()
+│   └── paper.py           # No changes needed (paper mode already works)
+├── signals/
+│   ├── base.py            # No changes needed (SignalOutput is stable)
+│   ├── chaos/
+│   │   ├── module.py      # MODIFY: recalibrate direction computation
+│   │   └── regime.py      # REVIEW: threshold tuning
+│   ├── flow/
+│   │   └── module.py      # REVIEW: direction/confidence calibration
+│   ├── timing/
+│   │   └── module.py      # MODIFY: urgency calibration thresholds
+│   └── fusion/
+│       ├── core.py        # No changes needed (fusion math is correct)
+│       ├── trade_manager.py # No changes needed (modify_sl already expected)
+│       └── weights.py     # No changes needed
+├── backtest/
+│   ├── runner.py          # MODIFY: add production log level suppression
+│   └── engine.py          # MODIFY: optimize JIT warmup, reduce per-bar logging
+├── optimization/
+│   └── optimizer.py       # VERIFY: run end-to-end
+├── risk/                  # No changes needed
+├── cli.py                 # MODIFY: backtest logging, config loading docs
+└── logging/
+    └── setup.py           # MODIFY: add production log profiles
+config/
+├── default.toml           # No changes needed
+├── paper.toml             # No changes needed
+├── live.toml              # MODIFY: add MT5 credentials, session tuning
+└── optimized.toml         # GENERATED: by optimization pipeline
+```
 
 ## Architectural Patterns
 
-### Pattern 1: Event Bus (In-Process Pub/Sub)
+### Pattern 1: Paper/Live Branch at Execution Point
 
-**What:** A lightweight in-process publish/subscribe system using `asyncio.Queue` per subscriber. Producers publish typed events; consumers subscribe by event type. No external message broker needed.
+**What:** All signal analysis, fusion, and trade decisions share 100% of code between paper and live modes. The branch point is a single `if self._config.mode == "paper"` check in `OrderManager.place_market_order()`.
 
-**When to use:** All inter-module communication in the live trading pipeline. The Sensor publishes `MarketState`; all Layer 2 modules subscribe. Layer 2 modules publish their signals; the Decision Core subscribes to all of them.
+**Why this matters for v1.1:** Adding live execution does NOT require any changes to the signal pipeline, fusion core, or trade manager. Only the execution layer and position monitoring need modification.
 
-**Trade-offs:**
-- Pro: Zero serialization overhead, type-safe, easy to debug, no external dependencies
-- Pro: Dashboard subscribes to everything without coupling to any module
-- Pro: Backtesting framework subscribes to the same events for replay validation
-- Con: Single-process only (fine for our same-machine deployment)
-- Con: Backpressure must be handled manually (bounded queues)
+**Trade-offs:** Simple and clean, but means live mode inherits all paper mode's decision logic without any live-specific adjustments. This is correct -- the strategy should be identical.
 
-**Example:**
-```python
-from dataclasses import dataclass
-from typing import TypeVar, Type, Callable, Awaitable
-from collections import defaultdict
-import asyncio
+### Pattern 2: Config Layering via TOML Override Chain
 
-T = TypeVar("T")
+**What:** `BotSettings.from_toml(["config/optimized.toml", "config/live.toml"])` layers configs left-to-right. Later files override earlier ones. Field defaults fill gaps.
 
-@dataclass(frozen=True, slots=True)
-class MarketState:
-    timestamp: float
-    bid: float
-    ask: float
-    volume_delta: float
-    spread: float
-    dom_depth: list | None  # None when DOM unavailable
+**Why this matters for v1.1:** The optimization pipeline writes `config/optimized.toml` with just `[signals.fusion]` parameters. The live config adds `[execution] mode="live"`. No manual parameter copying needed.
 
-@dataclass(frozen=True, slots=True)
-class RegimeState:
-    timestamp: float
-    regime: str  # "trending" | "mean_reverting" | "chaotic" | "bifurcating"
-    fractal_dim: float
-    hurst: float
-    confidence: float
-
-class EventBus:
-    def __init__(self):
-        self._subscribers: dict[Type, list[asyncio.Queue]] = defaultdict(list)
-
-    def subscribe(self, event_type: Type[T], maxsize: int = 100) -> asyncio.Queue[T]:
-        queue: asyncio.Queue[T] = asyncio.Queue(maxsize=maxsize)
-        self._subscribers[event_type].append(queue)
-        return queue
-
-    async def publish(self, event: object) -> None:
-        for queue in self._subscribers[type(event)]:
-            try:
-                queue.put_nowait(event)
-            except asyncio.QueueFull:
-                # Drop oldest event (backpressure strategy for non-critical consumers)
-                try:
-                    queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
-                queue.put_nowait(event)
+**Example deployment command:**
+```bash
+python -m fxsoqqabot run --config config/optimized.toml config/live.toml --no-learning
 ```
 
-### Pattern 2: Async Polling Loop with `asyncio.to_thread`
+### Pattern 3: Position Lifecycle State Machine
 
-**What:** The MT5 Python package is entirely synchronous. Every `mt5.*` call blocks. We wrap each call in `asyncio.to_thread()` to keep the main event loop responsive. A dedicated polling coroutine calls `symbol_info_tick()` and `market_book_get()` at a configurable interval (default ~100ms for scalping).
+**What:** Currently implicit in `TradeManager._open_position_ticket`. Needs to become explicit for live mode.
 
-**When to use:** All MT5 Bridge operations -- data ingestion and order execution.
-
-**Trade-offs:**
-- Pro: Non-blocking; analysis modules run concurrently with data polling
-- Pro: `symbol_info_tick()` roundtrip is ~17 microseconds on same machine, so 100ms polling wastes no meaningful time
-- Pro: Proven pattern used by `aiomql` framework in production
-- Con: GIL means true parallelism requires `ProcessPoolExecutor` for CPU-heavy work
-- Con: Polling introduces up to one polling-interval of latency (100ms worst case)
-
-**Example:**
-```python
-import MetaTrader5 as mt5
-import asyncio
-
-class MT5DataFeed:
-    def __init__(self, event_bus: EventBus, symbol: str = "XAUUSD",
-                 poll_interval: float = 0.1):
-        self._bus = event_bus
-        self._symbol = symbol
-        self._interval = poll_interval
-        self._running = False
-
-    async def start(self):
-        self._running = True
-        # Subscribe to DOM updates
-        await asyncio.to_thread(mt5.market_book_add, self._symbol)
-        while self._running:
-            tick = await asyncio.to_thread(mt5.symbol_info_tick, self._symbol)
-            dom = await asyncio.to_thread(mt5.market_book_get, self._symbol)
-            if tick is not None:
-                await self._bus.publish(RawTick(
-                    timestamp=tick.time_msc / 1000.0,
-                    bid=tick.bid, ask=tick.ask,
-                    volume=tick.volume, flags=tick.flags
-                ))
-            if dom is not None:
-                await self._bus.publish(DOMSnapshot(
-                    timestamp=tick.time_msc / 1000.0 if tick else time.time(),
-                    entries=[(e.type, e.price, e.volume_dbl) for e in dom]
-                ))
-            await asyncio.sleep(self._interval)
-
-    async def stop(self):
-        self._running = False
-        await asyncio.to_thread(mt5.market_book_release, self._symbol)
+**Current states (paper):**
+```
+NO_POSITION → [fusion says trade + breakers clear + sizing ok] → POSITION_OPEN
+POSITION_OPEN → [SL/TP hit detected by PaperExecutor.check_sl_tp()] → NO_POSITION
+POSITION_OPEN → [adverse regime] → POSITION_OPEN (tighten SL)
 ```
 
-### Pattern 3: Interface Swap for Backtesting (Strategy Pattern)
-
-**What:** The backtesting framework works by replacing the MT5 Bridge's `DataFeed` with a `HistoricalDataFeed` that replays stored tick data through the same event bus. All downstream modules (Sensor, Institutional, Chaos, Quantum, Decision) are completely unaware whether they are processing live or historical data.
-
-**When to use:** Backtesting mode. Also used for replay-debugging of live trading sessions.
-
-**Trade-offs:**
-- Pro: Guarantees backtest fidelity -- same code path as live
-- Pro: No "backtest-only" code branches that diverge from production
-- Pro: An abstracted `Clock` provides simulated time so time-dependent calculations (e.g., tick intensity per second) work correctly
-- Con: Requires discipline to never call `time.time()` directly in modules -- always use `Clock`
-
-**Example:**
-```python
-from abc import ABC, abstractmethod
-
-class DataFeedProtocol(ABC):
-    @abstractmethod
-    async def start(self) -> None: ...
-    @abstractmethod
-    async def stop(self) -> None: ...
-
-class LiveDataFeed(DataFeedProtocol):
-    """Wraps MT5 Bridge -- used in production."""
-    async def start(self):
-        # polls mt5.symbol_info_tick() in a loop
-        ...
-
-class HistoricalDataFeed(DataFeedProtocol):
-    """Replays stored tick data -- used in backtesting."""
-    def __init__(self, tick_store, event_bus, clock, speed: float = 0.0):
-        self._store = tick_store
-        self._bus = event_bus
-        self._clock = clock
-        self._speed = speed  # 0.0 = as fast as possible
-
-    async def start(self):
-        for tick in self._store.iter_ticks():
-            self._clock.advance_to(tick.timestamp)
-            await self._bus.publish(tick)
-            if self._speed > 0:
-                await asyncio.sleep(self._speed)
+**Required states (live):**
+```
+NO_POSITION → [fusion says trade] → ORDER_PENDING
+ORDER_PENDING → [fill confirmed] → POSITION_OPEN
+POSITION_OPEN → [server closes via SL/TP] → DETECTING_CLOSE
+DETECTING_CLOSE → [deal history retrieved] → NO_POSITION
+POSITION_OPEN → [adverse regime] → POSITION_OPEN (modify_sl via MT5)
+POSITION_OPEN → [kill switch] → CLOSING
+CLOSING → [close fill confirmed] → NO_POSITION
 ```
 
-### Pattern 4: Shadow Model Promotion (Safe Self-Learning)
+**Recommendation:** For v1.1, keep it simple. Do NOT build a full state machine. Instead:
+- `_open_position_ticket is None` = no position
+- `_open_position_ticket is not None` = position open
+- Polling `bridge.get_positions()` detects server-side closes
+- This matches the existing TradeManager pattern with minimal changes
 
-**What:** The self-learning loop never modifies live trading parameters directly. It trains "shadow" parameter sets, evaluates them against recent out-of-sample data, and only promotes a new parameter set when it meets strict improvement thresholds. Promotion is an atomic config file swap.
+### Pattern 4: Synchronous Optimization with Async Backtests
 
-**When to use:** Module 6 (Self-Learning Mutation Loop) when updating any tunable parameter across modules.
+**What:** The optimizer is synchronous (`run_optimization()` uses `asyncio.run()` per trial). Each Optuna objective call spins up a fresh event loop for the async BacktestEngine. This is intentional -- Optuna's API is synchronous.
 
-**Trade-offs:**
-- Pro: Live trading is never disrupted by a learning cycle
-- Pro: Rollback is trivial -- revert to previous config version
-- Pro: Full audit trail of every parameter change with associated performance metrics
-- Con: Learning improvements are delayed (batch promotion, not real-time adaptation)
-- Con: Requires careful versioning of config files
+**Why this matters for v1.1:** The optimization pipeline cannot run inside the trading engine's event loop. It must be a separate CLI command. This is already the case (`cmd_optimize` is sync, not async). No changes needed to this pattern.
 
-## Data Flow
+## Data Flow Changes for v1.1
 
-### Primary Trading Flow (Live Mode)
-
-```
-MT5 Terminal
-    |
-    | mt5.symbol_info_tick(), mt5.market_book_get()
-    | (polled every ~100ms via asyncio.to_thread)
-    v
-MT5 Bridge  ──publishes──>  EventBus [RawTick, DOMSnapshot]
-                                |
-                                v
-                    [1] Microstructure Sensor
-                    (subscribes to RawTick, DOMSnapshot)
-                    (computes volume delta, spread, DOM features)
-                                |
-                    ──publishes──>  EventBus [MarketState]
-                                |
-                 ┌──────────────┼──────────────┐
-                 v              v              v
-        [2] Institutional  [4] Chaos/    [3] Quantum
-         Footprint          Fractal       Timing
-         Detector           Regime        Engine
-                 |              |              |
-          publishes        publishes       publishes
-      [InstSignal]    [RegimeState]   [TimingSignal]
-                 |              |              |
-                 └──────────────┼──────────────┘
-                                v
-                    [5] Decision and Execution Core
-                    (subscribes to all three signal types)
-                    (fuses signals, applies risk rules)
-                                |
-                    ──publishes──>  EventBus [TradeRequest | NoAction]
-                                |
-                                v
-                        MT5 Bridge (order_send)
-                                |
-                    ──publishes──>  EventBus [TradeResult]
-                                |
-                                v
-                    [6] Self-Learning Loop (journals everything)
-                    [7] Dashboard (displays everything)
-```
-
-### Self-Learning Data Flow (Offline/Background)
+### Current Data Flow (Paper Mode)
 
 ```
-Trade Journal (SQLite)
-    |
-    | query: recent closed trades + full signal context
-    v
-Forward Labeler
-    |
-    | annotates: entry quality, exit quality, regime accuracy
-    v
-Genetic Optimizer
-    |
-    | evolves: parameter sets for each module
-    | evaluates: on walk-forward windows
-    v
-Shadow Trainer
-    |
-    | trains: ML classifiers on labeled regime data
-    | validates: out-of-sample performance
-    v
-Config Promoter
-    |
-    | if improvement > threshold:
-    |   write new config/params_v{N+1}.toml
-    |   signal main loop to reload
-    v
-Main Trading Loop (picks up new config on next cycle)
+tick_loop (100ms) ──→ tick_buffer ──→ signal_loop (5s)
+                                          │
+bar_loop (5s) ──→ bar_buffers ────────────┘
+                                          │
+                                    3 signal modules
+                                          │
+                                    FusionCore.fuse()
+                                          │
+                                    TradeManager.evaluate_and_execute()
+                                          │
+                              OrderManager.place_market_order()
+                                          │
+                              PaperExecutor.simulate_fill()
+                                          │
+                                    FillEvent returned
+                                          │
+tick_loop (100ms) ──→ PaperExecutor.check_sl_tp()
+                                          │
+                              PaperExecutor.simulate_close()
+                                          │
+                              _handle_paper_close()
+                                    │    │    │
+                        trade_logger  weight  learning
+                                    tracker  loop
 ```
 
-### Key Data Flows
-
-1. **Tick-to-Trade (critical path):** `RawTick` -> `MarketState` -> `[InstSignal, RegimeState, TimingSignal]` -> `TradeRequest` -> `TradeResult`. This is the latency-sensitive path. Target: under 50ms from tick arrival to trade decision (excluding broker execution time). All processing is in-memory via the event bus.
-
-2. **Trade-to-Journal (logging path):** Every `TradeRequest` and `TradeResult` is written to the trade journal with the full signal snapshot at time of decision. This is append-only and must never block the critical path. Use `asyncio.create_task` for fire-and-forget writes.
-
-3. **Journal-to-Learning (background path):** The learning loop reads from the trade journal periodically (e.g., after every N closed trades or on a timer). It runs CPU-intensive optimization in a `ProcessPoolExecutor` to avoid blocking the event loop and GIL contention with the trading path.
-
-4. **Config-to-Modules (promotion path):** When the learning loop promotes a new parameter set, it writes a versioned TOML file and publishes a `ConfigUpdate` event. Each module watches for `ConfigUpdate` events relevant to its namespace and hot-reloads its parameters on the next processing cycle. No restart required.
-
-## Storage Strategy
-
-### Dual-Database Architecture
-
-Use **SQLite** for transactional writes and **DuckDB** for analytical reads. Both are embedded, zero-dependency, file-based databases that require no server process.
-
-| Store | Engine | Purpose | Access Pattern |
-|-------|--------|---------|----------------|
-| Tick store | SQLite | Raw tick archival, write-heavy | Append-only, sequential writes at tick rate |
-| Trade journal | SQLite | Trade logs with full signal context | Append on trade open/close, read by learning loop |
-| Config history | SQLite | Versioned parameter sets | Write on promotion, read on startup |
-| Analytics cache | DuckDB | Historical analysis, backtest queries | Bulk reads, columnar aggregations, regime statistics |
-| Backtest results | DuckDB | Walk-forward results, Monte Carlo output | Write after backtest run, read for dashboard/analysis |
-
-**Why this split:** SQLite handles high-frequency small writes (ticks arrive every 100ms) with sub-millisecond insert latency. DuckDB handles analytical queries over millions of rows 20-50x faster than SQLite due to columnar storage. The learning loop and backtesting framework query DuckDB. The live trading pipeline writes to SQLite. A periodic sync task copies closed data from SQLite to DuckDB for analysis.
-
-### File-Based Storage (Supplementary)
-
-| Data | Format | Purpose |
-|------|--------|---------|
-| Parameter configs | TOML | Human-readable, version-controlled module parameters |
-| Mutation history | JSON lines | Append-only log of every genetic algorithm generation |
-| Model artifacts | pickle/joblib | Trained ML models (regime classifier, etc.) |
-
-### Schema Boundaries
-
-Each module owns its own tables/schemas. The trade journal schema is owned by the learning module. The tick store schema is owned by the bridge. No cross-module direct table access -- all inter-module data sharing goes through the event bus or explicit query APIs in the storage layer.
-
-## Python-MT5 Communication Deep Dive
-
-### The MetaTrader5 Python Package
-
-The official `MetaTrader5` package (PyPI: `MetaTrader5`, version 5.0.5430 as of Jan 2026) communicates with the MT5 terminal via an internal IPC mechanism on the same machine. Key characteristics:
-
-| Property | Detail |
-|----------|--------|
-| All calls synchronous | Every function blocks until the terminal responds |
-| Single-threaded access | Only one thread should call `mt5.*` functions at a time |
-| `symbol_info_tick()` latency | ~17 microseconds average on same machine |
-| `order_send()` local latency | ~15-24 microseconds (local API call only; broker execution adds 60-200ms) |
-| `market_book_get()` | Requires prior `market_book_add()` subscription; returns current DOM snapshot |
-| No callback/event API | No way to register for tick callbacks; must poll |
-| No async variant | Must use `asyncio.to_thread()` or thread pool wrappers |
-
-### Why NOT a Thin MQL5 EA with Socket/Pipe Communication
-
-The PROJECT.md mentions a "thin MQL5 EA for execution only." After research, the recommended approach is simpler: **use the Python `MetaTrader5` package directly for both data and execution.** Rationale:
-
-1. `mt5.order_send()` from Python has ~17 microsecond local latency. The broker adds 60-200ms regardless. A socket/pipe hop through an MQL5 EA adds complexity with zero latency benefit.
-2. `mt5.symbol_info_tick()` and `mt5.market_book_get()` give Python direct access to all market data. No need for an MQL5 EA to relay data.
-3. A thin MQL5 EA is only needed if you want the EA to act as a safety net (e.g., trailing stop management if Python crashes). This is a valid use case for a later phase -- a watchdog EA that monitors positions and enforces hard stop-losses independently of Python.
-
-**Recommendation:** Phase 1 uses Python `MetaTrader5` package exclusively. Phase 2+ adds a watchdog MQL5 EA for safety, not for primary execution.
-
-### Handling the GIL for CPU-Intensive Analysis
-
-The chaos/fractal calculations (Lyapunov exponents, fractal dimension, Hurst exponent) are CPU-intensive. Running them in the main asyncio event loop would block tick processing.
-
-**Solution:** Use `ProcessPoolExecutor` for CPU-heavy analysis modules. The event bus delivers `MarketState` to each analysis module's async handler. Modules that need heavy computation offload to a process pool:
-
-```python
-import asyncio
-from concurrent.futures import ProcessPoolExecutor
-
-# Module-level process pool (shared across CPU-intensive modules)
-_cpu_pool = ProcessPoolExecutor(max_workers=3)
-
-class ChaosRegimeClassifier:
-    async def on_market_state(self, state: MarketState):
-        loop = asyncio.get_event_loop()
-        regime = await loop.run_in_executor(
-            _cpu_pool,
-            self._compute_regime,  # Pure function, no shared state
-            state
-        )
-        await self._bus.publish(regime)
-
-    @staticmethod
-    def _compute_regime(state: MarketState) -> RegimeState:
-        # CPU-intensive: fractal dim, Lyapunov, Hurst
-        # Runs in separate process -- no GIL contention
-        ...
-```
-
-**Critical constraint:** Functions sent to `ProcessPoolExecutor` must be picklable. Use `@staticmethod` or module-level functions, not bound methods. Dataclasses with `slots=True` pickle efficiently.
-
-## Build Order (Dependency-Driven)
-
-The modules have clear dependency ordering. Build bottom-up:
+### Required Data Flow (Live Mode)
 
 ```
-Phase 1 (Foundation):
-  core/event_bus.py + core/types.py + core/config.py + core/clock.py
-  bridge/mt5_client.py + bridge/data_feed.py
-  storage/tick_store.py
-  sensor/ (simplified: tick normalization + spread only)
-
-Phase 2 (Minimal Trading Loop):
-  decision/ (simplified: single-signal threshold trading)
-  bridge/order_executor.py
-  storage/ (trade journal tables)
-
-Phase 3 (Analysis Modules):
-  chaos/ (start with Hurst exponent only)
-  institutional/ (start with volume imbalance only)
-  quantum/ (start with basic timing windows)
-
-Phase 4 (Feedback Systems):
-  learning/ (trade journal + basic parameter logging)
-  dashboard/tui/ (basic Textual app showing state)
-
-Phase 5 (Validation):
-  backtest/ (historical feed + walk-forward)
-
-Phase 6 (Deepening):
-  All modules gain depth (fractal dim, Lyapunov, absorption, etc.)
-  learning/ gains genetic optimizer + shadow training
-  dashboard/ gains web interface
+tick_loop (100ms) ──→ tick_buffer ──→ signal_loop (5s)
+                                          │
+bar_loop (5s) ──→ bar_buffers ────────────┘
+                                          │
+                                    3 signal modules
+                                          │
+                                    FusionCore.fuse()
+                                          │
+                                    TradeManager.evaluate_and_execute()
+                                          │
+                              OrderManager.place_market_order()
+                                          │
+                              MT5Bridge.order_send()    ← LIVE PATH
+                                          │
+                                    FillEvent returned
+                                          │
+health_loop (10s) ──→ _check_live_positions()     ← NEW
+                              │
+                    bridge.get_positions(symbol)
+                              │
+                    if tracked ticket missing:
+                              │
+                    bridge.get_deal_history(ticket)   ← NEW on bridge
+                              │
+                    _handle_live_close(ticket)         ← NEW, mirrors paper
+                              │    │    │
+                  trade_logger  weight  learning
+                              tracker  loop
 ```
 
-**Rationale for this order:**
-- You cannot test anything without the bridge and event bus (Phase 1).
-- A minimal trading loop (Phases 1-2) proves the architecture end-to-end before investing in complex analysis.
-- Analysis modules (Phase 3) are independent of each other and can be built in parallel.
-- The learning loop (Phase 4) needs trade history to learn from, so it follows trading.
-- Backtesting (Phase 5) validates everything built so far.
-- Deepening (Phase 6) is iterative and ongoing.
+**Key difference:** Paper mode detects SL/TP via `PaperExecutor.check_sl_tp()` in tick_loop (100ms). Live mode detects server-side closes by polling `get_positions()` -- this should happen in health_loop (10s interval) to avoid hammering MT5 API. Latency between server close and detection is acceptable (up to 10 seconds) because the bot is not HFT.
+
+## Component Change Matrix
+
+| Component | File | Change Type | Size | Dependencies |
+|-----------|------|-------------|------|-------------|
+| Backtest logging fix | `cli.py` | Modify | Small | None (copy pattern from cmd_optimize) |
+| Backtest JIT warmup | `backtest/engine.py` | Modify | Small | Numba cache already persists to disk |
+| Chaos direction calibration | `signals/chaos/module.py` | Modify | Medium | ChaosConfig, regime.py |
+| Timing urgency calibration | `signals/timing/module.py` | Modify | Medium | TimingConfig |
+| Fusion threshold tuning | `config/default.toml` or optimization | Tune | Small | Requires backtest data |
+| `modify_sl()` | `execution/orders.py` | Add method | Small | MT5Bridge (TRADE_ACTION_SLTP) |
+| `get_deal_history()` | `execution/mt5_bridge.py` | Add method | Small | MT5 `history_deals_get` |
+| Live position monitor | `core/engine.py` | Add method | Medium | bridge.get_positions, trade_manager |
+| Live close handler | `core/engine.py` | Add method | Medium | Mirrors _handle_paper_close |
+| Reconnect for unattended | `core/engine.py` | Modify | Small | Change max_retries to 0 |
+| Heartbeat logging | `core/engine.py` | Add to health_loop | Small | None |
+| Production log profile | `logging/setup.py` | Modify | Small | structlog config |
+| Live config | `config/live.toml` | Expand | Small | MT5 credentials, session windows |
 
 ## Scaling Considerations
 
-This is a single-machine, single-instrument system. "Scaling" means handling increasing computational complexity, not distributed deployment.
-
-| Concern | At Launch (simplified modules) | At Full Depth (all modules active) | If Multi-Instrument (future) |
-|---------|-------------------------------|-------------------------------------|------------------------------|
-| CPU load | Minimal -- simple math on 10 ticks/sec | Moderate -- fractal/chaos math in process pool | Need dedicated process per instrument |
-| Memory | < 100MB -- small tick buffer | ~500MB -- rolling windows for fractal analysis | Linear growth per instrument |
-| Storage | ~50MB/day tick data | Same tick rate, more metadata per trade | Multiply by instrument count |
-| Latency | < 10ms tick-to-decision | < 50ms with process pool offloading | Process pool contention risk |
-
-### Scaling Priorities
-
-1. **First bottleneck: CPU-intensive chaos math.** Fractal dimension and Lyapunov exponent calculations on rolling windows are O(n*log(n)) to O(n^2). Mitigation: `ProcessPoolExecutor`, pre-computed rolling windows, caching regime state (regime changes slowly -- no need to recompute every tick).
-
-2. **Second bottleneck: Tick storage I/O.** At ~10 ticks/second for XAUUSD, SQLite handles this trivially. But backtest replay of years of tick data at maximum speed can bottleneck on reads. Mitigation: DuckDB for bulk historical reads, batch tick loading into memory before backtest runs.
-
-3. **Third bottleneck: Event bus queue depth.** If a slow subscriber (like the dashboard) cannot keep up, its queue fills. Mitigation: Bounded queues with drop-oldest policy for non-critical subscribers (dashboard), and backpressure for critical subscribers (decision core).
+| Scale | Architecture Adjustments |
+|-------|--------------------------|
+| v1.1 Demo ($20, 1 week) | Current architecture is sufficient. Single position, single symbol, 10s position polling. No changes to event loop structure. |
+| v1.2 Extended ($20-100, months) | Add persistent trade journal in DuckDB for long-term performance analysis. Consider file-based log rotation (structlog + rotating file handler). |
+| v2.0 Multi-symbol | Would require multiple signal module instances per symbol, or a SymbolManager that multiplexes. Out of scope for v1.1. |
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Direct MT5 Calls from Analysis Modules
+### Anti-Pattern 1: Rebuilding Signal Modules in Live Mode
 
-**What people do:** Import `MetaTrader5` in the chaos or institutional module to fetch additional data mid-calculation.
-**Why it is wrong:** Creates hidden coupling, breaks backtesting (MT5 is not available in backtest mode), causes thread-safety issues with concurrent `mt5.*` calls, and makes modules impossible to unit test.
-**Do this instead:** All market data flows through the event bus. If a module needs data it does not currently receive, extend the `MarketState` dataclass or create a new event type published by the Sensor.
+**What people do:** Create separate "live signal modules" with different behavior than backtest/paper.
+**Why it is wrong:** Breaks the core architectural guarantee that signal analysis is identical across paper/live/backtest. Any divergence means backtest results are meaningless for live performance prediction.
+**Do this instead:** Keep signal modules IDENTICAL. All calibration changes go through config parameters, not code branches.
 
-### Anti-Pattern 2: Synchronous Learning in the Trading Loop
+### Anti-Pattern 2: Polling Positions at Tick Rate (100ms)
 
-**What people do:** Run genetic optimization or model training synchronously after each trade closes, blocking the main loop.
-**Why it is wrong:** A single genetic optimization run can take seconds to minutes. During that time, the bot misses ticks, cannot manage open positions, and might miss stop-loss adjustments.
-**Do this instead:** The learning loop runs in a separate `asyncio.Task` (or process). It reads from the trade journal database, not from live events. It publishes `ConfigUpdate` events when new parameters are ready.
+**What people do:** Check `bridge.get_positions()` on every tick poll to detect closes faster.
+**Why it is wrong:** Each MT5 call goes through `run_in_executor` on a single-thread executor. At 100ms polling, position checks would serialize with tick fetches and create contention.
+**Do this instead:** Check positions in health_loop (10s interval). Server-side SL/TP is the source of truth; 10s detection latency is fine for scalping.
 
-### Anti-Pattern 3: God Object Decision Core
+### Anti-Pattern 3: Complex State Machine for Position Tracking
 
-**What people do:** Put all analysis logic inside the decision module -- "it needs to see everything anyway."
-**Why it is wrong:** The decision core becomes an untestable monolith. Every change to any analysis algorithm requires modifying the decision module. Backtesting requires running the entire monolith.
-**Do this instead:** Each analysis module is independent. The decision core only performs signal fusion (weighted combination) and risk management. It receives pre-computed signals and never duplicates analysis logic.
+**What people do:** Build a formal state machine with ORDER_PENDING, PARTIALLY_FILLED, etc.
+**Why it is wrong:** Adds complexity without value for single-position XAUUSD scalping on ECN. FOK/IOC filling means orders either fill completely or not at all.
+**Do this instead:** Keep the binary `_open_position_ticket is None / is not None` pattern. Poll `get_positions()` to sync state.
 
-### Anti-Pattern 4: Storing Config in the Database
+### Anti-Pattern 4: Manual Parameter Tuning Before Running Optimizer
 
-**What people do:** Put module parameters in SQLite rows, query on every tick.
-**Why it is wrong:** Adds unnecessary I/O to the critical path. Config changes are rare (maybe once per day from the learning loop). Reading from the DB on every tick is wasteful.
-**Do this instead:** Config is loaded into memory at startup from TOML files. The learning loop writes new TOML files and publishes a `ConfigUpdate` event. Modules hot-reload from the event, not from the database.
-
-### Anti-Pattern 5: Tight Coupling Between Backtest and Live Code
-
-**What people do:** Use `if is_backtesting:` branches throughout the codebase to switch between live and simulated behavior.
-**Why it is wrong:** Backtest behavior diverges from live over time. Bugs hide in branch differences. Every new feature needs both branches.
-**Do this instead:** Use the interface swap pattern. The `DataFeedProtocol` and `Clock` abstractions are the only things that differ. All analysis, decision, and execution logic is identical in both modes.
+**What people do:** Manually tweak config parameters based on intuition before running the optimization pipeline.
+**Why it is wrong:** The optimizer exists specifically to find optimal parameters via systematic search. Manual tuning introduces bias and wastes time.
+**Do this instead:** Fix the backtest pipeline first so the optimizer can run. Let Optuna+DEAP find parameters. Manual intervention only for structural changes (adding/removing signal components), not parameter values.
 
 ## Integration Points
 
 ### External Services
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| MetaTrader 5 Terminal | `MetaTrader5` Python package via `asyncio.to_thread()` | Must be running on same machine. `mt5.initialize()` connects. Only one Python process should connect at a time. |
-| RoboForex ECN | Via MT5 Terminal (transparent) | Broker execution latency (60-200ms) is out of our control. DOM depth availability depends on broker feed. |
-| Filesystem | TOML configs, SQLite/DuckDB files | All storage is local. No network dependencies. |
+| Service | Integration Pattern | v1.1 Notes |
+|---------|---------------------|------------|
+| MT5 Terminal | `MT5Bridge` single-thread executor, polling | Add `get_deal_history()`. Increase reconnect resilience. |
+| RoboForex ECN | Via MT5 terminal connection | Demo account first. Verify filling modes work. |
+| Filesystem | DuckDB/Parquet for analytics, SQLite for state | No changes needed. |
 
 ### Internal Boundaries
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| MT5 Bridge <-> Sensor | EventBus: `RawTick`, `DOMSnapshot` | Bridge publishes; Sensor subscribes. One-way data flow. |
-| Sensor <-> Analysis Modules | EventBus: `MarketState` | Sensor publishes; Modules 2, 3, 4 subscribe. Fan-out pattern. |
-| Analysis Modules <-> Decision Core | EventBus: `InstSignal`, `RegimeState`, `TimingSignal` | Each module publishes its signal type. Decision Core subscribes to all three. Fan-in pattern. |
-| Decision Core <-> MT5 Bridge | EventBus: `TradeRequest` -> Bridge; `TradeResult` -> EventBus | Two-step: Decision publishes request, Bridge executes and publishes result. |
-| All Modules <-> Dashboard | EventBus: all event types | Dashboard subscribes to everything. Read-only. Never publishes. |
-| Trading Pipeline <-> Learning Loop | SQLite trade journal (async read) + EventBus `ConfigUpdate` | Learning reads from DB (decoupled). Publishes config changes via event bus. |
-| Live Mode <-> Backtest Mode | `DataFeedProtocol` interface swap + `Clock` abstraction | Only the data source and clock differ. All other code is shared. |
+| Boundary | Communication | v1.1 Changes |
+|----------|---------------|-------------|
+| Signal modules <-> FusionCore | SignalOutput dataclass (frozen) | No interface changes, only internal computation changes |
+| FusionCore <-> TradeManager | FusionResult dataclass (frozen) | No changes |
+| TradeManager <-> OrderManager | method calls with FillEvent return | Add modify_sl() method |
+| OrderManager <-> MT5Bridge | method calls, async via run_in_executor | Add get_deal_history() |
+| Engine <-> Dashboards | TradingEngineState shared object | No changes |
+| Engine <-> Learning | Callbacks (on_trade_closed, promote, validate) | Live close handler needs same callback chain as paper |
+
+## Suggested Build Order
+
+Based on dependency analysis, the optimal build order is:
+
+1. **Backtest pipeline fix** (no dependencies on other changes)
+   - Fix logging in `cmd_backtest` (copy from `cmd_optimize`)
+   - Profile and optimize BacktestEngine per-bar overhead
+   - Verify full 6-step pipeline completes
+
+2. **Optimization pipeline verification** (depends on backtest fix)
+   - Run optimization end-to-end with fixed backtest
+   - Verify `config/optimized.toml` is written and loadable
+   - Validate TOML layering: `optimized.toml` + `live.toml`
+
+3. **Signal recalibration** (informed by optimization results)
+   - Instrument chaos/timing modules to log actual distributions
+   - Tune direction computation and urgency thresholds
+   - Re-run optimization with recalibrated modules
+
+4. **Live execution wiring** (independent of signal calibration)
+   - Add `modify_sl()` to OrderManager
+   - Add `get_deal_history()` to MT5Bridge
+   - Add `_check_live_positions()` to engine
+   - Add `_handle_live_close()` to engine (mirror of paper handler)
+   - Test on demo account in live mode
+
+5. **Demo hardening** (depends on live execution working)
+   - Infinite reconnect with capped backoff
+   - Heartbeat logging in health_loop
+   - Production log level profile
+   - Session window tuning
+   - Windows signal handling improvement
+   - 1-week unattended run test
+
+**Rationale for ordering:**
+- Steps 1-2 must come first because optimization results inform signal calibration
+- Step 3 uses optimization to find parameters, requires working backtest
+- Step 4 is architecturally independent but should follow calibration so live trading uses optimized parameters
+- Step 5 is the final polish layer that requires everything else working
 
 ## Sources
 
-- [MetaTrader5 Python Integration Official Docs](https://www.mql5.com/en/docs/python_metatrader5) -- Complete API reference, function signatures, return types (HIGH confidence)
-- [market_book_get Documentation](https://www.mql5.com/en/docs/python_metatrader5/mt5marketbookget_py) -- DOM access API specifics (HIGH confidence)
-- [MetaTrader5 on PyPI](https://pypi.org/project/metatrader5/) -- Package version 5.0.5430, Jan 2026 (HIGH confidence)
-- [aiomql Framework](https://github.com/Ichinga-Samuel/aiomql) -- Async MT5 wrapper architecture using `asyncio.to_thread()` pattern (HIGH confidence)
-- [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) -- Deterministic event-driven trading engine architecture reference (MEDIUM confidence, different platform but validated patterns)
-- [aiopubsub](https://pypi.org/project/aiopubsub/) -- Trading-specific async pub/sub library by Quantlane (MEDIUM confidence)
-- [Event-Driven Architecture in Python for Trading](https://www.pyquantnews.com/free-python-resources/event-driven-architecture-in-python-for-trading) -- Event-driven trading engine patterns (MEDIUM confidence)
-- [DuckDB vs SQLite Comparison](https://betterstack.com/community/guides/scaling-python/duckdb-vs-sqlite/) -- Dual-database strategy rationale (HIGH confidence)
-- [MT5 Build 2815 Release Notes](https://www.metatrader5.com/en/releasenotes/terminal/2186) -- DOM access from Python added in this build (HIGH confidence)
-- [MQL5 Named Pipe Communication](https://www.mql5.com/en/articles/503) -- DLL-free inter-process communication for watchdog EA (MEDIUM confidence)
-- [Textual TUI Framework](https://textual.textualize.io/) -- Modern Python TUI with reactive widgets, suitable for real-time dashboard (HIGH confidence)
-- [MQL5 Forum: MT5 Python Latency](https://www.mql5.com/en/forum/465784) -- Measured latency: ~17us for symbol_info_tick, 60-200ms for broker execution (MEDIUM confidence, community benchmarks)
-- [MetaTrader-Python-Tick-Acquisition](https://github.com/UmaisZahid/MetaTrader-Python-Tick-Acquisition) -- Millisecond-precision tick bridge architecture reference (LOW confidence, single project)
+- `src/fxsoqqabot/core/engine.py` -- TradingEngine implementation, all loops, component wiring (1090 lines)
+- `src/fxsoqqabot/execution/orders.py` -- OrderManager with paper/live branch at line 178
+- `src/fxsoqqabot/execution/paper.py` -- PaperExecutor with SL/TP monitoring
+- `src/fxsoqqabot/execution/mt5_bridge.py` -- MT5 async wrapper, all API methods
+- `src/fxsoqqabot/signals/fusion/core.py` -- FusionCore fusion formula
+- `src/fxsoqqabot/signals/fusion/trade_manager.py` -- Trade evaluation pipeline
+- `src/fxsoqqabot/signals/fusion/weights.py` -- Adaptive EMA weight tracker
+- `src/fxsoqqabot/signals/chaos/regime.py` -- Regime classification thresholds
+- `src/fxsoqqabot/signals/chaos/module.py` -- ChaosRegimeModule signal production
+- `src/fxsoqqabot/signals/timing/module.py` -- QuantumTimingModule timing urgency
+- `src/fxsoqqabot/optimization/optimizer.py` -- Full optimization pipeline
+- `src/fxsoqqabot/optimization/search_space.py` -- Optuna search space and apply_params_to_settings
+- `src/fxsoqqabot/backtest/runner.py` -- Full backtest pipeline runner
+- `src/fxsoqqabot/backtest/engine.py` -- BacktestEngine bar replay
+- `src/fxsoqqabot/config/models.py` -- All Pydantic config models
+- `src/fxsoqqabot/config/loader.py` -- TOML config loading
+- `src/fxsoqqabot/cli.py` -- CLI entry points including optimize logging fix pattern
+- `config/default.toml` -- Current default configuration
+- `config/live.toml` -- Current live config (minimal, just mode="live")
+- MT5 Python package documentation for `history_deals_get()`, `TRADE_ACTION_SLTP`
 
 ---
-*Architecture research for: Python-first XAUUSD scalping bot with 8 interconnected modules*
-*Researched: 2026-03-27*
+*Architecture research for: v1.1 Live Demo Launch*
+*Researched: 2026-03-28*

@@ -1,152 +1,115 @@
-# Stack Research
+# Stack Research: v1.1 Live Demo Launch
 
-**Domain:** Python-first XAUUSD scalping bot with chaos theory, order flow analysis, and self-learning on MetaTrader 5
-**Researched:** 2026-03-27
-**Confidence:** HIGH (all core libraries verified via PyPI/official sources; versions confirmed current)
+**Domain:** Forex scalping bot -- signal calibration, live execution reliability, optimization performance, demo monitoring
+**Researched:** 2026-03-28
+**Confidence:** HIGH (most recommendations leverage already-installed packages or stdlib)
 
-## Python Runtime
+## Context
 
-| Decision | Value | Rationale |
-|----------|-------|-----------|
-| **Python version** | 3.12.x | Best stability-compatibility balance. MT5 package supports 3.6-3.14, but 3.12 has mature ecosystem support across NumPy 2.4, SciPy 1.17, Numba 0.64, and scikit-learn 1.8. Python 3.13's free-threading is experimental and eats 15-20% more memory with no meaningful perf gain for scientific workloads. Stick with 3.12 until 3.13 ecosystem matures. |
+v1.0 shipped with the full scientific/ML/execution stack already installed (see pyproject.toml). This research focuses ONLY on what v1.1 needs beyond the existing stack for four new capability areas:
+
+1. **Signal calibration** -- threshold sensitivity analysis, parameter sweep visualization
+2. **MT5 live execution reliability** -- reconnection hardening, heartbeat, position sync
+3. **Automated optimization performance** -- parallel Optuna trials, Numba cache management
+4. **Demo monitoring/alerting** -- log rotation, health alerting, crash detection
+
+The key finding: **v1.1 needs almost no new dependencies.** The existing stack (Optuna 4.8, Plotly 5.x, structlog 25.5, Numba 0.64) already provides the building blocks. What is needed is configuration changes, patterns, and at most 2 small additions.
 
 ---
 
-## Recommended Stack
+## Recommended Stack Additions
 
-### MT5 Integration Layer
+### Signal Calibration Tooling
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| **MetaTrader5** (pip: `metatrader5`) | 5.0.5640 | Python-MT5 bridge: tick data, DOM, order execution, account info | Official MetaQuotes package. Provides `copy_ticks_from()` for tick data, `market_book_get()` for DOM depth, `order_send()` for execution. No alternative exists for direct MT5 integration. Released Feb 2026, actively maintained. | HIGH |
-| **pyzmq** | 27.1.0 | ZeroMQ IPC between Python brain and MQL5 EA | The standard for Python-MQL5 bidirectional communication. The MT5 Python package handles data retrieval well, but for sub-100ms execution commands from Python to the EA, ZeroMQ named sockets on localhost are the proven pattern. Multiple open-source MT5-ZMQ bridges exist (Darwinex DWX connector, aminch8/MT5-ZeroMQ). | HIGH |
-| **MQL5 EA** (thin) | MT5 native | Order execution, position management, heartbeat | The EA is a thin relay: receives JSON commands over ZMQ, executes `OrderSend()`, reports fills back. All logic stays in Python. Keep the EA under 500 lines. | HIGH |
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| **optuna.visualization** (built-in) | 4.8.0 (already installed) | Parameter importance, contour plots, parallel coordinate for threshold sensitivity | Already bundled with Optuna. `plot_param_importances()`, `plot_contour()`, `plot_parallel_coordinate()` generate interactive Plotly figures directly from Optuna Study objects. Zero new code for sensitivity analysis visualization -- just call the functions after optimization completes. Uses Plotly + scikit-learn under the hood, both already installed. |
+| **Plotly** (already installed) | 5.x | Heatmaps for parameter sweep results, threshold sensitivity surfaces | Already in pyproject.toml. Use `go.Heatmap()` for 2D parameter sweep results (e.g., confidence_threshold vs. trade_frequency). `plotly.io.write_html()` saves interactive reports to disk -- no server needed. |
+| **optuna-dashboard** | 0.20.x | Real-time web UI for watching optimization trials, inspecting parameter relationships | **NEW dependency.** Lightweight web app that reads Optuna storage and shows live trial progress, hyperparameter importance, and optimization history. Install with `pip install optuna-dashboard`, run with `optuna-dashboard sqlite:///study.db`. Provides value during optimization runs without custom code. Can also run as VS Code extension. Only needed during development/tuning, not at runtime. |
 
-**Architecture note:** Two communication channels run in parallel:
-1. **MetaTrader5 Python package** -- for data retrieval (ticks, OHLCV, DOM snapshots, account state). This is a polling model.
-2. **ZeroMQ (pyzmq)** -- for command/response execution. Python sends trade commands; EA responds with fill confirmations. This is a push/pull model with ~1-5ms localhost latency.
+**What NOT to add for calibration:**
+- No Dash/Streamlit -- overkill for generating static analysis reports. Plotly + `write_html()` is sufficient.
+- No custom visualization framework -- Optuna's built-in viz covers 90% of what is needed for parameter sensitivity.
 
-### Scientific Computing Core
+### MT5 Live Execution Reliability
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| **NumPy** | 2.4.3 | Array operations, linear algebra, FFT | Foundation of the entire scientific stack. Every other library depends on it. NumPy 2.x has significant performance improvements over 1.x. Released Mar 2026. | HIGH |
-| **SciPy** | 1.17.1 | Signal processing, optimization, statistical distributions, ODE solvers | Essential for Feigenbaum bifurcation analysis (`scipy.integrate`), fractal spectrum computation (`scipy.signal`), Lyapunov exponent estimation support, and statistical testing for regime detection. Released Feb 2026. | HIGH |
-| **Numba** | 0.64.0 | JIT compilation for hot numerical loops | Critical for real-time performance. Chaos theory computations (Lyapunov exponents, correlation dimension, fractal dimension) involve tight loops over time series that are 10-30x slower in pure Python/NumPy. Numba's `@njit` decorator compiles these to machine code. Released Feb 2026. | HIGH |
-| **nolds** | 0.6.3 | Nonlinear dynamics measures: Hurst exponent, Lyapunov exponents, correlation dimension, DFA, sample entropy | Purpose-built for exactly our chaos/fractal analysis needs. Implements Rosenstein (lyap_r) and Eckmann (lyap_e) algorithms for Lyapunov exponents, plus Hurst exponent, fractal dimension, and DFA. Small, numpy-only dependency. Use as reference implementation, then re-implement hot paths with Numba for production speed. | HIGH |
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| **MetaTrader5** (already installed) | 5.0.5640 | `positions_get(symbol=, group=)`, `terminal_info()`, `account_info()` for position sync and health checks | No new package needed. The existing MT5Bridge already has `reconnect_loop()` with exponential backoff, `ensure_connected()` via `terminal_info()`, `get_positions()`, and `close_all_positions()`. What is needed is PATTERN changes, not library changes: (1) position reconciliation after reconnect using `magic_number` filtering, (2) heartbeat interval tightening from 10s to 5s in the health loop, (3) position state diffing between local tracked positions and MT5 server positions. |
+| **asyncio** (stdlib) | 3.12 stdlib | Heartbeat task, watchdog timer, event loop health monitoring | No new package needed. Use `asyncio.wait_for()` for timeout-guarded MT5 calls. Track `time.monotonic()` of last successful MT5 response as a "last heartbeat" value. If stale beyond threshold (e.g., 30s), trigger reconnection. Measure event loop lag by timing `asyncio.sleep(0)` wake-up delay -- if consistently >100ms, the loop is overloaded. |
+| **tomli-w** (already installed) | 1.x | Write position state snapshots to TOML for crash recovery | Already in pyproject.toml as a dependency. Use for writing position state on each fill event so crash recovery can reconcile on restart. |
 
-### Machine Learning and Optimization
+**What NOT to add for execution reliability:**
+- No ZeroMQ (pyzmq) yet -- the MT5 Python package handles all data retrieval and `order_send()` directly. ZeroMQ is only needed if we move to a separate MQL5 EA execution layer, which is out of scope for v1.1 demo.
+- No aiomql -- while it wraps MT5 in async, our MT5Bridge already does this correctly with `ThreadPoolExecutor(max_workers=1)`. Adding aiomql would create two competing MT5 wrappers. Stick with our bridge.
+- No watchdog (filesystem monitor) -- unnecessary complexity. The health loop already monitors connection state. Add a monotonic heartbeat timestamp instead.
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| **scikit-learn** | 1.8.0 | Regime classification, feature engineering, model evaluation | The hybrid learning core needs classifiers (Random Forest, Gradient Boosting) for market regime detection, plus robust cross-validation and pipeline utilities. scikit-learn is the standard -- no need for deep learning frameworks for regime classification. Released Dec 2025. | HIGH |
-| **Optuna** | 4.8.0 | Bayesian hyperparameter optimization for strategy parameters | Superior to grid search or random search for optimizing trading strategy parameters. Uses Tree-structured Parzen Estimators (TPE) by default, supports pruning of bad trials early, has built-in visualization dashboard. Replaces the need for hand-rolled genetic algorithms for parameter tuning. Released Mar 2026. | HIGH |
-| **DEAP** | 1.4.3 | Genetic algorithms for evolving trading rules | Optuna handles parameter optimization; DEAP handles rule structure evolution. DEAP supports strongly-typed genetic programming, multi-objective optimization (NSGA-II), and custom mutation operators. Essential for the self-learning mutation loop that evolves rule-based strategies. Released May 2025. | HIGH |
+### Automated Optimization Performance
 
-**Why not TensorFlow/PyTorch?** The project uses hybrid learning (rule-based core + ML layers), not deep learning. scikit-learn classifiers are sufficient for regime detection and far simpler to debug, explain, and maintain. If LSTM or attention models are needed later for sequence modeling, add PyTorch then -- but start without it.
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| **Optuna JournalStorage** (built-in) | 4.8.0 (already installed) | File-based storage backend for multi-process parallel optimization on single machine | Already part of Optuna -- `from optuna.storages import JournalStorage` and `from optuna.storages.journal import JournalFileBackend`. Current optimizer uses in-memory storage and `asyncio.run()` per trial in a single process. To parallelize, switch to `JournalStorage(JournalFileBackend("./optuna_journal.log"))` and use `multiprocessing.Pool` to run N workers sharing the same study via the journal file. This is the officially recommended approach for single-machine multi-process optimization -- no database server needed, no SQLite locking issues. |
+| **multiprocessing** (stdlib) | 3.12 stdlib | Spawn parallel optimization workers | Use `multiprocessing.Pool(processes=N)` where N = CPU cores - 1 (leave one core for system). Each worker calls `study.optimize(objective, n_trials=trials_per_worker)` against the shared JournalStorage. The TPE sampler handles concurrent trial suggestions correctly. |
+| **Numba cache** (already installed, needs configuration) | 0.64.0 | Persistent JIT compilation cache to eliminate cold-start penalty | All `@njit(cache=True)` decorators are already in `_numba_core.py`. Two changes needed: (1) Set `NUMBA_CACHE_DIR` environment variable to a stable project-local path (e.g., `.numba_cache/`) so cache persists across venv rebuilds, and (2) call `warmup_jit()` once at process start in the optimizer workers before trials begin. First run compiles ~8 JIT functions (~5-10s), subsequent runs load from `.nbi/.nbc` cache files instantly. |
 
-### Data Storage and Management
+**What NOT to add for optimization performance:**
+- No Dask -- overkill for single-machine parallelism. `multiprocessing.Pool` + JournalStorage achieves the same result with zero infrastructure.
+- No joblib -- while Optuna historically considered joblib integration, `multiprocessing.Pool` with JournalStorage is the current officially documented approach. Joblib adds a dependency for no additional benefit here.
+- No Redis/PostgreSQL for Optuna storage -- JournalFileBackend is purpose-built for this exact scenario (multi-process, single machine, file-based, no server).
+- No Polars for backtest acceleration yet -- the optimization bottleneck is the signal pipeline computation per bar, not DataFrame operations. Profile first before switching the backtest data path.
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| **DuckDB** | 1.5.0 | Analytical queries on historical tick data, backtest results, trade logs | Embedded (no server), columnar storage, 10-100x faster than SQLite for analytical queries (aggregations, window functions, time-series slicing). Reads Parquet files directly. Perfect for "give me all ticks where spread > X during London session 2015-2024" queries. Released Mar 2026. | HIGH |
-| **Parquet** (via `pyarrow`) | pyarrow 19.x | On-disk storage format for historical tick data | Columnar, compressed, splittable. A year of XAUUSD tick data (~50M+ ticks) fits in ~2-3 GB as Parquet vs 15+ GB as CSV. DuckDB queries Parquet directly without loading into memory. Partition by year/month for efficient access. | HIGH |
-| **SQLite** | stdlib | Lightweight transactional storage for trade journal, config, state | For things that need ACID transactions: active trade state, configuration, mutation loop history. SQLite is in Python's stdlib, zero setup, battle-tested. Use DuckDB for analytics, SQLite for operational state. | HIGH |
-| **Pydantic** | 2.12.5 | Configuration validation, data model schemas, settings management | Type-safe configuration for all 8 modules. `pydantic-settings` handles env vars and YAML/TOML config files. Validates trade signals, regime states, and module interfaces at runtime. Catches misconfigurations before they cause silent trading errors. | HIGH |
+### Demo Monitoring and Alerting
 
-### DataFrame Processing
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| **structlog + stdlib logging handlers** (already installed) | structlog 25.5.0 + Python 3.12 stdlib | JSON log rotation for production demo runs | structlog's `ProcessorFormatter` integrates with any stdlib `logging.Handler`. Use `logging.handlers.RotatingFileHandler(maxBytes=10_485_760, backupCount=10)` for 10MB rotating log files. Keep console output (Rich renderer) for interactive sessions, add file handler with JSON renderer for demo runs. Both handlers can coexist through structlog's standard library integration. Zero new dependencies. |
+| **desktop-notifier** | 6.2.0 | **NEW dependency.** Windows toast notifications for critical alerts (kill switch, circuit breaker, crash recovery) | Async-native (`await notifier.send()`), integrates cleanly with the existing asyncio event loop. Supports clickable notifications with action buttons. Pure Python on Linux/macOS, uses WinRT bridge on Windows. Lightweight alternative to Apprise (which adds 130+ service integrations we do not need). Only fires for critical events: kill switch activation, circuit breaker trips, MT5 disconnection, crash recovery completion. |
+| **DuckDB** (already installed) | 1.5.0 | Query JSON log files for post-hoc analysis, aggregate trade performance metrics | Already installed. structlog JSON output can be loaded directly: `SELECT * FROM read_json_auto('logs/*.json')`. Enables queries like "show me all trades where fusion_confidence < 0.5" or "average signal latency by regime" without custom parsing. This is the existing analytics stack, just pointed at log files. |
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| **pandas** | 2.2.x | DataFrame operations, time-series resampling, indicator computation | MetaTrader5 Python package returns data as pandas DataFrames natively. scikit-learn expects pandas input. The entire Python trading ecosystem is built on pandas. Use it as the primary data manipulation layer. | HIGH |
-| **Polars** | 1.x | High-performance batch processing for backtesting data pipelines | 5-30x faster than pandas for large aggregations and joins. Use Polars specifically in the backtesting pipeline where you process millions of ticks across years of data. Keep pandas for real-time operations where MT5 returns pandas natively. Do not try to replace all pandas with Polars -- the two coexist well. | MEDIUM |
+**What NOT to add for monitoring:**
+- No Prometheus/Grafana -- server-based monitoring is overkill for a single-machine demo. DuckDB queries on JSON logs provide equivalent analytical capability without infrastructure.
+- No Apprise -- supports 130+ notification services. We need exactly one: Windows toast notifications. desktop-notifier is smaller, async-native, and purpose-built.
+- No plyer -- older library, synchronous API, broader scope than needed. desktop-notifier is modern, async, and focused on notifications.
+- No Sentry/error tracking -- for a demo running on the developer's machine, structlog JSON + DuckDB queries are sufficient for debugging. Add Sentry only if the bot runs unattended for weeks.
 
-**Why not replace pandas entirely with Polars?** The MT5 package returns pandas DataFrames. scikit-learn expects pandas. Converting back and forth negates the performance gain. Use Polars only where it matters: bulk backtesting data pipelines processing millions of rows.
+---
 
-### TUI Dashboard (Terminal)
+## Supporting Libraries
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| **Textual** | 8.1.1 | Rich terminal UI for real-time monitoring | The dominant Python TUI framework in 2026. CSS-like styling, reactive widgets, async-first, can run in browser via `textual-web`. Supports live-updating tables, charts, sparklines, logs. Production/Stable status. MIT licensed. Released Mar 2026. | HIGH |
-| **Rich** | 13.x | Console rendering engine (Textual dependency), standalone logging formatting | Textual is built on Rich. Also use Rich directly for structured log output (`rich.logging`) and console rendering outside the TUI app. Same author (Will McGugan / Textualize). | HIGH |
+| Library | Version | Purpose | When to Use |
+|---------|---------|---------|-------------|
+| **optuna-dashboard** | 0.20.x | Web UI for inspecting optimization studies | During parameter tuning sessions. Run `optuna-dashboard sqlite:///study.db` after converting journal to SQLite, or use JournalStorage directly. Dev-only tool, not needed at runtime. |
+| **desktop-notifier** | 6.2.0 | Windows toast notifications for critical trading alerts | In live/demo mode only. Silent in paper mode. Fire on: kill switch, circuit breaker trip, MT5 disconnect >60s, crash recovery. |
 
-### Web Dashboard
+---
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| **FastAPI** | 0.115.x+ | WebSocket API server for real-time data streaming to web dashboard | Native WebSocket support via Starlette. Async-first. Serves both REST endpoints (historical data, configuration) and WebSocket streams (live ticks, regime state, trade events). Lighter than Dash for our use case since we need a data API, not a full dashboard framework. | HIGH |
-| **uvicorn** | 0.41.0 | ASGI server for FastAPI | The standard ASGI server. Use `uvicorn[standard]` for uvloop + httptools performance. Single-worker is fine since this runs on localhost for one user. | HIGH |
-| **lightweight-charts-python** | 2.1 | TradingView-style candlestick/tick charts in the web UI | Python wrapper for TradingView's Lightweight Charts JS library. Supports live data updates, multi-pane charts, drawing tools. Purpose-built for financial charting. Can embed in a simple HTML page served by FastAPI. | MEDIUM |
-| **Plotly** | 5.x | Interactive analytical charts (equity curves, regime heatmaps, drawdown) | For non-candlestick visualizations: equity curves, regime classification heatmaps, Monte Carlo simulation fans, drawdown charts. Plotly's Python API generates standalone HTML or JSON for the web dashboard. | HIGH |
+## Development Tools
 
-**Why FastAPI + lightweight-charts instead of Dash?** Dash is heavier than needed. We need a lightweight web dashboard for one user on localhost, not an enterprise analytics platform. FastAPI + WebSocket + lightweight-charts gives us real-time streaming with TradingView-quality charts and full control over the frontend. Dash's callback model adds complexity for real-time data that WebSockets handle natively.
+No new development tools needed. Existing ruff, mypy, pytest, pre-commit cover v1.1 requirements.
 
-### Backtesting Framework
-
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| **vectorbt** (open source) | 0.28.4 | High-speed vectorized backtesting, parameter sweeps, Monte Carlo | Fastest open-source Python backtesting engine. Built on pandas/NumPy + Numba. Vectorized execution means testing thousands of parameter combinations in seconds. Supports walk-forward optimization, Monte Carlo simulation, and portfolio-level analysis. | HIGH |
-| **Custom engine** (on top of vectorbt) | -- | Regime-aware evaluation, Feigenbaum stress testing, anti-overfitting | vectorbt handles the fast vectorized execution. Build custom layers on top for: regime-tagged performance attribution, out-of-sample regime stress tests, combinatorial purged cross-validation (to prevent lookahead bias). | HIGH |
-
-**Why not Backtrader?** Backtrader's last meaningful release was years ago. It struggles with Python 3.10+ and modern dependencies. The community has moved to vectorbt for research and NautilusTrader for production-grade event-driven backtesting. vectorbt's vectorized approach is 10-100x faster for parameter sweeps.
-
-**Why not vectorbt PRO?** PRO is $20/month with a proprietary license. The open-source version (0.28.4) provides everything we need: vectorized backtesting, Monte Carlo, walk-forward. If features like advanced portfolio optimization or live trading integration are needed later, PRO is a reasonable upgrade path.
-
-### Logging and Observability
-
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| **structlog** | 25.5.0 | Structured logging with context propagation | Every trade decision flows through 8 modules. structlog binds context (regime state, signal scores, trade ID) that propagates through the entire call chain. JSON output feeds into DuckDB for post-hoc analysis. Critical for debugging "why did it take that trade?" | HIGH |
-| **Rich** (logging handler) | 13.x | Pretty console log output during development | Rich's logging handler makes structured logs readable during development. In production, switch to JSON output for machine parsing. | HIGH |
-
-### Development Tools
-
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| **uv** | Package management and virtual environments | 10-100x faster than pip. Handles venv creation, dependency resolution, and lockfiles. The standard Python package manager in 2026. |
-| **ruff** | Linting and formatting | Replaces flake8, isort, black in a single Rust-based tool. Near-instant on large codebases. |
-| **pytest** | Testing framework | With `pytest-asyncio` for async tests, `pytest-cov` for coverage. |
-| **mypy** | Static type checking | Essential for a complex 8-module system. Catches interface mismatches between modules at dev time, not runtime. |
-| **pre-commit** | Git hooks for quality gates | Runs ruff, mypy, and tests before each commit. |
+| Tool | v1.1 Usage Notes |
+|------|-----------------|
+| **pytest** | Add integration tests for MT5 position reconciliation (mock MT5 responses). Test optimization parallelization with 2 workers on small datasets. |
+| **mypy** | Type-check new position sync dataclasses and notification interfaces. |
 
 ---
 
 ## Installation
 
 ```bash
-# Create virtual environment with uv
-uv venv --python 3.12
-source .venv/Scripts/activate  # Windows Git Bash
+# NEW dependencies for v1.1 (only 2 packages)
+uv pip install optuna-dashboard desktop-notifier
 
-# Core MT5 integration
-uv pip install MetaTrader5==5.0.5640 pyzmq==27.1.0
+# Everything else is already installed from v1.0
+# Verify with: uv pip list | grep -E "optuna|desktop"
+```
 
-# Scientific computing
-uv pip install numpy==2.4.3 scipy==1.17.1 numba==0.64.0 nolds==0.6.3
+Add to `pyproject.toml` dependencies:
 
-# Data processing
-uv pip install pandas==2.2.3 polars pyarrow duckdb==1.5.0
-
-# ML and optimization
-uv pip install scikit-learn==1.8.0 optuna==4.8.0 deap==1.4.3
-
-# Configuration and validation
-uv pip install pydantic==2.12.5 pydantic-settings
-
-# TUI dashboard
-uv pip install textual==8.1.1 rich
-
-# Web dashboard
-uv pip install "fastapi[standard]" uvicorn==0.41.0 plotly lightweight-charts==2.1
-
-# Backtesting
-uv pip install vectorbt==0.28.4
-
-# Logging
-uv pip install structlog
-
-# Dev dependencies
-uv pip install pytest pytest-asyncio pytest-cov mypy ruff pre-commit
+```toml
+# In [project] dependencies, add:
+"optuna-dashboard>=0.20",
+"desktop-notifier>=6.0",
 ```
 
 ---
@@ -155,17 +118,14 @@ uv pip install pytest pytest-asyncio pytest-cov mypy ruff pre-commit
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|------------------------|
-| **MetaTrader5 (official)** | mt5linux, pymt5 | Only if running on Linux (mt5linux wraps MT5 via Wine). We're on Windows -- use the official package. |
-| **pyzmq (ZeroMQ)** | Named Pipes (Win32) | Named pipes are faster (~0.1ms vs ~1ms) but harder to debug and Windows-only. ZeroMQ is cross-platform, well-documented, and 1-5ms is fine for scalping (we're not HFT). |
-| **DuckDB + Parquet** | TimescaleDB, InfluxDB | If running a server-based architecture with multiple clients. We're single-machine, embedded -- DuckDB is simpler and faster for our use case. |
-| **Optuna** | Hyperopt, Bayesian Optimization | If you need a simpler API. Optuna is more feature-rich (pruning, multi-objective, dashboard) and more actively maintained than hyperopt. |
-| **vectorbt (open source)** | vectorbt PRO ($20/mo) | If you need advanced portfolio optimization, live trading integration, or premium support. Open source covers our backtesting needs. |
-| **vectorbt** | Backtrader | Never -- Backtrader is effectively abandoned. Use vectorbt for speed or NautilusTrader for event-driven simulation. |
-| **Textual** | curses, urwid, prompt-toolkit | If you need something lower-level. Textual is higher-level, more productive, and actively maintained. No reason to go lower-level. |
-| **FastAPI + lightweight-charts** | Plotly Dash | If you want an all-in-one dashboard framework with less custom code. Dash is heavier and its callback model is awkward for real-time WebSocket streams. |
-| **structlog** | loguru | If you prefer simplicity over structured context propagation. Loguru is great for simple apps; structlog is better for complex multi-module systems where you need context binding (trade ID, regime state, signal scores). |
-| **DEAP** | PyGAD, pymoo | If you want a simpler GA library (PyGAD) or pure multi-objective optimization (pymoo). DEAP is more flexible for custom genetic operators needed for rule evolution. |
-| **pandas** | Polars (full replacement) | Not recommended yet. MT5 returns pandas natively, scikit-learn expects pandas. Use Polars only for bulk backtesting pipelines. |
+| **optuna.visualization (built-in)** | Custom Plotly dashboards | Only if Optuna's built-in plots lack specific chart types needed. For v1.1, the built-in plots cover threshold sensitivity, parameter importance, and contour analysis. |
+| **optuna-dashboard** | Optuna + Plotly static reports | If you want zero new dependencies. Generate HTML reports with `plotly.io.write_html()` after each optimization run instead of running a dashboard server. Loses real-time trial monitoring. |
+| **JournalStorage (file-based)** | RDBStorage (SQLite/PostgreSQL) | If you need complex queries on trial data or long-term study persistence. SQLite RDBStorage works but has concurrency limitations with multi-process. JournalStorage is explicitly designed for multi-process on single machine. |
+| **multiprocessing.Pool** | concurrent.futures.ProcessPoolExecutor | Equivalent functionality. ProcessPoolExecutor is slightly more modern API but Pool has more documentation for Optuna patterns. Either works. |
+| **desktop-notifier** | Apprise | If you want multi-channel alerting (Telegram, Discord, Slack, email) in addition to Windows toast. Apprise supports 130+ services. Add it later if the demo graduates to unattended multi-day runs where you need remote alerting. |
+| **desktop-notifier** | plyer | Never. plyer is synchronous, bloated (GPS, accelerometer, Bluetooth APIs we do not need), and does not integrate with asyncio. desktop-notifier is async-native and focused. |
+| **RotatingFileHandler (stdlib)** | loguru with rotation | If you want simpler log rotation syntax. But structlog is already deeply integrated (contextvars, JSON renderer, component binding). Adding loguru creates two logging systems. Stick with structlog + stdlib handlers. |
+| **NUMBA_CACHE_DIR env var** | Numba AOT compilation | If startup time is critical (sub-second). AOT compiles to a .pyd/.so that loads instantly. But AOT requires specifying exact function signatures upfront and does not support all Numba features. JIT cache with `cache=True` is simpler and already works. Use AOT only if cache warm-up remains a problem after NUMBA_CACHE_DIR is set. |
 
 ---
 
@@ -173,40 +133,41 @@ uv pip install pytest pytest-asyncio pytest-cov mypy ruff pre-commit
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| **Backtrader** | Effectively abandoned. No releases in years. Breaks on Python 3.10+. Community has migrated away. | vectorbt for vectorized backtesting |
-| **TA-Lib** | C dependency is painful to install on Windows. We're building custom indicators from chaos theory, not standard TA. If needed, pandas-ta is a pure-Python alternative. | NumPy/SciPy for custom indicators, pandas-ta if standard TA needed |
-| **TensorFlow** | Massive dependency, GPU-focused, overkill for regime classification. Adds 1+ GB to install and massive startup time. | scikit-learn for regime classification |
-| **PyTorch** (at launch) | Same as TensorFlow. If LSTM/attention needed later for sequence modeling, add then. Not for v1. | scikit-learn for v1, add PyTorch only if needed later |
-| **Zipline / Zipline-Reloaded** | Designed for equity markets with daily bars. Does not support forex tick data, custom instruments, or the execution model we need. | vectorbt for backtesting |
-| **Streamlit** | Script-reruns-on-every-interaction model is wrong for a real-time trading dashboard. Memory grows linearly per connection. No WebSocket support without hacks. | FastAPI + lightweight-charts for web dashboard |
-| **MongoDB** | Server-based, document-oriented -- wrong model for time-series tick data analytics. Adds deployment complexity for zero benefit. | DuckDB + Parquet for analytics, SQLite for operational state |
-| **Redis** | We're single-machine, single-user. No need for a message broker or cache server. Python's built-in `asyncio.Queue` and in-memory dicts handle inter-module communication. | asyncio.Queue for internal pub/sub |
-| **Celery** | Distributed task queue for multi-server architectures. We're single-machine. Use `asyncio` and `concurrent.futures` for parallelism. | asyncio + ThreadPoolExecutor/ProcessPoolExecutor |
-| **ccxt** | Crypto exchange library. Does not support MetaTrader 5 or forex brokers. | MetaTrader5 official package |
+| **pyzmq / ZeroMQ** (for v1.1) | The MT5 Python package handles all needed communication. ZeroMQ is for a separate MQL5 EA execution layer, which is out of scope until the bot needs sub-10ms execution or runs logic the Python package cannot access. | MetaTrader5 Python package directly via MT5Bridge |
+| **aiomql** | Competes with our existing MT5Bridge. Would require rewriting all execution code to use a different API surface. Our bridge already handles async correctly via ThreadPoolExecutor(1). | Existing MT5Bridge with pattern improvements |
+| **Dask / Ray** | Distributed computing frameworks for multi-machine optimization. We are single-machine. Adds massive dependency tree for zero benefit. | multiprocessing.Pool + Optuna JournalStorage |
+| **Celery** | Task queue for distributed systems. We are single-process with multiprocessing for optimization only. | multiprocessing.Pool |
+| **Prometheus + Grafana** | Server-based monitoring stack. Requires running two additional services. Overkill for single-developer demo monitoring. | structlog JSON + DuckDB queries + desktop-notifier for alerts |
+| **Sentry** | Cloud error tracking. For a demo on the developer's machine, local JSON logs are sufficient. Add only if the bot runs unattended for weeks remotely. | structlog JSON logs analyzed with DuckDB |
+| **Streamlit** | Considered for calibration UI. Wrong architecture -- script reruns on every interaction, no persistent state, growing memory per session. | Optuna built-in visualization + optuna-dashboard |
+| **Polars** (for optimization acceleration) | The optimization bottleneck is signal pipeline computation per bar, not DataFrame I/O. Switching pandas to Polars in the backtest engine would not improve trial speed. Profile first. | Focus on Numba cache and parallel trials |
 
 ---
 
 ## Stack Patterns by Variant
 
-**If DOM depth data is available from RoboForex ECN:**
-- Use `market_book_add()` / `market_book_get()` for real-time DOM snapshots
-- Process order book imbalance, absorption detection, iceberg pattern recognition
-- Full institutional footprint detection enabled
+**If optimization is the bottleneck (most likely):**
+- Use JournalStorage + multiprocessing.Pool for N parallel trials
+- Set NUMBA_CACHE_DIR for persistent JIT compilation cache
+- Each worker process gets its own event loop for async backtest engine
+- Expected speedup: ~3-4x on 4-core machine (limited by CPU, not I/O)
 
-**If DOM depth data is limited or unavailable:**
-- Fall back to tick-level bid/ask spread analysis via `copy_ticks_from()`
-- Infer institutional activity from volume spikes, spread widening, and tick velocity
-- Disable DOM-dependent signals in the decision fusion layer
-- This is the minimum viable data feed
+**If MT5 reconnection is unstable:**
+- Tighten health_loop interval from 10s to 5s
+- Add monotonic heartbeat tracking (last_mt5_response_time)
+- Position reconciliation on reconnect: query positions_get(symbol="XAUUSD"), filter by magic_number, diff against local state
+- desktop-notifier fires on disconnect >30s and on reconnect
 
-**If backtesting needs to scale beyond single-machine:**
-- vectorbt PRO ($20/mo) adds distributed parameter sweeps
-- DuckDB can query remote Parquet files on S3
-- But this is out of scope for v1 -- single machine is sufficient
+**If signal calibration needs interactive exploration:**
+- optuna-dashboard provides real-time trial inspection during optimization
+- After optimization, generate static HTML reports with optuna.visualization + plotly.io.write_html()
+- For custom sweep analysis not covered by Optuna, use Plotly go.Heatmap() with pandas pivot tables
 
-**If real-time web dashboard needs to serve multiple users:**
-- Add Redis pub/sub for WebSocket fan-out (FastAPI + python-socketio + Redis adapter)
-- But this is out of scope -- single localhost user for v1
+**If demo runs need post-hoc analysis:**
+- structlog JSON mode writes machine-parseable logs
+- RotatingFileHandler keeps disk usage bounded (10 files x 10MB = 100MB max)
+- DuckDB reads JSON logs directly: `SELECT * FROM read_json_auto('logs/trading_*.json')`
+- Query patterns: trades by regime, signal latency distribution, fusion confidence histogram
 
 ---
 
@@ -214,80 +175,50 @@ uv pip install pytest pytest-asyncio pytest-cov mypy ruff pre-commit
 
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
-| MetaTrader5 5.0.5640 | Python 3.6-3.14 | Wide Python version support. Pin to 3.12 for ecosystem compatibility. |
-| NumPy 2.4.3 | Numba 0.64.0 | Numba 0.64 explicitly supports NumPy 2.x. Verify with `numba -s` after install. |
-| NumPy 2.4.3 | scikit-learn 1.8.0 | scikit-learn 1.8 supports NumPy 2.x. |
-| NumPy 2.4.3 | pandas 2.2.x | pandas 2.2 supports NumPy 2.x via pyarrow backend. |
-| vectorbt 0.28.4 | NumPy 2.x, Numba 0.64 | vectorbt depends on both. Ensure compatible versions via lockfile. |
-| DuckDB 1.5.0 | Python 3.10+ | DuckDB 1.5 dropped Python 3.9 support. Fine with our 3.12 target. |
-| Textual 8.1.1 | Python 3.9-3.13 | Wide compatibility. No issues with 3.12. |
-| FastAPI 0.115+ | uvicorn 0.41.0 | FastAPI + uvicorn are tightly coupled. Install via `fastapi[standard]`. |
-| Pydantic 2.12.5 | FastAPI 0.115+ | FastAPI requires Pydantic v2. Included automatically. |
+| optuna-dashboard 0.20.x | Optuna 4.8.0 | optuna-dashboard tracks Optuna releases. v0.20 works with Optuna 3.x and 4.x. Reads any Optuna storage backend. |
+| optuna-dashboard 0.20.x | Plotly 5.x | Uses Plotly for chart rendering. Already installed. |
+| desktop-notifier 6.2.0 | Python 3.9+ | Requires `winrt-Windows.UI.Notifications` on Windows (installed automatically as dependency). Async-native, requires running event loop. |
+| desktop-notifier 6.2.0 | asyncio (stdlib) | Uses `async/await` API. Call `await notifier.send()` from within the existing asyncio engine loops. |
+| Optuna JournalStorage | multiprocessing (stdlib) | File-based locking ensures safe concurrent access. No special configuration needed beyond file path. |
+| Numba 0.64 cache | NUMBA_CACHE_DIR env var | Set before any Numba import. Cache files are CPU-architecture-specific -- not portable between machines but persist across Python/venv rebuilds if Numba version matches. |
+| RotatingFileHandler | structlog 25.5.0 | Use structlog's `ProcessorFormatter` as the formatter for the stdlib handler. Documented integration pattern. |
 
 ---
 
-## Inter-Module Communication Architecture
+## Configuration Changes (No New Packages)
 
-The 8-module system needs a clean internal communication pattern:
+These improvements need code/config changes only -- no new dependencies:
 
-```
-Module Communication (all in-process, same Python runtime):
-
-  MT5 Data  -->  [asyncio.Queue]  -->  Microstructure Sensor
-                                           |
-                                    [shared state dict]
-                                           |
-              +----+----+----+----+--------+
-              v    v    v    v    v
-           Inst  Quant Chaos  ...  (analysis modules)
-              |    |    |    |
-              v    v    v    v
-           [signal bus: asyncio.Queue or dataclass events]
-              |
-              v
-         Decision Core  -->  [ZeroMQ]  -->  MQL5 EA  -->  MT5
-              |
-              v
-         Trade Journal  -->  [DuckDB/SQLite]
-              |
-              v
-         Self-Learning Loop  -->  [Optuna/DEAP]
-```
-
-**Internal pub/sub:** Use `asyncio.Queue` instances for inter-module communication. No external message broker needed for single-process architecture.
-
-**Shared state:** Use Pydantic models as immutable snapshots of module state. Modules publish state updates; consumers read the latest snapshot.
-
-**External communication:** Only ZeroMQ crosses process boundaries (Python <-> MQL5 EA).
+| Change | What | Why |
+|--------|------|-----|
+| **NUMBA_CACHE_DIR** | Set env var to `.numba_cache/` in project root | Persistent JIT cache survives venv rebuilds. Eliminates 5-10s cold start on optimization workers. |
+| **Health loop interval** | Reduce from 10s to 5s | Faster detection of MT5 disconnection during live demo. |
+| **Heartbeat tracking** | Add `last_mt5_response_time = time.monotonic()` | Detect stale connections where `terminal_info()` returns True but data has stopped flowing. |
+| **Position reconciliation** | On reconnect, diff `positions_get()` against local state | Catch positions that were opened/closed while disconnected. Filter by `magic_number=20260327`. |
+| **Log file handler** | Add RotatingFileHandler alongside console | JSON logs to `logs/trading_YYYYMMDD.json` for post-hoc analysis. Keep console output for interactive use. |
+| **structlog dual output** | Console (Rich) + File (JSON) simultaneously | Development sees pretty output, production gets machine-parseable JSON on disk. |
+| **Optimization storage** | Switch from in-memory to JournalStorage | Enables multi-process parallelism AND persists study results for later analysis with optuna-dashboard. |
 
 ---
 
 ## Sources
 
-- [MetaTrader5 on PyPI](https://pypi.org/project/metatrader5/) -- version 5.0.5640, Feb 2026
-- [MQL5 Python Integration docs](https://www.mql5.com/en/docs/python_metatrader5) -- copy_ticks_from, market_book_get API
-- [NumPy releases](https://numpy.org/doc/stable/release.html) -- v2.4.3, Mar 2026
-- [SciPy news](https://scipy.org/news/) -- v1.17.1, Feb 2026
-- [scikit-learn releases](https://scikit-learn.org/stable/whats_new.html) -- v1.8.0, Dec 2025
-- [Numba release notes](https://numba.readthedocs.io/en/stable/release-notes-overview.html) -- v0.64.0, Feb 2026
-- [Optuna docs](https://optuna.readthedocs.io/) -- v4.8.0, Mar 2026
-- [DEAP on PyPI](https://pypi.org/project/deap/) -- v1.4.3, May 2025
-- [nolds on PyPI](https://pypi.org/project/nolds/) -- v0.6.3
-- [nolds documentation](https://cschoel.github.io/nolds/) -- Hurst, Lyapunov, fractal dimension algorithms
-- [DuckDB releases](https://github.com/duckdb/duckdb/releases) -- v1.5.0, Mar 2026
-- [vectorbt on PyPI](https://pypi.org/project/vectorbt/) -- v0.28.4
-- [Textual on PyPI](https://pypi.org/project/textual/) -- v8.1.1, Mar 2026
-- [FastAPI releases](https://github.com/fastapi/fastapi/releases) -- v0.115+
-- [uvicorn on PyPI](https://pypi.org/project/uvicorn/) -- v0.41.0, Feb 2026
-- [pyzmq on PyPI](https://pypi.org/project/pyzmq/) -- v27.1.0, Sep 2025
-- [lightweight-charts-python on PyPI](https://pypi.org/project/lightweight-charts/) -- v2.1, Sep 2024
-- [Pydantic on PyPI](https://pypi.org/project/pydantic/) -- v2.12.5, Nov 2025
-- [structlog docs](https://www.structlog.org/) -- v25.5.0
-- [Darwinex DWX ZeroMQ connector](https://github.com/darwinex/dwx-zeromq-connector) -- MT5-ZMQ bridge reference
-- [Polars vs Pandas benchmarks (2026)](https://docs.kanaries.net/articles/polars-vs-pandas) -- 5-30x faster for analytical workloads
-- [Python backtesting landscape (2026)](https://python.financial/) -- vectorbt vs backtrader comparison
-- [MQL5 named pipes article](https://www.mql5.com/en/articles/115) -- IPC alternatives for MT5
+- [Optuna 4.8.0 Easy Parallelization docs](https://optuna.readthedocs.io/en/stable/tutorial/10_key_features/004_distributed.html) -- JournalStorage, multi-process patterns
+- [Optuna 4.8.0 Visualization docs](https://optuna.readthedocs.io/en/stable/reference/visualization/index.html) -- built-in plot functions
+- [Optuna JournalStorage stabilization (Optuna blog)](https://medium.com/optuna/introducing-the-stabilized-journalstorage-in-optuna-4-0-from-mechanism-to-use-case-e320795ffb61) -- JournalFileBackend design rationale
+- [optuna-dashboard on PyPI](https://pypi.org/project/optuna-dashboard/) -- v0.20.x, real-time web UI
+- [optuna-dashboard on GitHub](https://github.com/optuna/optuna-dashboard) -- VS Code extension, JupyterLab support
+- [desktop-notifier on PyPI](https://pypi.org/project/desktop-notifier/) -- v6.2.0, async Windows notifications
+- [desktop-notifier on GitHub](https://github.com/samschott/desktop-notifier) -- async API, WinRT bridge
+- [Numba caching docs](https://numba.readthedocs.io/en/stable/developer/caching.html) -- cache=True, NUMBA_CACHE_DIR, .nbi/.nbc files
+- [Numba environment variables](https://numba.readthedocs.io/en/stable/reference/envvars.html) -- NUMBA_CACHE_DIR configuration
+- [structlog standard library integration](https://www.structlog.org/en/stable/standard-library.html) -- ProcessorFormatter with stdlib handlers
+- [Python logging.handlers](https://docs.python.org/3/library/logging.handlers.html) -- RotatingFileHandler
+- [MQL5 positions_get() docs](https://www.mql5.com/en/docs/python_metatrader5/mt5positionsget_py) -- magic number filtering, position attributes
+- [MQL5 Python Integration docs](https://www.mql5.com/en/docs/python_metatrader5) -- terminal_info, order_send, reconnection
+- [Optuna SQLite locking issue #820](https://github.com/optuna/optuna/issues/820) -- why JournalStorage over SQLite for parallel
+- [Optuna n_jobs threading limitation #1480](https://github.com/optuna/optuna/issues/1480) -- why multiprocessing.Pool over n_jobs
 
 ---
-*Stack research for: Python-first XAUUSD scalping bot with chaos theory on MetaTrader 5*
-*Researched: 2026-03-27*
+*Stack research for: FXSoqqaBot v1.1 Live Demo Launch*
+*Researched: 2026-03-28*

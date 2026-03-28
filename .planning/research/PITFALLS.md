@@ -1,224 +1,241 @@
 # Pitfalls Research
 
-**Domain:** XAUUSD Scalping Bot with Chaos Theory and Self-Learning (MT5/Python/RoboForex ECN)
-**Researched:** 2026-03-27
-**Confidence:** HIGH (multiple sources corroborate; domain-specific findings verified)
+**Domain:** XAUUSD Scalping Bot v1.1 -- Live Demo Launch (Signal Recalibration, Paper-to-Live, Large-Scale Backtest, Unattended Operation)
+**Researched:** 2026-03-28
+**Confidence:** HIGH (codebase analysis + domain research + known v1.0 issues verified)
 
 ---
 
 ## Critical Pitfalls
 
-These are account-destroying or project-killing mistakes. Each one can cause a total rewrite, blown account, or abandoned project if not addressed upfront.
+These are the pitfalls that will cause the v1.1 demo launch to fail outright. Each one blocks the stated goal of "10-20 trades/day running unattended for 1 week."
 
 ---
 
-### Pitfall 1: Python-MT5 IPC Latency Makes Scalping Unreliable
+### Pitfall 1: Chaos Module direction=0 Starves the Fusion of Directional Signal
 
 **What goes wrong:**
-The MetaTrader 5 Python API communicates via interprocess communication (named pipes). Measured latency between Python API and the MT5 terminal is approximately 573ms round-trip. On top of that, MT5 terminal to broker server adds another ~194ms. Total order lifecycle from Python decision to broker fill: 700-800ms in typical conditions. For a scalping bot targeting 5-15 pip moves on XAUUSD (where gold can move 10+ pips per second during volatility), this latency means the price you decided to trade at is stale by the time the order reaches the broker.
+The chaos module returns `direction=0.0` for three of five regime states: RANGING, HIGH_CHAOS, and PRE_BIFURCATION. Looking at the `direction_map` in `chaos/module.py` lines 122-129, only TRENDING_UP (+1.0) and TRENDING_DOWN (-1.0) produce nonzero direction. Additionally, the classify_regime function in `regime.py` defaults to RANGING when metrics are ambiguous (lines 72-73). In practice, gold spends 60-80% of its time in non-trending regimes, which means the chaos module contributes `direction=0.0 * confidence * weight = 0.0` to the fusion formula most of the time. This effectively nullifies one-third of the fusion input, making it much harder for the composite score to exceed the confidence threshold.
 
 **Why it happens:**
-Developers assume Python's `mt5.order_send()` is as fast as native MQL5 `OrderSend()`. It is not. The IPC pipe adds serialization, deserialization, and context-switch overhead. Python's GIL compounds this if tick processing and order logic share a thread.
+The v1.0 design treated the chaos module as a regime classifier only, not a directional signal. This was correct for its role (telling the system WHAT the market is doing), but the fusion formula at `core.py` line 99 multiplies `direction * confidence * weight` for the weighted score. When direction is zero, confidence and weight are irrelevant -- the module contributes nothing to the composite. At 10% risk with a $20 account, every rejected trade is a missed opportunity in the narrow viable trading window.
 
 **How to avoid:**
-- Use the thin MQL5 EA for time-critical execution. Python sends trade signals via shared memory, files, or sockets to the EA. The EA handles the actual `OrderSend()` call natively inside MT5, which executes in microseconds on the local terminal.
-- Keep Python as the brain (signal generation, analysis) but never as the hand (order execution).
-- Measure actual round-trip latency in your environment during development. Log `time_before_send` and `time_after_confirmation` on every order. If median exceeds 200ms, the architecture needs fixing.
-- Consider pre-computing entry/exit conditions and sending them as pending orders (limit orders) rather than market orders, which reduces the latency sensitivity.
+- Decouple the chaos module's regime classification from its directional contribution. The regime informs SL/TP/sizing behavior (which works correctly). The direction should come from a separate mechanism: short-term momentum within the classified regime (e.g., use a 5-bar vs 20-bar close comparison even in RANGING to detect micro-trends).
+- Alternative: when direction=0, have the fusion formula exclude that module from the denominator entirely (treat it as "abstaining" rather than "voting neutral"). This preserves the other two modules' signals without dilution.
+- Do NOT simply assign random or biased direction to non-trending regimes. That introduces noise, not signal.
 
 **Warning signs:**
-- Frequent slippage on entries (positive slippage on sells, negative on buys)
-- Backtest results far exceed live results on the same strategy
-- High ratio of requotes or "off quotes" errors from `order_send()`
-- Orders consistently filling 3-8 pips worse than the signal price
+- Structured logs show `chaos.direction=0.0` on >50% of fusion cycles
+- `fusion_computed` logs show `should_trade=False` with `fused_confidence` values just below threshold
+- Trade frequency remains at 0-3/day despite lowering thresholds
+- Flow and timing modules show nonzero direction but composite is still too low
 
 **Phase to address:**
-Phase 1 (Foundation/Infrastructure). The Python-to-MQL5 communication architecture must be designed correctly from day one. Retrofitting a different execution path after building everything around `mt5.order_send()` is a near-complete rewrite of the execution layer.
+Phase 1 (Signal Pipeline Overhaul). This is the highest-priority fix. Without it, no amount of threshold tuning will achieve 10-20 trades/day.
 
 ---
 
-### Pitfall 2: $20 Micro-Account Position Sizing Impossibility
+### Pitfall 2: Timing Urgency Double-Squared Crushes Confidence to Near-Zero
 
 **What goes wrong:**
-With $20 capital and XAUUSD at ~$3,000/oz, proper risk management becomes mathematically impossible with standard lot sizes. At 0.01 lot (micro lot, the minimum on most ECN accounts), each pip on XAUUSD is worth $0.10. A 20-pip stop loss = $2.00 risk = 10% of the account on a single trade. This violates every sound risk management principle (standard is 1-2% per trade). With gold's typical 30-50 pip scalping stop losses during volatile sessions, a single loss can destroy 15-25% of the account. Two consecutive losses in a session can trigger margin call territory. The risk of ruin with fixed 0.01 lot at $20 approaches certainty over any meaningful sample of trades.
+In `timing/module.py` line 136, the final confidence is computed as:
+```python
+final_confidence = (window_conf * 0.6 + phase_conf * 0.4) * urgency
+```
+But `window_conf` is itself already scaled by urgency in `ou_model.py` line 127:
+```python
+window_confidence = confidence * min(1.0, urgency)
+```
+So the urgency factor is applied twice: once inside `window_conf` and once as the outer multiplier. If urgency is 0.5 (moderate), the effective scaling is 0.5 * 0.5 = 0.25 on the OU component, meaning even a perfect R-squared fit with moderate displacement produces a confidence around 0.15-0.25. This systematically suppresses the timing module's contribution to fusion.
 
 **Why it happens:**
-Developers focus on strategy logic and assume position sizing is a simple calculation to add later. They test with larger accounts in backtesting and never model the constraints of minimum lot sizes. RoboForex ECN minimum lot for XAUUSD is 0.01 (micro lot) -- there are no nano lots (0.001) available on ECN accounts. This creates a "granularity floor" where you cannot size positions small enough for proper risk management at $20.
+The OU model's `compute_entry_window` correctly scales confidence by urgency (low urgency near the mean should produce low confidence). But the module-level `update()` method applies urgency again as an outer multiplier without realizing the inner scaling already accounts for it. This was not caught in v1.0 because the module was tested in isolation with high-urgency scenarios.
 
 **How to avoid:**
-- Acknowledge the $20 phase is inherently high-risk and model it as such. Do not pretend 1% risk-per-trade is achievable at $20 with 0.01 minimum lots.
-- Implement a phased risk model: Phase 1 ($20-$100) accepts higher per-trade risk (5-10%) but compensates with extremely selective trade filtering, tighter stops (10-15 pips max), and maximum 1-2 trades per day. Phase 2 ($100-$300) can approach 2-5% risk. Phase 3 ($300+) enables standard 1-2% risk.
-- Use fractional Kelly criterion (half-Kelly or quarter-Kelly) to determine if a trade is even worth taking given the minimum lot constraint. If Kelly says risk less than $2 (the minimum at 0.01 lot with a 20-pip stop), skip the trade entirely.
-- Consider starting on RoboForex ProCent account (cent lots = 0.001 effective standard lots) for the $20 phase, then migrating to ECN when capital justifies it. ProCent allows nano-lot-equivalent sizing.
-- Build a "capital adequacy check" into the decision engine: before every trade, calculate if the minimum lot size violates the current phase's max risk percentage. If yes, no trade.
+- Remove the outer `* urgency` multiplier in `timing/module.py` line 136. The `window_conf` already incorporates urgency through the `compute_entry_window` function.
+- OR replace the outer urgency multiplier with a different scaling factor (e.g., `phase_conf` quality or a combined novelty metric) that adds information rather than duplicating it.
+- After fixing, verify that timing confidence spans a reasonable range (0.1-0.8 across typical market conditions) rather than clustering near zero.
 
 **Warning signs:**
-- Backtest shows beautiful equity curve but uses fractional lots below 0.01
-- Win rate below 60% in live testing with 0.01 lots at $20 (the math does not work)
-- Account drops below $15 (margin floor for 0.01 XAUUSD at 1:500)
-- More than 3 consecutive losses wiping more than 30% of equity
+- Timing module confidence consistently below 0.15 in structured logs
+- Timing's `weighted_score` in fusion_computed is negligible compared to flow and chaos
+- Changing timing parameters has almost no effect on trade frequency
 
 **Phase to address:**
-Phase 1 (Risk Management Core) and carried through all phases. The position sizing module must be built before any live trading begins. The ProCent vs ECN account decision is an infrastructure choice that must be made at project start.
+Phase 1 (Signal Pipeline Overhaul). Fix alongside the chaos direction issue. Both are necessary to achieve meaningful fusion scores.
 
 ---
 
-### Pitfall 3: Backtesting Overfitting Disguised as "Good Strategy"
+### Pitfall 3: Lowering Fusion Threshold Without Fixing Signal Math Creates Noise Trades
 
 **What goes wrong:**
-The strategy shows 80%+ win rate, <5% drawdown, and beautiful equity curves in backtesting, then loses money consistently in live trading. This is the single most common failure mode in algorithmic trading. With an 8-module system (microstructure + institutional + chaos + quantum + fusion), the parameter space is enormous. Even modest parameter counts per module (say 5 parameters each across 8 modules = 40 parameters) create a combinatorial explosion where some combination will always look good on historical data by pure chance. The self-learning mutation loop compounds this: if it optimizes on historical data without rigorous out-of-sample discipline, it will converge on overfitted parameters.
+The fusion threshold for aggressive phase is 0.50 (`aggressive_confidence_threshold`). The known issues list identifies this as "too high." The temptation is to lower it to 0.20-0.30 to generate more trades. But if the chaos direction=0 and timing double-urgency bugs are not fixed first, lowering the threshold admits trades based almost entirely on the flow module alone (since it is the only module producing both nonzero direction AND reasonable confidence). Single-module-driven trades are exactly what the fusion architecture was designed to prevent -- the edge is in fusion, not any single module.
 
 **Why it happens:**
-- Testing 200+ parameter combinations and picking the best (data snooping)
-- Using the same data period for development and validation (look-ahead bias)
-- "Implicit fitting" -- making architecture decisions (which indicators to include, which timeframes) based on knowledge of historical outcomes
-- Genetic algorithm convergence on noise patterns rather than market structure
-- Small historical anomalies in XAUUSD (e.g., 2020 COVID crash, 2022 rate hikes) that the system learns as "patterns" but were unique events
-- Not accounting for spread widening during backtest (using fixed spread when live spread varies 50-200% during news)
+Tuning thresholds is fast (change one number in config). Fixing signal math requires understanding the fusion formula and each module's output characteristics. Under time pressure, developers reach for the easy lever.
 
 **How to avoid:**
-- Strict temporal separation: Train on 2015-2020, validate on 2021-2023, hold out 2024-2026 as final test. Never touch holdout until the very end.
-- Walk-forward optimization with rolling windows (e.g., train on 12 months, test on 3 months, roll forward). Require consistent profitability across ALL walk-forward windows, not just aggregate.
-- Monte Carlo simulation: randomize trade order, randomize entry timing by +/- a few bars, add random spread widening. If performance collapses, it was overfitted.
-- Regime-aware evaluation: separate performance by market regime (trending, ranging, volatile, quiet). A strategy that only works in one regime is fragile.
-- Apply statistical significance tests: require Sharpe ratio > 2.0 and at minimum 100 trades in out-of-sample before considering a strategy validated.
-- For the genetic algorithm: use tournament selection with strong regularization pressure (penalize parameter count), require stability across multiple random seeds, and never optimize on more than 3 months of data in a single generation.
+- Fix Pitfalls 1 and 2 FIRST. Then measure the distribution of `fused_confidence` values with all three modules contributing meaningfully.
+- Set the threshold based on the new distribution. If the median fused_confidence with fixed signals is 0.35, a threshold of 0.25-0.30 is reasonable. If the median is 0.55, keep the threshold at 0.45-0.50.
+- Add a "module agreement" check: require at least 2 of 3 modules to have nonzero direction in the same direction before allowing a trade. This prevents single-module trades even at low thresholds.
+- Log the per-module contribution to every fusion decision so you can audit what is driving trades.
 
 **Warning signs:**
-- Small parameter changes (10-20%) causing large performance changes (>50% drawdown increase)
-- Strategy performs well in 2019-2021 but poorly in 2022-2024 (or vice versa)
-- Win rate above 75% in backtest (suspicious for scalping)
-- Maximum drawdown in backtest below 5% (unrealistically good)
-- Genetic algorithm converging to wildly different parameters across runs
+- More than 70% of trades are driven by a single module (check `module_scores` in fusion logs)
+- Win rate drops below 40% after lowering threshold (you are trading noise)
+- Drawdown increases proportionally with trade count (no edge, just more bets)
 
 **Phase to address:**
-Phase 1 (Backtesting Framework) must embed anti-overfitting from day one. Walk-forward validation and Monte Carlo are not "nice to haves" -- they are the only way to know if your strategy is real. The self-learning mutation loop (Phase 2+) must inherit these constraints.
+Phase 1 (Signal Pipeline Overhaul). The threshold adjustment comes AFTER signal fixes, not before.
 
 ---
 
-### Pitfall 4: Chaos Theory and Fractal Analysis Producing Numerically Meaningless Results
+### Pitfall 4: Position Sizer Rejects Every Trade at $20 Equity
 
 **What goes wrong:**
-Lyapunov exponents, fractal dimensions, and Hurst exponents computed on financial tick data produce unreliable or misleading values. Specifically:
-- Lyapunov exponent estimation is extremely sensitive to noise. Financial data is overwhelmingly noise (market microstructure noise, bid-ask bounce, quote stuffing). Researchers have shown it is "difficult to distinguish exogenous noise from chaos" in financial time series. A positive Lyapunov exponent might indicate chaos -- or might just indicate noise.
-- Hurst exponent estimation requires thousands of data points for reliability, yet market regimes change every few hundred to few thousand ticks. By the time you have enough data for a reliable Hurst estimate, the regime has already changed.
-- Finite sample bias: independent random walks produce Hurst > 0.5 on finite samples, which can be mistakenly interpreted as evidence of long-term memory/trending behavior.
-- Fractal dimension algorithms designed for clean mathematical systems produce garbage when applied to discretized, noisy, irregularly sampled tick data with bid-ask bounce artifacts.
+The PositionSizer in `sizing.py` computes: `lot_size = risk_amount / (sl_distance * contract_size)`. At $20 equity with 10% aggressive risk: `risk_amount = $2.00`. With ATR-based SL of, say, $3.00 (typical for XAUUSD M5): `lot_size = 2.00 / (3.00 * 100) = 0.0067`. This is below the 0.01 minimum lot. The sizer clamps to 0.01, then checks actual risk: `0.01 * 3.00 * 100 = $3.00`, which is 15% of equity -- exceeding the 10% aggressive limit. Result: `can_trade=False`, trade skipped.
+
+With a wider SL (e.g., $5.00 in high-chaos regime with widen factor): `0.01 * 5.00 * 100 = $5.00` = 25% risk. Even more aggressively rejected. The position sizer correctly implements D-04 ("skip, don't force"), but the math makes it impossible to trade at $20 with ATR-based stops.
 
 **Why it happens:**
-Developers implement textbook chaos theory algorithms (Rosenstein's method for Lyapunov, R/S analysis for Hurst, box-counting for fractal dimension) without understanding that these algorithms were designed for clean physical systems (weather, fluid dynamics) with millions of noise-free data points. Financial markets have none of these properties. The algorithms still produce numbers -- they just do not mean what you think they mean.
+XAUUSD's ATR at M5 timeframe typically ranges $2.00-$6.00. With the 2x ATR base multiplier, SL distances of $4.00-$12.00 are common. At 0.01 lot minimum and $20 equity, ANY SL distance above $2.00 produces risk above 10%. This is the fundamental $20 micro-account constraint identified in v1.0 but not yet solved.
 
 **How to avoid:**
-- Use chaos metrics as qualitative regime indicators, not precise quantitative measurements. "Hurst is rising" is more useful than "Hurst is exactly 0.73."
-- Apply noise-robust estimation methods: state-space reconstruction with principal components for Lyapunov, DFA (Detrended Fluctuation Analysis) instead of R/S for Hurst, wavelet-based methods for fractal dimension.
-- Use rolling windows with overlap and track the distribution of estimates, not point estimates. The variance of the estimate matters as much as the mean.
-- Validate regime classifications against known market events. If your chaos classifier does not detect the regime shift during NFP releases or Fed announcements, it is not working.
-- Set minimum sample sizes: at least 500 ticks for Hurst, 1000+ for Lyapunov. Accept that estimates on shorter windows are "directional guesses" and weight them accordingly in the fusion engine.
-- Compare against null hypothesis: bootstrap random data with same statistical properties (mean, variance, autocorrelation) and check if your chaos metrics produce meaningfully different values on real vs. synthetic data.
+- Raise the aggressive_risk_pct from 0.10 to 0.15 or even 0.20 for the $20 phase. Acknowledge that $20 is a proof-of-concept capital level where standard risk management is mathematically impossible. Document this explicitly.
+- Reduce the SL ATR multiplier from 2.0 to 1.0-1.5 during the aggressive phase. Tighter stops mean more stop-outs but enable position entry. The bot needs live trade data to learn -- zero trades teaches nothing.
+- Alternatively, reduce computation_timeout or use a tighter timeframe for ATR (M1 instead of M5) to produce smaller ATR values and thus smaller SL distances.
+- Consider a "demo mode override" for the 1-week observation period: cap risk at 0.01 lot unconditionally and accept the oversized risk percentage. On a demo account, the capital is virtual. The goal is observing execution behavior, not preserving virtual capital.
 
 **Warning signs:**
-- Hurst exponent always reads between 0.5-0.6 regardless of market conditions (indicates noise dominance)
-- Lyapunov exponent flips sign (chaos/non-chaos) on adjacent non-overlapping windows of the same data
-- Fractal dimension estimates vary by >20% depending on chosen algorithm parameters (embedding dimension, delay)
-- Regime classifier never fires, or fires too often (every few minutes)
+- Zero trades generated over a full trading session despite fusion producing `should_trade=True`
+- Logs show repeated `trade_skipped_risk_exceeds_limit` with `actual_risk_pct` values of 0.12-0.30
+- Backtest generates trades (because it may use different equity assumptions) but live does not
 
 **Phase to address:**
-Phase 2 (Chaos/Fractal Module development). But the architecture must anticipate this in Phase 1 by designing the fusion engine to handle "low confidence" signals from chaos metrics. The chaos module should output confidence levels alongside regime classifications.
+Phase 1 (Signal Pipeline Overhaul) for the configuration fix. The sizer logic itself is correct and should not be weakened -- only the thresholds need adjustment for the $20 phase.
 
 ---
 
-### Pitfall 5: Self-Learning System Diverges Into Self-Destruction
+### Pitfall 5: Backtest Log Flood -- 147K Debug Lines in First Window Kills Performance
 
 **What goes wrong:**
-The genetic algorithm / ML mutation loop "learns" to exploit artifacts rather than market structure. Common failure modes:
-- **Positive feedback loops**: System has a losing streak, mutation loop adjusts parameters to be more aggressive (trying to recover), which causes bigger losses, which triggers more aggressive mutation. The system spirals into ruin.
-- **Catastrophic forgetting**: System optimizes for current regime, overwrites parameters that worked in previous regimes. When the old regime returns, performance collapses.
-- **Reward hacking**: If the fitness function is profit-based, the system learns to take maximum-size positions on high-probability setups, creating concentration risk. One wrong trade wipes out dozens of small wins.
-- **Concept drift adaptation lag**: By the time the mutation loop detects a regime change and adapts, the new regime is already ending. The system is always one regime behind.
-- **Survival bias in the gene pool**: Strategies that survived a calm period dominate the population, but they were never tested in crisis conditions. When a crisis hits, the entire population fails simultaneously.
+The backtest runner processes 3.8M bars. Each bar triggers signal module updates, which log at DEBUG level via structlog. The chaos module alone generates 5 metrics per bar = 5 debug entries. Across 3 modules, that is ~15 debug lines per bar. At 3.8M bars: ~57M potential log lines. Even with structlog's efficient filtering, the overhead of constructing log context dictionaries, checking log levels, and formatting is measurable. The known issue reports 147K lines in the FIRST walk-forward window alone, suggesting DEBUG level is active during backtesting.
 
 **Why it happens:**
-Designing a self-learning system that does not destroy itself is one of the hardest problems in ML. Trading adds the complication that feedback is delayed (a trade opened now might close in minutes or hours), noisy (a good decision can lose money due to random price movement), and regime-dependent (what works changes). The instinct to "let the system learn" without guardrails is the root cause.
+The default config sets `level = "INFO"` but the backtest engine logs exceptions at DEBUG (`log.debug("signal_module_error", ...)` in `engine.py` line 118). If modules throw frequent exceptions during early bars (insufficient data), these DEBUG logs accumulate. Additionally, structlog's `cache_logger_on_first_use` may not be set, causing logger assembly overhead on every call.
 
 **How to avoid:**
-- **Hard guardrails that the learning system cannot override**: maximum position size, maximum daily loss, maximum drawdown before shutdown. These are constants, not parameters the GA can mutate.
-- **Population diversity enforcement**: Require minimum Hamming distance between strategy variants in the genetic pool. Prevent convergence to a single strategy.
-- **Regime-tagged memory**: Store parameter sets tagged with the regime they were optimized for. When a regime is detected, load the historically best parameters for that regime rather than mutating blind.
-- **Validation gates**: No mutated strategy goes live without passing walk-forward validation on recent out-of-sample data. The mutation loop proposes; the validation gate disposes.
-- **Asymmetric mutation bounds**: Parameters can only mutate within bounded ranges. Aggressiveness (position size multiplier, entry threshold relaxation) has tighter bounds than conservativeness.
-- **Human-in-the-loop safety valve**: If drawdown exceeds a threshold (e.g., 20% from peak equity), halt all trading and require human review before resuming. Never allow the bot to trade through a meltdown.
+- Set log level to WARNING or ERROR during backtesting. The backtest runner should override the config's log level before starting: `structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING))`.
+- Use structlog's `make_filtering_bound_logger()` which makes debug methods return `None` immediately -- literally `return None` with zero overhead per the official docs.
+- Move per-bar signal module debug logging behind a `if self._logger.isEnabledFor(logging.DEBUG)` guard to avoid constructing log context dicts when debug is disabled.
+- Add a `--verbose` flag to the backtest CLI for when you actually need debug output, defaulting to quiet mode.
+- Consider batch result collection: accumulate backtest metrics in memory and write a summary at the end rather than logging per-bar results.
 
 **Warning signs:**
-- Parameters oscillating rapidly between generations (no stable convergence)
-- Population diversity dropping below threshold (all strategies becoming identical)
-- Average trade duration shortening over time (system becoming more impulsive)
-- Fitness scores improving on training data but degrading on validation data
-- System taking trades that no single module would recommend on its own (fusion engine override)
+- Backtest takes >10 minutes for a single walk-forward window on 3.8M bars
+- Disk I/O spikes during backtest (log file growing rapidly)
+- Memory usage climbs steadily during backtest (log string accumulation)
+- Backtest appears "stuck" but is actually just processing log output
 
 **Phase to address:**
-Phase 3 (Self-Learning Module). But the guardrails must be architected in Phase 1 (Risk Management) and the validation gates in Phase 1 (Backtesting Framework). The learning system is the last thing to turn on, not the first.
+Phase 2 (Backtesting Pipeline Fix). Must be resolved before automated optimization can run (Phase 3), since optimization runs the backtest dozens of times.
 
 ---
 
-### Pitfall 6: MT5 Python Connection Drops Silently During Live Trading
+### Pitfall 6: Paper-to-Live Switch Without order_check Validation
 
 **What goes wrong:**
-The MT5 Python API connection drops without raising an exception. The Python bot continues running, computing signals, and calling `mt5.order_send()` -- but all calls silently fail or return stale data. Open positions go unmanaged (no stop loss adjustments, no take profits, no exit signals acted on). During volatile XAUUSD sessions, an unmanaged position can move 50-100+ pips against you in minutes. On a $20 account, this is an instant margin call.
+The OrderManager in `orders.py` correctly calls `order_check()` before `order_send()` in live mode (lines 185-195). However, paper mode bypasses this entirely (line 178-182 routes directly to PaperExecutor). This means paper trading never validates:
+- Broker filling mode compatibility
+- Stops level minimum distance
+- Margin requirements
+- Volume step compliance
+- Symbol availability in Market Watch
 
-Known failure modes:
-- MT5 terminal auto-updates and restarts (happens periodically, kills the pipe)
-- Windows sleep/hibernate breaks the pipe
-- IPC timeout after extended idle periods
-- MT5 terminal loses broker connection (internet glitch) -- Python side may not detect this
-- `mt5.initialize()` succeeds but `mt5.symbol_info_tick()` returns None (partial connection)
+When switching from paper to live, the first trade may fail for reasons that were never tested: wrong filling mode, SL too close to price, insufficient margin, or XAUUSD not in Market Watch.
 
 **Why it happens:**
-The MetaTrader 5 Python package uses named pipes for IPC. Named pipes can break without TCP-style connection state management. There is no built-in heartbeat or keepalive in the standard API. Developers test in ideal conditions (stable connection, MT5 open and connected) and never test failure modes.
+Paper mode was designed to simulate fills without MT5 interaction. This is correct for simulation but means zero live-path validation occurs until the actual switch to live mode.
 
 **How to avoid:**
-- Implement a heartbeat loop: every 5-10 seconds, call `mt5.symbol_info_tick("XAUUSD")` and verify the returned tick timestamp is recent (within 30 seconds during market hours). If stale or None, trigger reconnection.
-- Wrap ALL MT5 API calls in a connection-aware wrapper that checks connection state before and after each call. If any call fails, attempt `mt5.shutdown()` + `mt5.initialize()` reconnection sequence.
-- Use the MQL5 EA as a safety net: the EA should have its own stop-loss management independent of Python. If Python goes silent (no signal for X seconds), the EA should flatten all positions or tighten stops to breakeven.
-- Handle MT5 terminal restarts: monitor the MT5 process (via `tasklist` or `psutil`) and wait for it to fully restart before reinitializing.
-- Log every API call result and alert (sound, email, Telegram) on consecutive failures.
-- Set `mt5.initialize(timeout=60000)` for generous timeout, but implement your own shorter detection timeout.
+- Add a "dry-run live validation" step before the 1-week demo launch. With `mode=live` but a separate "validate only" flag, run `order_check()` on a sample request without calling `order_send()`. This validates the entire request construction pipeline against the real broker.
+- On the FIRST live trade, log the full request dict and the `order_check` result at INFO level. Compare against paper trade requests to verify structural compatibility.
+- Validate filling mode ONCE at startup by calling `_determine_filling_mode()` even in paper mode. Cache and log the result. RoboForex ECN typically requires IOC filling for XAUUSD.
+- Verify XAUUSD is in Market Watch: `mt5.symbol_select("XAUUSD", True)` must be called before any data or trading operations.
 
 **Warning signs:**
-- `mt5.last_error()` returning error codes on previously working calls
-- Tick timestamps lagging real time by more than 2 seconds
-- `mt5.positions_get()` returning empty when positions are known to be open
-- Python process CPU usage dropping to near-zero (no data to process)
+- `order_check` returns retcode != 0 on the first live trade
+- `order_send` returns 10013 (TRADE_RETCODE_INVALID), 10016 (TRADE_RETCODE_INVALID_STOPS), or 10014 (TRADE_RETCODE_INVALID_VOLUME)
+- `symbol_info` returns None for XAUUSD (not in Market Watch)
 
 **Phase to address:**
-Phase 1 (Infrastructure/Communication Layer). Connection resilience is not optional. Build the MT5 communication wrapper with health checks, auto-reconnection, and EA-side safety nets before writing any strategy logic.
+Phase 4 (Live MT5 Execution). Add validation checks during connection setup, not at first trade time.
 
 ---
 
-### Pitfall 7: XAUUSD Spread Widening Destroys Scalping Edge During Key Sessions
+### Pitfall 7: MT5 Terminal Disconnects During Unattended Operation
 
 **What goes wrong:**
-XAUUSD spreads on ECN accounts are typically 1-3 pips during liquid sessions. But during high-impact events (NFP, CPI, FOMC, geopolitical events), spreads can widen by 50-200%. During extreme events, spreads can spike by 500-2000 pips (which on gold means $5-$20 per micro lot). A scalping strategy targeting 10-15 pip profits gets its edge completely consumed by spread costs during these periods. Worse, stop losses trigger at prices far from the intended level due to the spread widening affecting the bid price.
+The MT5 terminal can lose connection for many reasons during a week of unattended operation:
+1. RoboForex server maintenance (typically weekends but also random maintenance)
+2. Windows Update forcing a restart
+3. Network interruption
+4. MT5 terminal auto-update
+5. Screen lock / display driver sleep causing the terminal UI to freeze
+6. MT5 "AutoTrading" button getting disabled after an update or crash
 
-The bot does not need to trade during news to be affected: positions opened 5-10 minutes before a news event can be stopped out by the spread spike alone, even if price barely moves in the direction of the trade.
+The `MT5Bridge.reconnect_loop()` handles connection loss with exponential backoff, but it only checks `terminal_info().connected`. It does NOT detect:
+- MT5 terminal process crashed entirely (terminal_info returns None but initialize() also fails)
+- MT5 restarted but AutoTrading is disabled
+- MT5 connected to broker but on a different account (after manual intervention)
+- Weekend market closure (not a disconnection, but trading is impossible)
 
 **Why it happens:**
-Backtests typically use fixed or average spreads. Live ECN spreads are variable and can spike 10-50x during illiquid moments. Developers test with historical OHLC data that does not capture intrabar spread widening. Even tick data from MT5 may not fully represent the spread dynamics because tick data records bid and ask but the backtester may not correctly model the worst-case spread at the moment of execution.
+The bridge assumes MT5 terminal is always running and just needs reconnection. In a week-long unattended scenario, the terminal itself may crash, Windows may restart, or the terminal may be reconfigured by an automatic update.
 
 **How to avoid:**
-- Build a real-time spread monitor that feeds into the decision engine. If current spread exceeds 2x the session average, block new entries.
-- Implement a "news blackout" schedule: no new trades within 15 minutes before and 5 minutes after scheduled high-impact events (NFP, CPI, FOMC, ECB). Use an economic calendar feed or hardcoded schedule.
-- In backtesting, add random spread perturbation: multiply historical spreads by 1.5-3x for 5% of ticks to simulate spread spikes. If strategy collapses, it is spread-dependent.
-- Use limit orders instead of market orders where possible. Limit orders guarantee your price (though they may not fill). For scalping, an unfilled limit order is better than a filled market order at a terrible price.
-- Calculate effective spread cost per trade and track it as a core metric. If spread cost exceeds 30% of average profit per trade, the strategy is marginal.
+- Add MT5 process monitoring: check if `terminal64.exe` is running before attempting reconnection. If the process is dead, attempt to restart it via `subprocess.Popen` pointing to the MT5 path.
+- After successful reconnection, verify account details match expected (login, server, trading allowed).
+- Implement a weekend detector: check if the market is open before attempting trades. XAUUSD typically closes Friday 22:00 UTC and reopens Sunday 23:00 UTC.
+- Disable Windows automatic restart for updates during the demo period: `gsudo schtasks /Change /TN "\Microsoft\Windows\UpdateOrchestrator\Reboot" /Disable` or set active hours.
+- Keep the MT5 terminal visible (not minimized behind other windows) and disable display sleep. The MT5 Python API communicates via the terminal's internal pipe server, which can become unresponsive if the terminal UI is frozen.
+- Add a heartbeat file: write current timestamp to a file every 60 seconds. An external watchdog script (Task Scheduler) checks the file and restarts the bot if stale.
 
 **Warning signs:**
-- Live slippage consistently exceeding backtest assumptions
-- Profitable strategy on 1-minute bars but unprofitable on tick data (spread sensitivity)
-- Cluster of losses around the same time each day (likely news or session open)
-- Average spread cost per trade rising over time
+- `mt5_reconnect_attempt` logs appearing repeatedly without `mt5_reconnected`
+- Gaps in structured log timestamps (bot was down without logging)
+- `terminal_info` returns None persistently (terminal is not running)
+- Trade count drops to zero during market hours with no breaker trips
 
 **Phase to address:**
-Phase 1 (Market Microstructure Sensor must capture and expose real-time spread) and Phase 1 (Decision Engine must include spread filters). The backtesting framework must model variable spreads from the start.
+Phase 5 (Demo Hardening). This is specifically the unattended operation hardening phase.
+
+---
+
+### Pitfall 8: Crash Recovery Leaves Orphaned Positions
+
+**What goes wrong:**
+If the Python process crashes while a position is open, the position remains on the MT5 server with the SL set at trade entry time. The bot has no record of this position when it restarts. It may then open a SECOND position on the same signal, or the orphaned position may hit its SL/TP without the bot tracking the outcome. The circuit breakers lose count of daily trades and P&L. The adaptive weight tracker does not learn from the orphaned trade outcome.
+
+This is especially dangerous during the unattended demo week because no human is watching.
+
+**Why it happens:**
+The `TradeManager._open_position_ticket` is in-memory state. The `PaperExecutor._positions` dict is in-memory. Neither is persisted to SQLite across crashes. The engine has crash recovery logic (loading breaker state from SQLite), but position tracking relies on runtime state.
+
+**How to avoid:**
+- On startup, call `mt5.positions_get(symbol="XAUUSD")` to discover any existing positions. If positions exist with the bot's magic number, adopt them into the TradeManager's state.
+- Persist open position ticket, entry price, and regime to SQLite when a position is opened. On crash recovery, load and reconcile with MT5 server state.
+- Add a `close_all_positions()` call as the FIRST action after reconnection if the bot cannot reconcile its state (fail-safe: flat is safe).
+- Log a critical alert if orphaned positions are discovered on startup: `WARN: Found 1 position opened by bot (magic=20260327) that was not tracked. Adopting.`
+
+**Warning signs:**
+- After restart, `mt5.positions_get()` returns positions with the bot's magic number
+- Circuit breaker daily_trade_count does not match actual MT5 trade history
+- Equity mismatch between bot's tracked equity and MT5 account equity
+
+**Phase to address:**
+Phase 4 (Live MT5 Execution) for position persistence. Phase 5 (Demo Hardening) for full crash recovery orchestration.
 
 ---
 
@@ -228,46 +245,42 @@ Shortcuts that seem reasonable but create long-term problems.
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Using `mt5.order_send()` directly from Python instead of routing through MQL5 EA | Simpler architecture, fewer moving parts | 500ms+ latency on every order, unreliable for scalping, cannot add EA-side safety nets | Never for live scalping. Acceptable only for testing/paper trading. |
-| Fixed spread in backtesting | Faster backtest development, simpler code | All backtest results are unreliable, overfitting to non-existent edge | During initial strategy prototyping only (first 2 weeks). Must be replaced before any strategy validation. |
-| Single-threaded tick processing in Python | Simpler code, no concurrency bugs | GIL bottleneck during high-tick-rate periods (100+ ticks/sec on XAUUSD), missed ticks, stale signals | Acceptable for M1/M5 bar-based strategies. Never acceptable for tick-level scalping. |
-| Storing trade history in flat files (CSV/JSON) | Quick to implement, human-readable | Slow queries for the self-learning module, no atomic writes (corruption risk), poor performance past 10,000 trades | Acceptable for first 30 days of live trading. Must migrate to SQLite within first month. |
-| Hardcoding RoboForex-specific parameters (symbol name, lot step, margin) | Works immediately | Locks you to one broker, makes testing on demo accounts from other brokers impossible | Acceptable if abstracted behind a broker configuration layer from day one. |
-| Using `time.sleep()` for main loop timing | Simple implementation | Drift accumulation, missed ticks during sleep, unpredictable actual intervals | Never. Use event-driven architecture or `mt5.copy_ticks()` polling with precise timing. |
-| Chaos metrics computed on raw tick data without denoising | Fewer processing steps | Noise dominates signal, all chaos metrics become meaningless | Never. Always apply at minimum Kalman filtering or wavelet denoising before computing Lyapunov/Hurst/fractal dimension. |
-
----
+| Raising risk_pct to 0.20 at $20 | Enables trading | Normalizes reckless risk management; habits carry into higher capital phases | Demo week only, with explicit code comment and config flag marking it as demo override |
+| Hardcoding `starting_balance=20.0` in PaperExecutor | Quick paper mode | Diverges from config; real equity at restart may differ from 20 | Never -- should read from config.risk or account_info |
+| Lowering fusion threshold without signal fixes | More trades immediately | Trades on noise; no edge; false confidence in trade frequency | Never -- fix signals first |
+| Disabling circuit breakers during demo | Avoids breaker trips that halt demo observation | Masks real problems; demo results are not representative | Never |
+| Using `log.debug` in hot loops during backtest | Easy debugging during development | 147K+ lines per window; backtest unusable at scale | Only with explicit `--verbose` flag |
+| Skipping order_check in live mode | Faster execution | First failures are undiagnosed; requests may be malformed | Never -- order_check is cheap (~1ms) |
+| Not persisting open positions to SQLite | Simpler code | Orphaned positions after crash; double-open risk | Paper mode only; must persist in live mode |
 
 ## Integration Gotchas
 
-Common mistakes when connecting to external services and systems.
+Common mistakes when connecting to external services.
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| MT5 Python API initialization | Calling `mt5.initialize()` once at startup and assuming it stays connected forever | Implement health-check loop; re-initialize on failure; verify tick freshness every 5-10 seconds |
-| MT5 tick data timestamps | Using Python `datetime.now()` (local timezone) when MT5 stores ticks in UTC | Always create datetime objects in UTC (`datetime.utcnow()` or `timezone.utc`). All internal timestamps must be UTC. |
-| MT5 `copy_ticks()` data completeness | Assuming all ticks are captured and sequential | Tick data has gaps, especially for data older than 5 years. Validate tick sequence, detect gaps, handle missing data gracefully. |
-| MT5 terminal process lifecycle | Assuming MT5 is always running | Monitor MT5 process with `psutil`, auto-restart if crashed, wait for full initialization before reconnecting Python |
-| RoboForex ECN DOM data | Assuming full order book depth is available | RoboForex ECN DOM shows limited levels (often just top 5-10 levels of aggregated liquidity, not full institutional order book). Design DOM features to work with shallow depth. |
-| RoboForex ECN swap rates | Ignoring overnight swap costs on XAUUSD | XAUUSD carries significant negative swap (both sides). Positions held overnight incur material costs. Scalping bot should close all positions before rollover (typically 00:00 server time) or account for swap in P&L calculations. |
-| Python scientific libraries in tight loops | Calling `np.array()` or `scipy.signal` on every tick | Pre-allocate NumPy arrays as ring buffers. Only call scipy for periodic computations (every N ticks or every bar close), not on every tick. |
-
----
+| MT5 Python initialize() | Not checking return value; continuing to trade after False | Always check `if not mt5.initialize(): raise`; log `mt5.last_error()` |
+| MT5 order_send() volume | Passing integer 0 instead of float 0.01 | All numeric fields (volume, sl, tp, price) must be float, never int |
+| MT5 symbol_info_tick() | Calling before adding symbol to Market Watch | Call `mt5.symbol_select("XAUUSD", True)` at startup before any data/trading |
+| MT5 filling mode | Hardcoding ORDER_FILLING_FOK | Query `symbol_info().filling_mode` bitmask; RoboForex ECN typically requires IOC |
+| MT5 stops level | Setting SL too close to current price | Check `symbol_info().trade_stops_level * symbol_info().point` for minimum distance |
+| MT5 weekend | Sending orders during market close (Fri 22:00 - Sun 23:00 UTC) | Check market hours before order placement; XAUUSD has specific session windows |
+| RoboForex demo vs live | Assuming demo execution matches live (it does not -- demo fills are instant, live has variable latency) | Treat demo results as optimistic; apply 15-20% "reality discount" per gold EA research |
+| structlog in backtest | Leaving DEBUG level active during multi-million-bar replay | Use `make_filtering_bound_logger(logging.WARNING)` for backtest runs |
+| DuckDB during backtest | Writing per-bar analytical data during replay | Batch-write results after backtest completes, not during bar-by-bar replay |
 
 ## Performance Traps
 
-Patterns that work at small scale but fail under real trading conditions.
+Patterns that work at small scale but fail as usage grows.
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Computing chaos metrics on every tick | CPU usage spikes to 100%, tick processing falls behind real-time, signals are stale by the time they fire | Compute chaos metrics on bar close (M1) or every N ticks (e.g., 100). Use incremental/online algorithms where possible. | Above 10 ticks/second (XAUUSD frequently hits 50-100+ ticks/sec during active sessions) |
-| Storing entire tick history in memory (Python list) | RAM usage grows unbounded, Python GC pauses cause latency spikes, eventual MemoryError | Use fixed-size ring buffers (collections.deque with maxlen, or pre-allocated numpy arrays). Store overflow to disk/SQLite. | After 2-4 hours of active trading (~50K-200K ticks) |
-| Running pandas DataFrames for real-time signal computation | 10-50ms overhead per operation, acceptable at bar level but deadly at tick level | Use raw numpy arrays for real-time path. Pandas only for offline analysis and backtesting. | When processing more than 5 ticks/second |
-| Naive Python loops over tick data for pattern detection | O(n) scanning on every new tick, latency grows with window size | Vectorized numpy operations, pre-compiled Numba JIT functions for custom indicators, incremental computation (update, do not recompute) | Windows larger than 500 ticks |
-| Logging every tick to disk synchronously | I/O blocks the main loop, especially on HDD or during Windows disk flush | Async logging (Python `logging` with `QueueHandler`), or batch writes every N ticks. Use SSD. | Above 20 ticks/second |
-| Full model retraining in the main trading process | Training ML models blocks signal processing, positions go unmanaged during training | Run training in a separate process (multiprocessing, not threading due to GIL). Trading process only loads frozen model weights. | Any model training taking more than 100ms |
-
----
+| Per-bar `asyncio.to_thread` in backtest | Backtest is 10x slower than vectorized | Use synchronous chaos metric calls in backtest engine (skip `asyncio.to_thread` wrapper) | >100K bars in a single window |
+| Per-bar structlog debug logging | 147K lines in first window; I/O bound | Set WARNING level for backtest; use `make_filtering_bound_logger` | >50K bars |
+| `await mod.initialize()` repeated per walk-forward window | Numba JIT warmup runs every window (~2-5 sec) | Initialize Numba JIT once before walk-forward loop; pass warm modules | >3 walk-forward windows |
+| Full signal pipeline on every bar in backtest | Chaos metrics computed on 300+ bars but only last value used | Cache intermediate results; only recompute when bar buffer changes materially | >500K bars |
+| `executor.check_sl_tp(bar)` iterating all open positions per bar | O(n*m) where n=bars, m=positions | Use sorted position list with early exit; max_concurrent_positions=1 helps | >100 concurrent positions (unlikely given limit=1, but relevant for future multi-position) |
+| Pandas DataFrame row iteration in backtest | `.iloc[-1]` in hot loop is slow | Pre-convert DataFrame to dict-of-arrays or NumPy structured array before replay loop | >1M bars |
 
 ## Security Mistakes
 
@@ -275,45 +288,38 @@ Domain-specific security issues for a trading bot.
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Storing MT5 account credentials in source code or config files committed to git | Account compromise, unauthorized trading, funds theft | Use environment variables or encrypted credential store. Add `.env` and credential files to `.gitignore` before first commit. Never log credentials. |
-| No maximum daily loss / maximum drawdown kill switch | Bot malfunction drains entire account in minutes during volatile session | Hard-coded kill switch: if daily loss exceeds X% or equity drops below Y, shut down all trading and alert. This logic must live in both Python AND the MQL5 EA (defense in depth). |
-| Running MT5 and bot with Windows admin privileges | Malware or exploit chain could access trading terminal | Run under standard user account. MT5 does not require admin. |
-| No rate limiting on self-learning mutation deployment | Rogue mutation could deploy an extremely aggressive strategy variant | Require validation gate before any parameter change goes live. Maximum one strategy mutation per trading session. |
-| Exposing web dashboard without authentication | Anyone on the network can view account state, equity, open positions | Web dashboard must require authentication even on localhost. Use at minimum basic auth + HTTPS if exposed beyond localhost. |
-| Not validating order parameters before sending to MT5 | Bug could send 1.0 lot instead of 0.01 (100x intended size), instant margin call | Validate every order against maximum allowed lot size per phase. 0.01 lot maximum in Phase 1, no exceptions. The EA should independently reject orders exceeding configured limits. |
-
----
+| MT5 credentials in `default.toml` checked into git | Account compromised; unauthorized trading | Move credentials to environment variables or `.env` file; add `*.env` to `.gitignore`; use Pydantic `pydantic-settings` env var loading |
+| Web dashboard API key "changeme" in config | Anyone on the network can control the bot (kill switch, view equity) | Generate a random API key on first run; store in `.env`; require HTTPS in non-localhost deployment |
+| No rate limiting on web dashboard endpoints | DoS attack on local API could starve trading engine of CPU | Add rate limiting middleware; dashboard is secondary to trading engine |
+| Logging account password in structlog | Password visible in log files | Never bind `mt5_password` to logger context; use `***` masking in any config logging |
+| Unencrypted WebSocket for dashboard | Man-in-the-middle could inject commands | Use WSS (TLS) if dashboard is accessed from non-localhost |
 
 ## UX Pitfalls
 
-Mistakes in the dashboard and monitoring experience that lead to bad human decisions.
+Common monitoring/operator experience mistakes for an unattended trading bot.
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Showing only P&L without context (regime, spread, signal confidence) | User cannot tell if a loss was "expected" (low-confidence regime) or "unexpected" (signal failure). Leads to premature manual intervention. | Show P&L alongside: current regime classification, signal confidence at entry, spread at entry vs. average, and whether the trade was within normal parameters. |
-| Equity curve without drawdown visualization | User sees equity going up and assumes everything is fine, missing that drawdown is approaching dangerous levels | Show both equity curve AND drawdown chart. Highlight drawdown zones in red. Show maximum historical drawdown line. |
-| No distinction between bot-initiated and safety-net-initiated actions | User cannot tell if the EA closed a position because the strategy said to, or because the kill switch fired | Log and display the reason for every position close: "Strategy exit", "Stop loss", "Kill switch", "Connection loss safety close" |
-| Real-time P&L updating every tick | Causes emotional trading decisions ("it just dropped $3, I should intervene!") especially with $20 account where every dollar feels significant | Update P&L display at most every 5 seconds or on bar close. Show moving average P&L trend, not raw tick-by-tick fluctuation. |
-| Displaying chaos/fractal metrics as precise numbers | User fixates on "Hurst = 0.62" when the confidence interval is 0.45-0.79 | Display metrics as ranges or confidence bands. Use color coding (green/yellow/red) for regime state instead of raw numbers. |
-
----
+| No alerting when bot stops trading | Operator doesn't know bot is idle for hours | Send notification (email, Telegram, or file-based alert) if no trade evaluation occurs for 30+ minutes during session hours |
+| Dashboard only shows current state, not history | Cannot diagnose "what happened at 3 AM" | Persist engine state snapshots to DuckDB every 60 seconds; add historical view to web dashboard |
+| Breaker trip with no explanation | Operator sees "trading halted" but doesn't know why | Show which breaker tripped, what value triggered it, and what the threshold was |
+| Log files grow unbounded during week-long run | Disk fills up; bot crashes | Implement log rotation (daily, max 7 files, 100MB each); structlog -> RotatingFileHandler |
+| No distinction between "no signal" and "signal rejected" | Cannot tell if bot is broken vs. waiting for opportunity | Dashboard should show: last fusion result, last trade decision with reason, time since last trade |
 
 ## "Looks Done But Isn't" Checklist
 
-Things that appear complete but are missing critical pieces.
+Things that appear complete but are missing critical pieces for v1.1.
 
-- [ ] **Backtesting framework:** Often missing variable spread modeling -- verify that backtest uses tick-level bid/ask data with realistic spread dynamics, not fixed or average spreads
-- [ ] **Order execution:** Often missing retry logic and partial fill handling -- verify that failed orders are retried with backoff, and partial fills are tracked and managed
-- [ ] **Risk management:** Often missing correlation between open positions and pending signals -- verify that new trade signals are suppressed when existing positions already have maximum risk deployed
-- [ ] **Chaos regime classifier:** Often missing null hypothesis testing -- verify that chaos metrics produce statistically different results on real data vs. bootstrapped random data with matching statistical properties
-- [ ] **Self-learning mutation loop:** Often missing rollback capability -- verify that any mutated parameters can be instantly reverted to the last known good configuration if live performance degrades
-- [ ] **Connection handling:** Often missing "open position but disconnected" recovery -- verify that on reconnection, the bot correctly detects and manages positions that were opened before the disconnect
-- [ ] **Dashboard:** Often missing historical state replay -- verify that the dashboard can show the bot's state at any past point in time (what regime was detected, what signals were active, why a trade was taken)
-- [ ] **Position sizing:** Often missing margin requirement validation -- verify that the bot checks available margin BEFORE sending an order, not just lot size constraints
-- [ ] **Data pipeline:** Often missing tick deduplication and gap detection -- verify that duplicate ticks (same timestamp/price) are filtered and gaps (missing time periods) are detected and logged
-- [ ] **Kill switch:** Often missing "resume" logic -- verify that after a kill switch fires and the human reviews, there is a clean restart procedure that does not re-trigger on the existing drawdown
-
----
+- [ ] **Signal pipeline overhaul:** Often missing validation that ALL three modules produce nonzero direction at least some of the time -- verify by running 1000 bars and checking direction distribution for each module
+- [ ] **Live MT5 execution:** Often missing `mt5.symbol_select("XAUUSD", True)` call at startup -- verify by starting with a fresh MT5 install where XAUUSD is not in Market Watch
+- [ ] **Live MT5 execution:** Often missing handling of `order_send` retcode 10004 (TRADE_RETCODE_REQUOTE) -- verify by checking all retcode branches, not just 10009 (DONE)
+- [ ] **Position tracking:** Often missing reconciliation between bot state and MT5 server state on restart -- verify by killing bot mid-trade and restarting
+- [ ] **Backtest pipeline:** Often missing the case where the first walk-forward window has too few bars for chaos module (needs 300+ for Lyapunov) -- verify with a small data slice
+- [ ] **Automated optimization:** Often missing a timeout per trial -- verify by checking if a single Optuna trial can run forever without cancellation
+- [ ] **Demo hardening:** Often missing weekend handling -- verify by checking what happens if the bot runs through Friday close to Sunday open
+- [ ] **Demo hardening:** Often missing log rotation -- verify by checking if structlog has a RotatingFileHandler configured
+- [ ] **Session filter:** Often missing timezone-aware session reset -- verify with a clock set to different timezones
+- [ ] **Circuit breakers:** Often missing the case where `daily_starting_equity` is never set (remains 0.0, making daily_dd check divide by zero or always pass) -- verify startup sequence sets this from account_info
 
 ## Recovery Strategies
 
@@ -321,64 +327,68 @@ When pitfalls occur despite prevention, how to recover.
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Python-MT5 latency causing slippage | MEDIUM | 1. Measure actual latency distribution over 100+ orders. 2. If median > 200ms, implement MQL5 EA execution path. 3. Retest all strategies with realistic latency model. |
-| Account blown from position sizing failure | HIGH | 1. Stop all trading. 2. Deposit new capital or switch to ProCent demo. 3. Audit every trade that exceeded risk limits. 4. Implement hard position size validation in BOTH Python and EA before resuming. |
-| Overfitted strategy deployed live | MEDIUM | 1. Halt live trading. 2. Run Monte Carlo and walk-forward on the deployed strategy to confirm overfitting. 3. Roll back to last validated parameter set. 4. Implement mandatory validation gate before any future deployment. |
-| Chaos metrics producing garbage | LOW | 1. Switch chaos module to "qualitative only" mode (trending/ranging/volatile classification using simpler methods like ATR + ADX). 2. Continue trading with reduced chaos module weight in fusion. 3. Research and implement noise-robust algorithms offline. |
-| Self-learning system diverged | HIGH | 1. Immediate halt. 2. Load last known good parameter snapshot. 3. Audit mutation log to identify where divergence began. 4. Add tighter mutation bounds and validation gates. 5. Run the diverged parameters through full backtest suite to understand what happened. |
-| MT5 connection lost with open positions | MEDIUM | 1. EA-side safety net should have already tightened stops. 2. On reconnection, reconcile Python's position state with MT5's actual positions. 3. Close any unintended positions. 4. Review and strengthen heartbeat/reconnection logic. |
-| Spread spike causing unexpected loss | LOW | 1. Absorb the loss (it is a cost of business). 2. Add the event timestamp to a "spread spike" database. 3. Verify spread filter would have blocked the trade if it had been active. 4. Tighten news blackout windows if needed. |
-
----
+| Chaos direction=0 killing fusion | LOW | Config change + small code fix in chaos module to derive micro-direction from price action. Regression test with existing 772 tests. |
+| Timing urgency double-squared | LOW | Remove one `* urgency` multiplier. One-line fix. Run timing module tests to verify confidence range. |
+| Threshold lowered before signal fix | MEDIUM | Revert threshold. Fix signals. Re-measure confidence distribution. Set new threshold from data. |
+| Position sizer rejecting all trades at $20 | LOW | Raise aggressive_risk_pct in config or reduce sl_atr_base_multiplier. Config-only change. |
+| Backtest log flood | LOW | Set log level to WARNING in backtest runner. 5-minute fix. |
+| First live trade fails (filling/stops) | LOW | Read error code from `order_check` result. Fix request format. Re-deploy. No position was opened so no financial impact. |
+| MT5 terminal crash during demo week | MEDIUM | Restart terminal via subprocess. Bot reconnect_loop picks up. Check for orphaned positions. Log gap in data. |
+| Orphaned position after crash | HIGH | Manually check MT5 for open positions. Close manually if necessary. Reconcile bot state database. Lost tracking of that trade's outcome means learning loop has a gap. |
+| Bot silent for hours (no trades, no errors) | MEDIUM | Check: session filter (outside trading hours?), circuit breakers (tripped?), fusion scores (below threshold?), MT5 connection (alive?). Multiple potential causes require systematic diagnosis. |
 
 ## Pitfall-to-Phase Mapping
 
-How roadmap phases should address these pitfalls.
+How v1.1 roadmap phases should address these pitfalls.
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Python-MT5 IPC latency | Phase 1: Infrastructure | Measure round-trip latency on 100 test orders. Median must be <100ms via EA execution path. |
-| $20 position sizing impossibility | Phase 1: Risk Management | Run 1000-trade Monte Carlo simulation at $20 with 0.01 lots. Risk of ruin must be <50% with the implemented filters. |
-| Backtesting overfitting | Phase 1: Backtesting Framework | Walk-forward validation must show positive expectancy in >70% of out-of-sample windows. |
-| Chaos metrics unreliability | Phase 2: Chaos Module | Compare chaos metric distributions on real XAUUSD data vs. synthetic random walk with matched moments. Must show statistically significant difference (p < 0.05). |
-| Self-learning divergence | Phase 3: Mutation Loop | Run 6-month simulated evolution with intentional regime changes. System must not blow up. Population diversity must remain above threshold. |
-| MT5 connection drops | Phase 1: Infrastructure | Kill MT5 process during live paper trading with open positions. Bot must detect within 15 seconds, EA must manage positions, and bot must reconnect cleanly. |
-| Spread widening destruction | Phase 1: Microstructure Sensor + Decision Engine | Backtest with 3x spread perturbation on 5% of ticks must still show positive expectancy. Live spread monitor must block trades when spread > 2x average. |
-| Look-ahead bias in backtesting | Phase 1: Backtesting Framework | Audit all data access patterns. No future data accessible at any decision point. Automated check: randomize future data and verify identical signals. |
-| Survivorship bias in genetic algorithm | Phase 3: Mutation Loop | Force-inject crisis period data (March 2020, September 2022) into every generation's evaluation. Population must maintain crisis-resilient variants. |
-| Credential exposure | Phase 1: Infrastructure | Git pre-commit hook scanning for credential patterns. `.env` in `.gitignore`. No credentials in any committed file. |
-| Order size validation failure | Phase 1: Risk Management + MQL5 EA | Attempt to send 1.0 lot order from Python during testing. Both Python validator and EA must reject it. |
+| Chaos direction=0 | Phase 1 (Signal Overhaul) | Run 1000 bars, verify chaos direction != 0 on >30% of bars |
+| Timing urgency double-squared | Phase 1 (Signal Overhaul) | Verify timing confidence spans 0.1-0.8 range across test data |
+| Threshold without signal fix | Phase 1 (Signal Overhaul) | Measure fused_confidence distribution BEFORE and AFTER signal fixes |
+| Position sizer rejection at $20 | Phase 1 (Signal Overhaul) | Verify at least 1 trade can be sized at $20 equity with typical ATR |
+| Backtest log flood | Phase 2 (Backtest Fix) | Full pipeline runs in <30 min on 3.8M bars with WARNING log level |
+| Paper-to-live validation gap | Phase 4 (Live Execution) | Run order_check on constructed request before first real order_send |
+| MT5 terminal disconnection | Phase 5 (Demo Hardening) | Simulate disconnection (kill terminal) and verify bot reconnects within 2 minutes |
+| Orphaned positions | Phase 4 (Live Execution) + Phase 5 (Demo Hardening) | Kill bot with open position, restart, verify position is detected and adopted |
+| Weekend handling | Phase 5 (Demo Hardening) | Run bot from Friday 21:00 through Monday 01:00 UTC, verify no errors during market close |
+| Log rotation | Phase 5 (Demo Hardening) | Run bot for 24 hours, verify log files are rotated and total size is bounded |
+| Alerting for silent bot | Phase 5 (Demo Hardening) | Disable session window, verify alert fires after 30 minutes of no activity |
 
----
+## Phase-Specific Warnings
+
+Detailed warnings organized by which v1.1 phase they affect.
+
+| Phase Topic | Likely Pitfall | Mitigation |
+|-------------|---------------|------------|
+| Signal Overhaul | Recalibrating for 200x more trades causes overfitting to recent data | Use walk-forward validation on the new parameters; do not optimize thresholds on the same data used to test frequency |
+| Signal Overhaul | Changing one module's output range breaks fusion balance | After any module change, verify all three modules' output distributions are comparable (direction range, confidence range) |
+| Signal Overhaul | Removing chaos direction=0 creates false directional signals | Use micro-trend within regime (short momentum), not regime-as-direction; validate that RANGING regime does not systematically favor one direction |
+| Backtest Fix | Fixed log flood but introduced silent failures | After setting WARNING level, verify that actual errors (exceptions, order failures) are still logged |
+| Backtest Fix | Walk-forward windows too small after data split | Ensure each window has minimum 1000 M1 bars (about 3 trading days) for chaos module warmup |
+| Automated Optimization | Optuna optimizes on in-sample, overfits | Use the existing walk-forward + OOS gate as Optuna's objective, not raw profit |
+| Live Execution | order_check passes but order_send still fails | Possible causes: price moved during check-to-send gap, margin changed, breaker tripped on server side. Always handle order_send failure even after successful check. |
+| Live Execution | Demo account fills instantly but live will not | Do not tune execution timing based on demo fills. Plan for 100-500ms latency in real ECN. |
+| Demo Hardening | Bot seems stable for 3 days, crashes on day 4 | Memory leak from tick buffer growth, structlog context accumulation, or DuckDB connection pool exhaustion. Monitor RSS memory usage over time. |
+| Demo Hardening | Bot works in London session but fails in Asian session | Lower liquidity = wider spreads = spread spike breaker trips = no trading. Verify session windows and spread thresholds are appropriate for all configured sessions. |
 
 ## Sources
 
-- [MQL5 Python Integration Documentation](https://www.mql5.com/en/docs/python_metatrader5) -- official API reference
-- [MQL5 Forum: IPC Timeout Issues](https://www.mql5.com/en/forum/447937) -- connection reliability problems
-- [MQL5 Forum: Tick Data Issues](https://www.mql5.com/en/forum/477836) -- tick data gaps and quality
-- [MQL5 Forum: Latency Discussion](https://www.mql5.com/en/forum/465784) -- execution latency measurements
-- [MQL5 Blog: Dangerous Mistakes Bot Traders Make with Gold](https://www.mql5.com/en/blogs/post/762232) -- gold-specific trading pitfalls
-- [RoboForex ECN Specifications](https://roboforex.com/forex-trading/trading/specifications/) -- contract specs and account types
-- [RoboForex DOM Explanation](https://blog.roboforex.com/blog/2021/11/05/what-is-depth-of-market-and-how-does-it-work/) -- DOM limitations
-- [PyPI MetaTrader5 Package](https://pypi.org/project/metatrader5/) -- current API version and compatibility
-- [Lot Size for Small Accounts](https://leverage.trading/what-lot-size-to-use-for-a-small-forex-account/) -- micro account constraints
-- [Overfitting in Algorithmic Trading](https://blog.pickmytrade.trade/algorithmic-trading-overfitting-backtest-failure/) -- backtesting failure modes
-- [Backtesting Pitfalls Lesson](https://www.waylandz.com/quant-book-en/Lesson-07-Backtest-System-Pitfalls/) -- comprehensive backtest pitfalls
-- [Seven Sins of Quantitative Investing](https://bookdown.org/palomar/portfoliooptimizationbook/8.2-seven-sins.html) -- survivorship, look-ahead, data snooping biases
-- [Walk-Forward Analysis Deep Dive](https://www.pyquantnews.com/free-python-resources/the-future-of-backtesting-a-deep-dive-into-walk-forward-analysis) -- WFO methodology
-- [Kelly Criterion in Trading](https://www.quantstart.com/articles/Money-Management-via-the-Kelly-Criterion/) -- position sizing theory
-- [Risk-Constrained Kelly](https://blog.quantinsti.com/risk-constrained-kelly-criterion/) -- fractional Kelly for small accounts
-- [Hurst Exponent Estimation Challenges](https://link.springer.com/article/10.1186/s40854-022-00394-x) -- financial time series estimation problems
-- [MQL5 Article: Hurst and Fractal Dimension for Prediction](https://www.mql5.com/en/articles/6834) -- practical Hurst/fractal assessment
-- [Lyapunov Exponent Estimation in Noisy Environments](https://www.sciencedirect.com/science/article/abs/pii/S0096300322005720) -- noise contamination problems
-- [Noise-Robust Lyapunov Estimation](https://www.sciencedirect.com/science/article/pii/S0960077923008172) -- PCA-based methods
-- [Python GIL in HFT](https://www.pyquantnews.com/free-python-resources/python-in-high-frequency-trading-low-latency-techniques) -- latency mitigation techniques
-- [PEP 703: Optional GIL](https://peps.python.org/pep-0703/) -- free-threaded Python future
-- [AI Trading System Failure Modes](https://www.ibtimes.co.uk/hidden-reason-your-ai-trading-system-will-break-when-it-matters-1772471) -- regime change failures
-- [ML Pitfalls in Financial Modeling](https://resonanzcapital.com/insights/benefits-pitfalls-and-mitigation-strategies-of-applying-ml-to-financial-modelling) -- ML trading system pitfalls
-- [Algorithmic Trading Risk Management 2025](https://www.utradealgos.com/blog/what-every-trader-should-know-about-algorithmic-trading-risks) -- systemic risk overview
-- [Accidental Disconnection Handling](https://medium.com/the-trading-scientist/how-to-fix-accidental-disconnection-of-metatrader-2365ea899c3f) -- reconnection strategies
+- Codebase analysis: `src/fxsoqqabot/signals/chaos/module.py` lines 122-129 (direction_map), `src/fxsoqqabot/signals/chaos/regime.py` lines 52-73 (classify_regime), `src/fxsoqqabot/signals/timing/module.py` line 136 (double urgency), `src/fxsoqqabot/signals/timing/ou_model.py` line 127 (inner urgency), `src/fxsoqqabot/signals/fusion/core.py` lines 96-108 (fusion formula), `src/fxsoqqabot/risk/sizing.py` lines 117-132 (position sizing math), `src/fxsoqqabot/execution/orders.py` lines 178-182 (paper bypass), `src/fxsoqqabot/execution/mt5_bridge.py` (reconnection logic)
+- [MQL5 Python order_send documentation](https://www.mql5.com/en/docs/python_metatrader5/mt5ordersend_py) -- return codes, request structure
+- [MQL5 forum: Send order errors](https://www.mql5.com/en/forum/343594/page2) -- common data type and filling mode mistakes
+- [Paper vs Live Slippage Analysis](https://markrbest.github.io/paper-vs-live/) -- execution differences between simulation and production
+- [Paper vs Live Bots: Execution Differences Exposed](https://blog.pickmytrade.trade/paper-vs-live-bots-execution-differences/) -- fill quality, spread widening, market impact
+- [structlog performance documentation](https://www.structlog.org/en/stable/performance.html) -- make_filtering_bound_logger, cache_logger_on_first_use
+- [Overfitting in Algorithmic Trading (Coinmonks)](https://medium.com/coinmonks/overfitting-in-algorithmic-trading-navigating-the-pitfalls-e87aa942a584) -- signal recalibration pitfalls
+- [Robustness Tests for Algorithmic Trading Strategies](https://www.buildalpha.com/robustness-testing-guide/) -- walk-forward validation, parameter stability
+- [How to fix accidental disconnection of MetaTrader](https://medium.com/the-trading-scientist/how-to-fix-accidental-disconnection-of-metatrader-2365ea899c3f) -- terminal monitoring
+- [Gold Scalping Strategy on MT5 (2026)](https://xmsignal.com/en/blog/gold-scalping-strategy-mt5/) -- XAUUSD spread behavior, session timing
+- [How We Built a Profitable Gold Trading Bot (54% ROI)](https://www.nadcab.com/blog/gold-trading-bot-xauusd-development-journey) -- reality discount on backtest results
+- [Lot Sizes for Small Accounts](https://leverage.trading/what-lot-size-to-use-for-a-small-forex-account/) -- $20 account micro lot constraints
+- [MQL5 forum: Backtest consuming too much memory](https://www.mql5.com/en/forum/464097) -- large-scale backtest resource management
+- [ChartVPS: Avoid server crash during backtesting](https://chartvps.com/helpdesk/how-to-avoid-server-crash-during-mt4-mt5-backtesting-and-optimization/) -- memory and CPU optimization
 
 ---
-*Pitfalls research for: XAUUSD Scalping Bot with Chaos Theory and Self-Learning*
-*Researched: 2026-03-27*
+*Pitfalls research for: FXSoqqaBot v1.1 Live Demo Launch*
+*Researched: 2026-03-28*

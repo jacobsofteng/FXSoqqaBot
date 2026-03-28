@@ -1,264 +1,282 @@
-# Feature Research
+# Feature Research: v1.1 Live Demo Launch
 
-**Domain:** Autonomous XAUUSD (Gold) scalping bot with chaos theory, order flow, and self-learning
-**Researched:** 2026-03-27
-**Confidence:** MEDIUM (strong on table stakes, medium on differentiators due to novel domain overlap)
+**Domain:** XAUUSD scalping bot -- signal recalibration, live execution, automated optimization
+**Researched:** 2026-03-28
+**Confidence:** HIGH (grounded in codebase analysis + domain research)
+
+## Context
+
+v1.0 is shipped with 14.8K LOC, 772+ passing tests, and a complete signal-to-execution pipeline. The critical problem: the bot generates approximately 20 trades per 3 months instead of the target 10-20 trades per day. This research identifies exactly what features are needed for v1.1 to achieve the target trade frequency and run unattended on a demo account.
+
+Root causes are code-level, not architectural. The pipeline is correctly wired but calibrated too conservatively at every stage, creating a multiplicative filter that chokes trade flow.
+
+---
 
 ## Feature Landscape
 
-### Table Stakes (Bot Is Not Viable for Live Trading Without These)
+### Table Stakes (Must Ship for v1.1 Demo)
 
-These are non-negotiable. A scalping bot missing any of these will blow the account, fail silently, or produce meaningless results. No one gives credit for having them, but their absence is fatal.
+Features without which the bot cannot generate 10-20 trades/day on a demo account.
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| **Tick data ingestion pipeline** | Scalping on M1/M5 requires real-time tick-level data. Without it, signals are stale and entries are random. | MEDIUM | MT5 Python API provides `copy_ticks_from()` and `copy_ticks_range()`. Must handle reconnection, data gaps, and buffering. Poll-based (not push), so polling interval optimization is critical. |
-| **Order execution via MQL5 EA** | Python cannot place orders directly through MT5 Python API in a reliable way for scalping. A thin MQL5 EA handles order routing with minimal latency. | MEDIUM | EA must support market orders, pending orders, SL/TP modification, partial close. Communication via files, named pipes, or socket on localhost. Target <50ms round-trip. |
-| **Stop-loss on every trade** | Gold moves $5-$20 in minutes. A single unprotected trade can wipe a $20 account in seconds. Hard SL is survival, not strategy. | LOW | Must be set at order placement time (not after), server-side SL preferred over client-side. ATR-based dynamic SL is the standard approach. |
-| **Position sizing engine** | With $20 starting capital at 1:500 leverage, a 0.01 lot XAUUSD position has ~$1/pip. One bad 20-pip move = account gone. Position sizing IS the risk management. | MEDIUM | Must calculate from account equity, risk percentage (1-2%), SL distance, and current spread. For $20 accounts, 0.01 lot with 10-pip SL risks $1 (5% of account) -- already aggressive. Kelly Criterion for optimal sizing after sufficient trade history. |
-| **Spread and slippage awareness** | XAUUSD ECN spreads range 0.5-3.5 pips depending on session. During news events, spreads can widen 50-100%. A scalper that ignores spread is net negative from day one. | LOW | Filter trades when spread exceeds threshold (e.g., 2x average). Log actual fill price vs requested price. RoboForex ECN averages ~45ms execution. |
-| **Daily drawdown limit / circuit breaker** | Prevents catastrophic losing streaks from destroying the account. Standard is 3-5% daily max loss, then halt until next session. | LOW | Must be absolute (hard stop) not advisory. Should persist across bot restarts. Three tiers: daily loss limit, weekly loss limit, total drawdown limit. |
-| **Kill switch / emergency stop** | If the bot malfunctions, market goes haywire, or connectivity drops, you need instant shutdown. Close all positions, cancel all pending orders, halt all new trading. | LOW | Must be accessible from multiple interfaces: terminal command, dashboard button, and automatic trigger on error conditions. Flat-all-and-halt in one action. |
-| **Session/time filtering** | Gold is most liquid during London-NY overlap (13:00-17:00 UTC). Trading during Asian session or around major news releases increases spread and slippage dramatically. | LOW | Configurable trading windows. Block trading during known high-spread periods. Optional: auto-detect spread widening and pause. |
-| **Trade logging and journaling** | Every trade needs full context: entry reason, signals, market state, fill quality, outcome. Without this, no learning, no debugging, no improvement. | MEDIUM | Structured logging (JSON/SQLite) with: timestamp, entry/exit prices, SL/TP, actual fill, spread at entry, signal strengths, regime state, P&L. |
-| **Basic backtesting framework** | Testing strategies on historical data before risking real money. Without backtesting, you are gambling. | HIGH | Must use tick data (not bar data) for scalping accuracy. Walk-forward validation is minimum standard. Must handle spread simulation, slippage modeling, and commission costs. |
-| **Reconnection and state recovery** | MT5 disconnects, Python crashes, machine reboots. The bot must recover gracefully without orphaned positions or duplicate orders. | MEDIUM | On startup: check for open positions, reconcile expected vs actual state, resume or close as appropriate. Heartbeat monitoring for MT5 connection. |
-| **Configuration management** | Risk parameters, signal thresholds, trading hours, position sizes -- all must be configurable without code changes. | LOW | YAML/TOML config files with validation. Separate configs for each growth phase ($20-$100, $100-$300, $300+). |
-| **Multi-timeframe data access** | Scalping entries on M1 need context from M5, M15, H1, H4. Single-timeframe scalping is noise trading. | MEDIUM | Efficient bar data retrieval from MT5 for multiple timeframes. Aligned timestamps. Caching to avoid redundant API calls. |
+| Feature | Why Expected | Complexity | Depends On | Notes |
+|---------|--------------|------------|------------|-------|
+| **Chaos direction for non-trending regimes** | Chaos module returns `direction=0.0` for RANGING, HIGH_CHAOS, PRE_BIFURCATION -- 60-80% of market time. With 3 modules weighted equally and one contributing zero direction, fusion composite collapses. A scalping bot MUST have directional signals during ranging markets. | MEDIUM | None (standalone fix) | The direction_map in `chaos/module.py` lines 122-128 hardcodes `0.0` for 3 of 5 regimes. Fix: allow chaos to contribute a weak directional signal derived from sub-metrics (e.g., Hurst drift, entropy gradient) instead of pure zero. Alternatively, make chaos a regime-only module that provides confidence without direction, and let flow+timing drive direction. |
+| **Timing urgency recalibration** | In `timing/module.py` line 136, `final_confidence = (window_conf * 0.6 + phase_conf * 0.4) * urgency`. The urgency term (0-1) multiplies the already-blended confidence, meaning urgency near 0.5 produces ~0.25 confidence. Combined with fusion threshold 0.50, timing rarely contributes enough. | LOW | None (standalone fix) | The urgency-as-multiplier pattern double-penalizes moderate signals. Fix: use urgency as a weighted additive component or apply square-root scaling to preserve moderate signals. Industry standard: urgency should boost confidence when high, not annihilate it when moderate. |
+| **Fusion threshold reduction for aggressive phase** | Default `aggressive_confidence_threshold = 0.50` with 3 modules. When chaos=0.0 direction and timing confidence is urgency-scaled, the fusion pipeline cannot reach 0.50. With equal weights (1/3 each), even perfect flow+timing signals produce at best `fused_confidence = 0.67`, which only barely clears threshold. | LOW | None (config change) | Math: 3 modules at equal weight (0.333 each). If chaos confidence=0.6 but direction=0.0, its weighted_score=0. fused_confidence = sum(conf*weight) = only non-zero modules contribute. Threshold 0.30-0.35 for aggressive phase is realistic for compound signals. Optuna should search [0.15, 0.50] for aggressive threshold. |
+| **Position sizing for $20 equity** | At $20 equity, 10% risk = $2.00. With ATR*2 SL (gold ATR on M5 during London is ~$1.50-3.00, so SL distance = $3-6), and contract_size=100: lot_size = $2 / ($3 * 100) = 0.0067, rounded to 0.01 min lot. Actual risk at 0.01 lot = $3 * 100 * 0.01 = $3.00 = 15% of equity. The sizer correctly rejects this (15% > 10% limit). | MEDIUM | ATR-based SL recalibration | Two fixes needed: (1) reduce SL distance via lower ATR multiplier (1.0-1.5x instead of 2.0x for aggressive phase), and (2) accept higher risk_pct in aggressive phase (15-20% per trade is standard for $20 micro-account scalping with 1:500 leverage). At SL=$1.50 (1x ATR) and 20% risk: lot = $4 / ($1.50 * 100) = 0.027, rounds to 0.02. Actual risk = $3.00 = 15%. Passes. |
+| **Multiple concurrent positions** | `max_concurrent_positions = 1` in config. Single-position limit blocks new trades while one is open. Gold scalps at M5 can last 5-60 minutes. With 1 position and 10-20 trades/day, average hold time must be < 24-48 minutes. Allowing 2-3 concurrent positions provides flexibility without excessive risk. | MEDIUM | Risk management adjustment | Change `max_concurrent_positions` from 1 to 2-3 for aggressive phase. Total exposure still bounded by daily drawdown breaker (5%) and max total drawdown (25%). With 3 positions at 0.01 lot each, max exposure = 3 * 0.01 * $3 SL * 100 = $9 = 45% of $20 -- needs per-position + aggregate risk check. |
+| **Circuit breaker recalibration for $20** | Daily drawdown 5% of $20 = $1.00 -- a single losing trade at 0.01 lot with $3 SL costs $3.00, immediately tripping the breaker. Consecutive loss streak at 5 is reasonable but daily_drawdown_pct must accommodate micro-account reality. | LOW | Position sizing fix | Increase `daily_drawdown_pct` to 15-20% for aggressive phase ($20 * 15% = $3.00 = exactly 1 losing trade). Or better: make drawdown limits phase-aware like confidence thresholds. |
+| **Live MT5 order execution mode** | Paper executor exists and works. Live path in `orders.py` exists (order_check + order_send), MT5Bridge has all methods. But no integration test on demo account, no trailing stop modification, and `live.toml` only sets `mode = "live"`. | MEDIUM | Position sizing fix, circuit breaker fix | The code path exists but is untested. Need: (1) demo account validation, (2) `TRADE_ACTION_SLTP` for SL/TP modification (trailing stops), (3) position sync on startup (recover existing positions after crash), (4) order_check error code handling (requotes, broker busy). |
+| **Trailing stop implementation** | `TradeManager.get_trailing_params()` returns params but nothing calls it to actually modify the SL on MT5. The paper executor's `check_sl_tp()` only checks fixed SL/TP hits. No trailing logic exists in either paper or live mode. | MEDIUM | Live execution mode | MT5 does not have built-in Python trailing stops. Must implement: poll positions every tick, compare current price to activation threshold, if triggered send `TRADE_ACTION_SLTP` to modify SL. Use `mt5.order_send()` with action=`TRADE_ACTION_SLTP`, position ticket, and new SL value. |
+| **Automated optimization end-to-end** | Optimizer exists (`optimization/optimizer.py`) but has never completed a run. Uses synchronous `asyncio.run()` per-trial which is slow. Search space covers only FusionConfig params, not the chaos/timing calibration params that are the actual bottleneck. | HIGH | Signal recalibration (must work first) | Current search space: 11 FusionConfig params (thresholds, RR ratios, SL multipliers). Missing from search space: chaos regime classification thresholds, timing urgency scaling, flow signal weights. Must expand search space to cover the parameters that actually gate trade frequency. Also: objective function penalizes <5 trades but target is 10-20/day, need trade count as secondary objective. |
 
-### Differentiators (Competitive Advantage)
+### Differentiators (Enhance Demo Quality)
 
-These are what make this bot different from the thousands of XAUUSD EAs on MQL5 Market. The edge is not in any single feature but in the **fusion** of all of them into a unified market state reading.
+Features that improve demo quality and confidence but are not strictly required for 10-20 trades/day.
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| **Chaos/Fractal Regime Classifier** | Most bots use static indicators. This bot detects the market's dynamical state -- trending, mean-reverting, or chaotic -- and adapts strategy accordingly. A Hurst Exponent >0.5 means trend-follow; <0.5 means mean-revert; ~0.5 means stay flat. This is reading the market's physics, not its tea leaves. | HIGH | Requires: Hurst Exponent (rolling), Lyapunov Exponent (stability/instability), Fractal Dimension (complexity), possibly crowd entropy. Python `nolds` library provides core algorithms. Must be computed on rolling windows with minimal lag. Computationally intensive -- profile and optimize. |
-| **Feigenbaum Bifurcation Detector** | The Feigenbaum constant (4.669...) governs the universal route from order to chaos in dynamical systems. Detecting when gold's price dynamics approach bifurcation points means detecting regime changes BEFORE they complete. This is early warning, not lagging confirmation. | VERY HIGH | Highly experimental. Research shows Feigenbaum universality exists in stock indices (Batunin). Requires building bifurcation diagrams from price dynamics and measuring period-doubling ratios. No off-the-shelf library -- custom implementation required. Start simple: detect acceleration of regime oscillations as a proxy for approaching bifurcation. |
-| **Order Flow Microstructure Analysis** | Reads the actual supply/demand dynamics instead of price-derived indicators. DOM depth, volume delta, bid-ask imbalance, and trade-size clustering reveal institutional vs retail activity. Most retail bots cannot see this. | HIGH | MT5 Python API now supports DOM via `market_book_add()`/`market_book_get()` (build 2815+). Depends on RoboForex ECN feed quality -- DOM depth may be limited. Must degrade gracefully to tick-only analysis if DOM is shallow. |
-| **Institutional Footprint Detection** | Identifies when smart money is active: iceberg order reloads at same price, absorption patterns (heavy selling that doesn't push price down), large hidden orders, HFT signature patterns. Trading with institutions, not against them. | HIGH | Requires DOM data for full capability. Iceberg detection: watch for same-price order reloads. Absorption: volume spike with no price movement. Degrade to tick clustering analysis (large tick clusters = institutional) when DOM is unavailable. |
-| **Quantum-Inspired Timing Engine** | Models price-time as coupled state variables where entry/exit windows have probability amplitudes. Based on quantum coupled-wave theory of price formation (Sarkissian). Treats bid-ask as quantum eigenstates rather than simple numbers. | VERY HIGH | Highly experimental. Academic foundation exists but no trading implementations to reference. Start with simplified version: probability-weighted entry windows based on price-time resonance patterns. Not actual quantum computing -- classical simulation of quantum-inspired models. |
-| **Multi-Module Signal Fusion** | The core edge: combining regime state + order flow + institutional footprint + timing into a single decision. No one signal is reliable; the fusion of orthogonal signals is. Weighted by each module's recent accuracy. | HIGH | Requires a principled fusion method: Bayesian combination, ensemble voting, or confidence-weighted average. Each module produces a signal with confidence. Fusion weights should adapt based on which modules have been accurate recently. |
-| **Self-Learning Mutation Loop** | Strategy parameters evolve over time. Genetic algorithms mutate rule parameters; ML classifiers improve regime detection. The bot gets better from its own experience without human intervention. | VERY HIGH | Two-layer learning: (1) Genetic algorithm evolves parameter sets (SL distance, entry thresholds, timeframe weights) using trade outcome as fitness. (2) ML classifiers (RandomForest, XGBoost) trained on trade context to predict win probability. Must prevent overfitting -- walk-forward validation of evolved parameters. Minimum ~200 trades before meaningful evolution. |
-| **Phase-Aware Capital Management** | Three distinct behavioral modes: Aggressive ($20-$100) with higher risk tolerance, Selective ($100-$300) with balanced risk, Conservative ($300+) with capital preservation. Auto-transitions based on equity. | MEDIUM | Simple but important. Each phase has its own config: risk%, max trades/day, strategy aggressiveness, allowed sessions. Smooth transitions (no sudden behavior change at exact threshold). |
-| **Walk-Forward + Monte Carlo Validation** | Goes beyond basic backtesting. Walk-forward prevents curve-fitting. Monte Carlo (10,000+ shuffles) tests if results depend on trade order or genuine edge. This separates real edge from luck. | HIGH | Walk-forward: rolling windows of optimize-then-test. Monte Carlo: shuffle trade sequence, compute distribution of outcomes, check if real sequence is statistically significant (p < 0.05). Regime-aware evaluation: test performance separately in trending, ranging, and chaotic regimes. |
-| **Regime-Aware Backtesting** | Tests strategy performance within each detected regime rather than across all market conditions. A strategy that wins in trending markets and loses in chaos is still useful -- IF regime detection works. | HIGH | Tag each historical period with regime classification. Compute per-regime statistics (win rate, expectancy, drawdown). Feigenbaum stress testing: simulate approaching-bifurcation conditions. |
-| **Rich Terminal TUI Dashboard** | Real-time monitoring of all modules: regime state, signal strengths, open positions, P&L, order flow visualization, risk exposure. Not a toy -- an operational control center. | MEDIUM | Python `rich` or `textual` library. Must show: current regime (color-coded), signal confidence per module, open positions with live P&L, spread/slippage metrics, circuit breaker status, daily stats. Low overhead -- must not compete with trading logic for CPU. |
-| **Web Dashboard** | Lightweight web interface for charts, statistics, and regime visualization. Accessible from any device (phone monitoring while away). | MEDIUM | Flask/FastAPI with lightweight frontend. Historical equity curve, trade history with filters, regime timeline, module performance comparison. Not real-time critical -- polling every few seconds is fine. |
+| Feature | Value Proposition | Complexity | Depends On | Notes |
+|---------|-------------------|------------|------------|-------|
+| **Multi-objective optimization (trade frequency + profitability)** | Current objective is profit factor only. A strategy with PF=3.0 and 2 trades is "optimal" but useless for 10-20/day target. Optuna supports multi-objective via `create_study(directions=["maximize", "maximize"])` for PF + trade_count Pareto front. | MEDIUM | Optimization pipeline | Use Optuna's `NSGAIISampler` for multi-objective: maximize profit_factor AND maximize min(trade_count, 20). Pareto-optimal solutions balance both. Critical for finding parameters that actually produce the target frequency. |
+| **Position sync on startup** | If bot crashes with open positions, it currently starts fresh. On restart, it should query `mt5.positions_get()` and reconcile with internal state. Without this, orphan positions accumulate. | MEDIUM | Live execution mode | On engine start: call `positions_get(symbol="XAUUSD")`, populate `_open_position_ticket` in TradeManager, set `_open_position_entry` from position data. Without this, the max_concurrent_positions check is bypassed after a crash. |
+| **Configurable regime-to-direction mapping** | Hardcoded direction_map in chaos module. Making this configurable allows Optuna to search whether RANGING should contribute a small directional bias based on sub-metrics. | LOW | Chaos direction fix | Add to ChaosConfig: `ranging_direction_mode: str = "zero"` with options "zero", "drift", "flow_follow". Let optimizer decide. |
+| **Session-aware signal gating** | Current session filter is binary (13:00-17:00 UTC only). Gold scalps also work well during London (08:00-12:00) and Asian volatility spikes. More granular session control with per-session confidence adjustments. | LOW | None | Extend session windows config to support multiple windows with per-window confidence multipliers. Current config already has `[[session.windows]]` array but only one window defined. |
+| **Trade journal with full signal context** | `TradeContextLogger` exists in learning module. Enhancing it to log full signal metadata (all chaos sub-metrics, flow components, timing OU params) per trade decision enables post-demo analysis of "why did it trade / not trade here?" | LOW | None | The logging infrastructure exists. Ensure every FusionResult that produces should_trade=False is also logged with the reason, not just successful trades. Critical for calibration debugging during demo. |
+| **Graceful degradation metrics** | When DOM is unavailable (likely on RoboForex), flow module silently falls back to tick-only. Dashboard should show which data sources are active and degradation state. | LOW | None | DOMQualityChecker already tracks this. Expose `dom_checker.is_dom_enabled` in the web dashboard's status endpoint. |
+| **Optimization warm-start from previous run** | Optuna supports loading a previous study via `load_study()`. After initial calibration, subsequent optimization runs should start from the best-known parameters rather than from scratch. | LOW | Optimization pipeline | Use Optuna's RDB storage (SQLite-backed) to persist study state. Add `--resume` flag to CLI optimize command. |
+| **Config diff visualization** | After optimization produces `config/optimized.toml`, show a human-readable diff of changed parameters with before/after values and the impact on backtest metrics. | LOW | Optimization pipeline | Print a table: parameter name, default value, optimized value, % change. Already have the before/after BotSettings objects in the optimizer. |
 
-### Anti-Features (Deliberately NOT Building)
+### Anti-Features (Do NOT Build for v1.1)
 
-These are features that seem good on the surface but create problems. Some are explicitly out of scope per PROJECT.md; others are traps that the community falls into.
+Features that seem valuable but would delay the demo launch or introduce premature complexity.
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| **Multi-pair trading** | Diversification reduces risk | Destroys focus. XAUUSD has unique microstructure (institutional gold flows, geopolitical sensitivity, session patterns). Multi-pair dilutes the regime classifier and order flow models. Master one instrument first. | Deep XAUUSD mastery. All models tuned for gold's specific dynamics. |
-| **News calendar integration as primary signal** | Major moves happen on news | By the time news hits the calendar, institutions have already positioned. The bot reads the market's REACTION through flow, not the news itself. Calendar trading = chasing. | Detect news impact through order flow anomalies and regime shifts. The flow tells you what the news means before you can read it. |
-| **Grid/martingale strategies** | "Always recovers" | Guaranteed eventual account destruction. Martingale with $20 at 1:500 leverage is suicide. Grid trading in volatile gold = margin call during any sustained move. | Fixed risk per trade, never averaging down. Accept losses. |
-| **Indicator soup** | More indicators = more confirmation | Adding RSI + MACD + Stochastic + Bollinger + 5 MAs creates conflicting signals and analysis paralysis. Most indicators are derived from the same price data and are highly correlated. | Orthogonal signal sources: order flow (volume-based), regime detection (chaos-based), timing (probability-based). Each sees something different. |
-| **Over-optimization of parameters** | Perfect backtest results | Overfitted strategies fail live. A strategy with 47 optimized parameters that returns 1000% in backtest will lose money in production. This is the single most common algo trading failure mode. | Walk-forward validation, Monte Carlo testing, regime-aware evaluation. Accept lower backtest returns for robust live performance. |
-| **Copying institutional strategies directly** | "Trade like the big boys" | Retail traders cannot replicate institutional strategies. Institutions have co-located servers, dark pool access, and billion-dollar order flow. Trying to front-run institutions with 45ms execution is futile. | Align with institutional flow direction, don't compete with their execution. Ride the wave, don't try to create it. |
-| **Complex hedging strategies** | Reduce drawdown | On a $20 micro account, hedging doubles position costs (double spread, double commission) for marginal risk reduction. Hedge complexity also makes the self-learning loop much harder to evaluate. | Proper position sizing and SL placement. Accept that some trades lose. |
-| **Real-time everything via WebSockets** | Low latency monitoring | The monitoring layer should NOT compete with the trading logic for resources. Sub-second dashboard updates provide zero value for a scalper taking 3-10 trades per day. Adds complexity for no benefit. | TUI updates at 1-2 second intervals. Web dashboard polls every 5-10 seconds. Trading logic gets CPU priority. |
-| **Deep learning / neural network price prediction** | "AI predicts the market" | On small datasets (XAUUSD tick data), deep learning overfits catastrophically. Requires massive data, GPU, and produces uninterpretable black-box decisions. Impossible to debug when it fails. | Hybrid approach: interpretable rule-based core with lightweight ML (RandomForest, XGBoost) for regime classification. ML assists, it does not drive. |
-| **Cloud deployment** | Always-on trading | Adds network latency between Python brain and MT5. MT5 runs on Windows only. Cloud Windows VMs are expensive and add a failure mode (network). Same-machine is simpler and faster. | Single Windows machine running both MT5 and Python. UPS for power protection. Watchdog for process monitoring. |
+| **ZeroMQ MQL5 EA execution bridge** | Lower latency than Python MT5 package, separates execution from analysis | Massive new dependency (MQL5 EA development, ZeroMQ protocol, serialization). The Python MT5 package already handles order_send() with 1-5ms latency on localhost. ZMQ adds value only for sub-millisecond HFT, which this is not. | Use the existing MT5Bridge + OrderManager for v1.1. ZMQ bridge is a v2.0 feature if latency becomes a bottleneck. |
+| **Real-money trading** | "If it works on demo, go live" | $20 real money at risk with uncalibrated signals and untested live execution is irresponsible. Demo testing must run for at least 1 week with 10-20 trades/day before considering real money. | Run demo for 1 week minimum. v1.2 milestone for real-money readiness with additional safety gates. |
+| **Deep learning (LSTM/Transformer) for signal generation** | Better pattern recognition than chaos metrics | Requires GPU, massive training data, and introduces opaque black-box decisions. Current 3-module fusion is interpretable and debuggable. DL is a v2.0+ experiment. | Keep scikit-learn RandomForest for regime classification in the learning loop. |
+| **Multi-timeframe signal fusion** | "M1 confirms M5 confirms H1" | Adds combinatorial complexity to signal pipeline. Each timeframe needs its own chaos/timing/flow calculation. Currently chaos uses M5 primary + H1 secondary. Adding M1 triples computation time. | Stick with M5 primary, H1 secondary for v1.1. Multi-TF fusion is a v1.3+ research topic. |
+| **Custom indicator library (RSI, MACD, Bollinger)** | "Everyone uses these" | Standard TA indicators are the anti-edge. If everyone uses RSI, the signal is priced in. The chaos/flow/timing modules are the differentiating edge. Adding standard indicators dilutes the unique signal. | Keep the 3-module architecture. If standard TA is needed, use it inside existing modules (e.g., RSI as a flow confirmation) rather than as new modules. |
+| **Backtesting on tick data** | "M1 bars miss intra-bar movements" | Tick-level backtesting on 10+ years of XAUUSD data (billions of ticks) would take days to run. M1 bars are sufficient for M5-timeframe scalping signals. Tick-level accuracy matters for HFT, not for 5-60 minute hold times. | Continue with M1 bar data from histdata.com. Tick backtesting is a v2.0 infrastructure investment. |
+| **VPS deployment** | "24/5 uptime" | Adds DevOps complexity (Windows VPS, MT5 installation, remote monitoring). For a 1-week demo on a personal machine, local execution during market hours is sufficient. | Run locally during London-NY session (13:00-17:00 UTC). VPS deployment is a v1.3+ operational feature. |
+| **Self-learning loop activation** | "Let the bot evolve" | The learning loop requires 50+ trades before evolution triggers. With current ~20 trades/3 months, this never fires. Even at 10-20/day, it takes 3-5 days to accumulate enough data. Activating learning during the 1-week demo risks destabilizing calibrated parameters. | Keep learning disabled for v1.1 demo. Collect trade data. Analyze after 1 week. Enable learning in v1.2 if demo data supports it. |
+| **News calendar integration** | "Avoid NFP and FOMC" | Requires external API (Forex Factory, Investing.com), parsing, scheduling. The chaos module already detects volatility regime transitions which are the EFFECT of news events. | Rely on chaos module's HIGH_CHAOS and PRE_BIFURCATION detection for implicit news avoidance. Manual note in demo log for major news events. |
+
+---
 
 ## Feature Dependencies
 
 ```
-[Tick Data Ingestion]
+[Chaos Direction Fix]
     |
-    +---> [Multi-Timeframe Data] ---> [Chaos/Fractal Regime Classifier]
-    |                                       |
-    |                                       +---> [Feigenbaum Bifurcation Detector]
-    |                                       |
-    |                                       +---> [Regime-Aware Backtesting]
+    +--enhances--> [Fusion Threshold Reduction]
+    |                  |
+    |                  +--enables--> [Automated Optimization]
+    |                                    |
+    +--enhances--> [Multi-Objective Optimization]
+                                         |
+[Timing Urgency Fix]                     |
+    |                                    |
+    +--enhances--> [Fusion Threshold Reduction]
+                                         |
+[Position Sizing Fix] <--requires-- [ATR SL Recalibration]
     |
-    +---> [Order Flow Microstructure] ---> [Institutional Footprint Detection]
-    |           |
-    |           +--- (requires DOM data, degrades gracefully without it)
+    +--enables--> [Live MT5 Execution]
+    |                 |
+    |                 +--enables--> [Trailing Stop Implementation]
+    |                 |
+    |                 +--enables--> [Position Sync on Startup]
     |
-    +---> [Trade Logging] ---> [Self-Learning Mutation Loop]
-    |                               |
-    |                               +---> (requires ~200+ trades for meaningful evolution)
+[Circuit Breaker Recalibration]
     |
-    +---> [Spread/Slippage Awareness]
+    +--enables--> [Live MT5 Execution]
+    |
+[Concurrent Positions] --requires--> [Aggregate Risk Check]
 
-[Position Sizing Engine]
+[Automated Optimization] --requires--> [Expanded Search Space]
     |
-    +---> [Phase-Aware Capital Management]
+    +--enhances--> [Config Diff Visualization]
     |
-    +---> [Daily Drawdown Limit / Circuit Breaker]
-
-[Order Execution (MQL5 EA)]
-    |
-    +---> [Stop-Loss on Every Trade]
-    |
-    +---> [Kill Switch]
-    |
-    +---> [Reconnection / State Recovery]
-
-[Regime Classifier] + [Order Flow] + [Institutional Footprint] + [Quantum Timing]
-    |
-    +---> [Multi-Module Signal Fusion] ---> [Decision/Execution Core]
-
-[Basic Backtesting]
-    |
-    +---> [Walk-Forward + Monte Carlo Validation]
-    |
-    +---> [Regime-Aware Backtesting]
-
-[Trade Logging]
-    |
-    +---> [TUI Dashboard]
-    |
-    +---> [Web Dashboard]
-
-[Configuration Management]
-    |
-    +---> (all modules depend on config)
+    +--enhances--> [Optimization Warm-Start]
 ```
 
 ### Dependency Notes
 
-- **Tick Data Ingestion is the root dependency:** Everything downstream depends on reliable tick data. This must be rock solid before anything else matters.
-- **Order Execution (MQL5 EA) is the other root:** Without reliable order execution, all analysis is academic. The EA and Python-MT5 communication must work first.
-- **Chaos Regime Classifier requires Multi-Timeframe Data:** Fractal dimension and Hurst exponent need sufficient price history across timeframes to compute meaningful values.
-- **Feigenbaum Detector requires Regime Classifier:** Bifurcation detection builds on top of the basic regime classification. It is an enhancement, not a replacement.
-- **Institutional Footprint requires Order Flow Microstructure:** You cannot detect iceberg orders or absorption without first having the DOM/tick processing pipeline.
-- **Self-Learning Mutation Loop requires Trade Logging:** Evolution needs full trade context to evaluate fitness. Also needs ~200+ trades, which means weeks/months of live trading or extensive backtesting.
-- **Signal Fusion requires all upstream signal modules:** The fusion layer cannot exist without at least basic versions of each signal source. This validates the "all modules simplified first" approach.
-- **Walk-Forward and Monte Carlo require Basic Backtesting:** Advanced validation builds on top of the basic backtest engine.
-- **Quantum Timing is independent but enhances Fusion:** Can be developed in parallel with other signal modules and plugged into the fusion layer.
+- **Chaos direction fix enables everything downstream:** Without directional signals during 60-80% of market time, no amount of threshold tuning or optimization produces trades. This is the root cause and must be fixed first.
+- **Position sizing fix requires ATR SL recalibration:** The sizing math fails because SL distance (ATR*2) is too large for $20 equity. Reducing ATR multiplier from 2.0x to 1.0-1.5x brings SL within risk budget. These must change together.
+- **Live MT5 execution requires working sizing:** Sending 0-lot orders to MT5 produces errors. Sizing must work before live execution can be tested.
+- **Optimization requires working signals:** Running Optuna on a pipeline that produces 0 trades per trial returns PF=0.0 for all trials. Signals must generate trades before optimization can find good parameters.
+- **Multi-objective optimization enhances base optimization:** Not a hard dependency but without it, Optuna will find high-PF-low-frequency solutions. Add as Phase 2 enhancement.
+- **Concurrent positions conflicts with single-position trailing stop logic:** TradeManager tracks one `_open_position_ticket`. Supporting 2-3 positions requires refactoring to a position dict. Must be done carefully.
+
+---
 
 ## MVP Definition
 
-### Launch With (v1) -- Minimum to Start Paper Trading
+### Launch With (v1.1 Core)
 
-The bot must be able to take trades on a demo account, log everything, and not blow up. No fancy analysis yet -- just the infrastructure.
+Minimum features to run a 1-week demo at 10-20 trades/day.
 
-- [ ] **Tick data ingestion pipeline** -- The nervous system. Without data, nothing works.
-- [ ] **MQL5 EA for order execution** -- The hands. Must place, modify, and close orders reliably.
-- [ ] **Python-MT5 communication bridge** -- The spinal cord. Localhost, low-latency, bidirectional.
-- [ ] **Stop-loss on every trade** -- Non-negotiable safety.
-- [ ] **Position sizing for micro accounts** -- Must not over-leverage the $20 account.
-- [ ] **Basic signal generation (simplified)** -- Even a simple moving average crossover, just to validate the pipeline end-to-end.
-- [ ] **Trade logging to SQLite** -- Full context on every trade.
-- [ ] **Configuration management** -- Risk params, trading hours, basic thresholds.
-- [ ] **Kill switch** -- Emergency stop accessible from terminal.
-- [ ] **Session/time filtering** -- Only trade during liquid hours.
-- [ ] **Reconnection and state recovery** -- Survive disconnects without orphaning positions.
-- [ ] **Daily drawdown circuit breaker** -- Hard stop on daily losses.
+- [x] **Chaos direction for non-trending regimes** -- Without this, 60-80% of market time produces zero signal
+- [x] **Timing urgency recalibration** -- Remove double-penalty on moderate urgency signals
+- [x] **Fusion threshold reduction** -- Lower aggressive threshold from 0.50 to 0.25-0.35
+- [x] **Position sizing for $20 equity** -- Lower ATR multiplier, increase aggressive risk_pct
+- [x] **Circuit breaker recalibration** -- Phase-aware drawdown limits for micro-account
+- [x] **Multiple concurrent positions (2-3)** -- Unlock trade frequency without requiring ultra-short hold times
+- [x] **Live MT5 execution on demo** -- order_check + order_send + position tracking
+- [x] **Trailing stop implementation** -- SL modification via TRADE_ACTION_SLTP
+- [x] **Automated optimization with expanded search space** -- Single command backtest-optimize-validate-write
 
-### Add After Pipeline Validation (v1.x) -- The Signal Layer
+### Add After 1-Week Demo (v1.1.x)
 
-Once the plumbing works, add the actual intelligence. Each module starts simplified and deepens over iterations.
+Features to add once core demo is running and producing trade data.
 
-- [ ] **Chaos/Fractal Regime Classifier (basic)** -- Rolling Hurst Exponent + Fractal Dimension. Trigger: pipeline is stable and logging trades.
-- [ ] **Order Flow Microstructure (basic)** -- Volume delta, bid-ask imbalance from tick data. Trigger: tick data pipeline is reliable.
-- [ ] **Multi-timeframe context** -- M1 entries with M5/M15/H1 context. Trigger: bar data retrieval is working.
-- [ ] **Spread-aware trade filtering** -- Skip trades when spread exceeds threshold. Trigger: spread data is being logged.
-- [ ] **Basic backtesting on historical tick data** -- Validate signals on 2015-present data. Trigger: signal generation is producing outputs.
-- [ ] **TUI Dashboard (basic)** -- Current state, open positions, daily P&L. Trigger: trade logging is working.
+- [ ] **Multi-objective optimization** -- Trigger: first optimization run finds high-PF but low-frequency solutions
+- [ ] **Position sync on startup** -- Trigger: first crash during active position
+- [ ] **Optimization warm-start** -- Trigger: second optimization run needed
+- [ ] **Trade journal analysis tooling** -- Trigger: 100+ trades accumulated
+- [ ] **Session-aware signal gating** -- Trigger: analysis shows trades outside London-NY are net negative
 
-### Add After Demo Validation (v2) -- The Fusion and Evolution Layer
+### Future Consideration (v1.2+)
 
-Once individual modules produce meaningful signals, build the fusion and self-improvement.
+Features to defer until demo validates the approach.
 
-- [ ] **Institutional Footprint Detection** -- Requires proven order flow pipeline. Trigger: order flow module is producing consistent signals.
-- [ ] **Multi-Module Signal Fusion** -- Combine regime + flow + timing. Trigger: at least 3 signal modules producing output.
-- [ ] **Phase-Aware Capital Management** -- Three growth phases. Trigger: bot is profitable on demo.
-- [ ] **Walk-Forward + Monte Carlo Validation** -- Rigorous backtesting. Trigger: basic backtest is working.
-- [ ] **Regime-Aware Backtesting** -- Per-regime performance analysis. Trigger: regime classifier + backtest framework both working.
-- [ ] **Quantum-Inspired Timing (basic)** -- Probability-weighted entry windows. Trigger: signal fusion framework exists.
-- [ ] **Web Dashboard** -- Charts, stats, regime visualization. Trigger: TUI is working and data structures are stable.
+- [ ] **Self-learning loop activation** -- Need 1000+ trade history for reliable evolution
+- [ ] **ZeroMQ MQL5 bridge** -- Only if Python MT5 latency proven insufficient
+- [ ] **VPS deployment** -- After strategy is stable enough for 24/5 operation
+- [ ] **Real-money transition** -- After 2+ weeks profitable demo with 500+ trades
 
-### Future Consideration (v3+) -- The Deep Differentiators
-
-These require extensive live trading data and proven foundations.
-
-- [ ] **Self-Learning Mutation Loop** -- Defer: needs 200+ trades minimum. Genetic algorithm evolution of parameters. Only meaningful after months of live data.
-- [ ] **Feigenbaum Bifurcation Detection** -- Defer: highly experimental, requires proven regime classifier and significant research. No off-the-shelf implementation exists.
-- [ ] **Advanced Quantum Timing** -- Defer: academic theory exists but no trading implementations to reference. Build incrementally from basic probability windows.
-- [ ] **Full Institutional Footprint (iceberg detection, HFT signatures)** -- Defer: requires high-quality DOM data that may not be available from RoboForex ECN feed.
+---
 
 ## Feature Prioritization Matrix
 
-| Feature | User Value | Implementation Cost | Priority | Phase |
-|---------|------------|---------------------|----------|-------|
-| Tick data ingestion | HIGH | MEDIUM | P1 | v1 |
-| MQL5 EA execution | HIGH | MEDIUM | P1 | v1 |
-| Python-MT5 bridge | HIGH | MEDIUM | P1 | v1 |
-| Stop-loss enforcement | HIGH | LOW | P1 | v1 |
-| Position sizing engine | HIGH | MEDIUM | P1 | v1 |
-| Kill switch / circuit breaker | HIGH | LOW | P1 | v1 |
-| Trade logging | HIGH | MEDIUM | P1 | v1 |
-| Session/time filtering | MEDIUM | LOW | P1 | v1 |
-| Config management | MEDIUM | LOW | P1 | v1 |
-| Reconnection/recovery | HIGH | MEDIUM | P1 | v1 |
-| Chaos Regime Classifier | HIGH | HIGH | P1 | v1.x |
-| Order Flow Microstructure | HIGH | HIGH | P1 | v1.x |
-| Multi-timeframe context | MEDIUM | MEDIUM | P1 | v1.x |
-| Spread-aware filtering | MEDIUM | LOW | P1 | v1.x |
-| Basic backtesting | HIGH | HIGH | P1 | v1.x |
-| TUI Dashboard (basic) | MEDIUM | MEDIUM | P2 | v1.x |
-| Institutional Footprint | HIGH | HIGH | P2 | v2 |
-| Signal Fusion | HIGH | HIGH | P2 | v2 |
-| Phase-Aware Capital Mgmt | MEDIUM | MEDIUM | P2 | v2 |
-| Walk-Forward + Monte Carlo | HIGH | HIGH | P2 | v2 |
-| Regime-Aware Backtesting | MEDIUM | HIGH | P2 | v2 |
-| Quantum Timing (basic) | MEDIUM | VERY HIGH | P2 | v2 |
-| Web Dashboard | LOW | MEDIUM | P3 | v2 |
-| Self-Learning Mutation Loop | HIGH | VERY HIGH | P3 | v3 |
-| Feigenbaum Bifurcation | MEDIUM | VERY HIGH | P3 | v3 |
-| Advanced Quantum Timing | MEDIUM | VERY HIGH | P3 | v3 |
+| Feature | User Value | Implementation Cost | Risk if Skipped | Priority |
+|---------|------------|---------------------|-----------------|----------|
+| Chaos direction fix | HIGH | MEDIUM | CRITICAL -- no trades without it | P0 |
+| Timing urgency fix | HIGH | LOW | HIGH -- halves timing contribution | P0 |
+| Fusion threshold reduction | HIGH | LOW | CRITICAL -- threshold gates all trades | P0 |
+| Position sizing fix | HIGH | MEDIUM | CRITICAL -- all trades rejected at $20 | P0 |
+| Circuit breaker recalibration | HIGH | LOW | HIGH -- breakers trip after 1 loss | P0 |
+| Concurrent positions (2-3) | MEDIUM | MEDIUM | MEDIUM -- limits frequency to 1-at-a-time | P1 |
+| Live MT5 execution | HIGH | MEDIUM | CRITICAL -- cannot demo without it | P1 |
+| Trailing stop implementation | MEDIUM | MEDIUM | MEDIUM -- fixed SL/TP still works | P1 |
+| Automated optimization (expanded) | HIGH | HIGH | HIGH -- manual calibration is guesswork | P1 |
+| Multi-objective optimization | MEDIUM | MEDIUM | LOW -- PF-only works for first pass | P2 |
+| Position sync on startup | MEDIUM | MEDIUM | LOW -- manual restart during demo week | P2 |
+| Trade journal enhancements | MEDIUM | LOW | LOW -- basic logging exists | P2 |
+| Config diff visualization | LOW | LOW | NONE -- nice to have | P3 |
+| Session-aware gating | LOW | LOW | NONE -- current window is adequate | P3 |
 
 **Priority key:**
-- P1: Must have -- bot is not viable without it (v1/v1.x)
-- P2: Should have -- adds significant edge (v2)
-- P3: Future consideration -- requires data/experience to build properly (v3)
+- P0: Prerequisite -- bot literally cannot trade without these
+- P1: Must have for demo launch
+- P2: Should have, add during demo week
+- P3: Nice to have, post-demo
 
-## Competitor Feature Analysis
+---
 
-| Feature | Standard MQL5 EAs | Professional Algo Platforms (QuantConnect, etc.) | Institutional Systems | Our Approach |
-|---------|-------------------|--------------------------------------------------|----------------------|--------------|
-| Order execution | Built-in MQL5 | Multi-broker API | Co-located, sub-ms | Thin MQL5 EA, ~45ms via RoboForex |
-| Risk management | Basic SL/TP | Portfolio-level risk | Real-time VaR, Greeks | Per-trade + daily + phase-aware limits |
-| Signal generation | Technical indicators (MA, RSI, etc.) | Quantitative factors, ML models | Order flow, dark pool data | Chaos regime + order flow + quantum timing fusion |
-| Backtesting | MT5 Strategy Tester (bar-based) | Tick-level, walk-forward | Full market replay | Tick-level, walk-forward, Monte Carlo, regime-aware |
-| Adaptation | Static parameters | Parameter optimization | Real-time ML retraining | Genetic algorithm evolution + ML regime classification |
-| Market reading | Price-derived indicators | Multi-factor models | Full order book, Level 3 data | DOM + tick microstructure + chaos dynamics |
-| Regime detection | None (same strategy always) | Volatility regimes (simple) | Sophisticated, proprietary | Hurst + Lyapunov + Fractal Dimension + Feigenbaum |
-| Monitoring | MT5 journal | Custom dashboards | Enterprise observability | Rich TUI + lightweight web dashboard |
+## Competitor / Reference Analysis
 
-## Key Insights From Research
+| Feature | XauBot / SmartT (Commercial) | Open-source MT5 bots (GitHub) | Our Approach |
+|---------|------------------------------|-------------------------------|--------------|
+| Signal generation | Proprietary AI/ML, black-box | Standard TA (RSI, MACD, MAs) | Chaos regime + order flow + quantum timing fusion. Unique but needs calibration. |
+| Trade frequency | 5-15 trades/day typical | Varies wildly (1-100/day) | Target 10-20/day via signal recalibration |
+| Stop loss sizing | Adaptive ATR or fixed pips (10-30 pip range for scalps) | Usually fixed pips | ATR-based with regime adjustment. Need to reduce from 2x to 1-1.5x for scalping. |
+| Position sizing | Fixed lot or % risk (typically 0.5-2% per trade) | Usually fixed lot (0.01) | Dynamic per-phase % risk. Need to increase aggressive phase risk for $20 viability. |
+| Trailing stops | Built into EA (MQL5-native) | MQL5-native or Python polling | Python polling via TRADE_ACTION_SLTP. Adequate for M5 scalping (not HFT). |
+| Optimization | Manual parameter sweep or proprietary | Rarely automated | Optuna TPE + DEAP GA with walk-forward validation. Strongest approach among non-commercial bots. |
+| Crash recovery | State persistence + auto-reconnect (VPS) | Varies (many have none) | State persistence exists (SQLite). Need position sync on startup. |
+| Risk management | Basic (daily loss limit, lot limit) | Minimal (fixed lot) | 5 circuit breakers + kill switch + session filter. Most comprehensive in class, but needs micro-account tuning. |
 
-1. **The $20 starting capital is the hardest constraint.** At 0.01 lot minimum, even a 10-pip SL risks 5% of account. Position sizing must be extremely disciplined. The aggressive growth phase is the most dangerous. The bot must survive the small-account phase to reach the phases where it has room to trade properly.
+---
 
-2. **DOM data availability from RoboForex is uncertain.** MT5 Python API supports DOM (since build 2815), but the depth and quality of RoboForex ECN's order book feed for XAUUSD is unknown until tested. The entire order flow pipeline must degrade gracefully to tick-only analysis.
+## Detailed Feature Specifications
 
-3. **The Feigenbaum/chaos features are genuinely novel.** No commercial trading bot uses Feigenbaum bifurcation detection. Academic research supports the theory but practical implementation for trading does not exist. This is highest-risk, highest-reward differentiation.
+### Chaos Direction Fix
 
-4. **Fusion is the real product, not any single module.** Standard EAs have indicators. Professional platforms have ML. Institutional desks have order flow. Nobody combines chaos theory regime detection with order flow microstructure with quantum-inspired timing in a single fusion engine. The edge is the combination.
+**Problem:** `direction_map` in `chaos/module.py` returns 0.0 for RANGING, HIGH_CHAOS, PRE_BIFURCATION.
 
-5. **Anti-overfitting is as important as the strategy itself.** The single most common failure mode in algo trading is overfitting to historical data. Walk-forward validation and Monte Carlo testing are not nice-to-haves -- they are the difference between a strategy that works and one that only works in backtest.
+**Solution options (pick one):**
+
+1. **Drift-based direction (recommended):** For RANGING, compute short-term price drift from the last 5-10 bars and use sign as weak direction (+/- 0.3). Confidence scaled by Hurst distance from 0.5 (more mean-reverting = stronger contrarian signal).
+
+2. **Flow-following direction:** During RANGING, chaos module outputs direction=0.0 but fusion should still produce trades from flow+timing alone. This requires reducing chaos weight or making fusion work with 2-of-3 modules.
+
+3. **Chaos as regime-only module:** Chaos contributes regime classification (confidence, metadata) but direction is always derived from flow+timing. Simplest change but reduces chaos module's contribution.
+
+**Recommendation:** Option 2 is the safest -- it does not change the chaos module's behavior but makes fusion resilient to one module contributing zero direction. The fusion formula already handles this correctly (normalized by total_confidence_weight), but the threshold is the bottleneck. Lowering the threshold to 0.25-0.35 combined with the timing urgency fix may be sufficient. If not, fall back to Option 1.
+
+### Position Sizing Math for $20
+
+Current settings and the math:
+- Equity: $20, aggressive phase
+- Risk: 10% = $2.00
+- Gold M5 ATR during London: ~$1.50-$3.00 (150-300 pips)
+- SL = ATR * 2.0 = $3.00-$6.00
+- Lot = $2.00 / ($3.00 * 100) = 0.0067, rounds to min 0.01
+- Actual risk at 0.01: $3.00 * 100 * 0.01 = $3.00 = 15% -- REJECTED
+
+**Fix:**
+- SL ATR multiplier: 1.0x (not 2.0x) for aggressive phase
+- SL = $1.50, lot = $2.00 / ($1.50 * 100) = 0.013, rounds to 0.01
+- Actual risk: $1.50 * 100 * 0.01 = $1.50 = 7.5% -- PASSES at 10%
+- OR increase aggressive_risk_pct to 15% and keep ATR*1.5
+- SL = $2.25, lot = $3.00 / ($2.25 * 100) = 0.013, rounds to 0.01
+- Actual risk: $2.25 * 100 * 0.01 = $2.25 = 11.25% -- PASSES at 15%
+
+**Recommendation:** ATR * 1.0x for scalping + 15% risk per trade for aggressive phase. This is standard for micro-account forex scalping. The tight SL is compensated by 1:500 leverage and small lot sizes.
+
+### Optimization Search Space Expansion
+
+Current search space: 11 FusionConfig parameters.
+
+**Add to search space:**
+- `chaos.hurst_trending_threshold`: [0.50, 0.75] (currently hardcoded 0.6)
+- `chaos.hurst_ranging_threshold`: [0.35, 0.55] (currently hardcoded 0.45)
+- `chaos.bifurcation_threshold`: [0.5, 0.9] (currently hardcoded 0.7)
+- `chaos.lyapunov_chaos_threshold`: [0.3, 0.8] (currently hardcoded 0.5)
+- `chaos.entropy_chaos_threshold`: [0.5, 0.9] (currently hardcoded 0.7)
+- `timing.urgency_exponent`: [0.3, 1.0] (new -- applies pow(urgency, exponent) to soften)
+- `risk.aggressive_risk_pct`: [0.10, 0.25]
+- `execution.sl_atr_multiplier`: [0.5, 2.5] (currently fixed 2.0)
+- `fusion.max_concurrent_positions`: {1, 2, 3} (categorical)
+
+This expands from 11 to ~20 parameters. Optuna TPE handles 20 dimensions well within 100-200 trials.
+
+**Objective function:**
+```python
+# Multi-objective: maximize both
+# 1. Profit factor (capped at 5.0)
+# 2. Normalized trade count: min(daily_trades / target, 1.0)
+# Pareto-optimal solutions balance both
+```
+
+### Live Execution Checklist
+
+The code path exists but needs these additions:
+1. `live.toml` must include MT5 credentials (currently has only `mode = "live"`)
+2. Add `order_check` retcode-to-message mapping for common errors (10006=requote, 10013=invalid request, 10014=invalid volume, 10015=invalid stops, 10016=trade disabled)
+3. Implement `modify_sl_tp()` method in OrderManager for trailing stops
+4. Add heartbeat monitoring: if no tick received for 30s, trigger reconnection
+5. Position reconciliation on startup: query MT5 positions, populate TradeManager state
+6. Spread check before order: if current spread > 2x average, delay entry (already in circuit breakers but needs integration with order flow)
+
+---
 
 ## Sources
 
-- [MT5 Python API DOM Access (Build 2815)](https://www.metatrader5.com/en/releasenotes/terminal/2186) -- HIGH confidence
-- [MQL5 Python Integration Documentation](https://www.mql5.com/en/docs/python_metatrader5) -- HIGH confidence
-- [Nolds: Nonlinear measures for dynamical systems (Python)](https://github.com/CSchoel/nolds) -- HIGH confidence
-- [Feigenbaum Universality in Stock Indices (Batunin)](https://www.chesler.us/resources/academia/artBatunin.pdf) -- MEDIUM confidence
-- [Quantum Coupled-Wave Theory of Price Formation (Sarkissian)](https://www.sciencedirect.com/science/article/abs/pii/S0378437120300911) -- MEDIUM confidence
-- [Dynamic Bifurcations on Financial Markets](https://www.sciencedirect.com/science/article/abs/pii/S0960077916300844) -- MEDIUM confidence
-- [HftBacktest Framework (Python)](https://github.com/nkaz001/hftbacktest) -- HIGH confidence
-- [Walk-Forward Backtester (Python)](https://github.com/TonyMa1/walk-forward-backtester) -- MEDIUM confidence
-- [Bookmap: Advanced Order Flow / Iceberg Order Detection](https://bookmap.com/blog/advanced-order-flow-trading-spotting-hidden-liquidity-iceberg-orders) -- HIGH confidence
-- [Chaos Theory Trading Strategy in Python](https://www.insightbig.com/post/building-a-chaos-theory-based-trading-strategy-with-python) -- MEDIUM confidence
-- [FIA Best Practices for Automated Trading Risk Controls](https://www.fia.org/sites/default/files/2024-07/FIA_WP_AUTOMATED%20TRADING%20RISK%20CONTROLS_FINAL_0.pdf) -- HIGH confidence
-- [AI Trading Bot Risk Management Guide](https://3commas.io/blog/ai-trading-bot-risk-management-guide-2025) -- MEDIUM confidence
-- [Best Broker for Gold Trading 2026 Spread Test](https://goldpriceactiontrading.com/2026/03/best-broker-for-gold-trading-2026-xau-usd-spread-test.html) -- MEDIUM confidence
-- [Micro Account Position Sizing](https://leverage.trading/what-lot-size-to-use-for-a-small-forex-account/) -- HIGH confidence
+- [Best Timeframes for Scalping Gold -- M5 vs M15](https://xaubot.com/best-timeframes-for-scalping-gold-with-xaubot/) -- M5 sweet spot for gold scalping
+- [Gold Scalping Strategy on MT5](https://xmsignal.com/en/blog/gold-scalping-strategy-mt5/) -- 10-20 pip targets, 15-30 pip SL
+- [XAUUSD Lot Size and Risk Management](https://www.defcofx.com/xauusd-pips-and-lot-size/) -- pip value $0.01 per 0.01 lot
+- [XAUUSD Scalping Strategies](https://www.forexgdp.com/analysis/xauusd/scalping-gold-strategies/) -- multi-indicator fusion reduces false signals
+- [MT5 Python Trailing Stop Implementation](https://appnologyjames.medium.com/metatrader-5-python-trailing-stop-2c562a541b48) -- TRADE_ACTION_SLTP pattern
+- [Modifying Open Trades in MT5 with Python](https://medium.com/@elospieconomics/algorithmic-trading-with-python-and-mt5-modifying-open-trades-8622d31632f3) -- SL/TP modification best practices
+- [Walk-Forward Optimization with Bayesian Optimization](https://github.com/TonyMa1/walk-forward-backtester) -- Optuna + walk-forward pattern
+- [Optuna Multi-Objective Optimization](https://optuna.org/) -- NSGAIISampler for Pareto front
+- [Gold Trading Strategy 2026](https://www.thinkmarkets.com/en/trading-academy/commodities/gold-trading-strategy-2026/) -- ATR-based SL sizing for gold
+- [Hyperparameter Optimization with Strategy Backtesting](https://piotrpomorski.substack.com/p/hyperparameter-optimisation-with) -- Optuna + Sharpe ratio objective
+- [Python MT5 Integration Guide 2025](https://metatraderapi.cloud/guides/python-mt5-integration/) -- order_send, positions_get, error handling
+- [MQL5 Forum: Trailing Stop in Python](https://www.mql5.com/en/forum/427801) -- No built-in Python trailing stop, must implement via order_send
 
 ---
-*Feature research for: XAUUSD autonomous scalping bot with chaos theory, order flow, and self-learning*
-*Researched: 2026-03-27*
+*Feature research for: FXSoqqaBot v1.1 Live Demo Launch*
+*Researched: 2026-03-28*
