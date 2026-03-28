@@ -281,19 +281,24 @@ class TestPhaseBehavior:
         return PhaseBehavior(FusionConfig(), RiskConfig())
 
     def test_aggressive_phase_threshold(self, behavior: PhaseBehavior) -> None:
-        """At equity=50 (mid-aggressive), threshold should be near 0.5."""
+        """At equity=50 (mid-aggressive), threshold should be near 0.3."""
         threshold = behavior.get_confidence_threshold(50.0)
-        assert abs(threshold - 0.5) < 0.05  # Near 0.5
+        assert abs(threshold - 0.3) < 0.05  # Near 0.3
 
     def test_selective_phase_threshold(self, behavior: PhaseBehavior) -> None:
-        """At equity=200 (mid-selective), threshold should be near 0.6."""
+        """At equity=200 (mid-selective), threshold should be near 0.45."""
         threshold = behavior.get_confidence_threshold(200.0)
-        assert abs(threshold - 0.6) < 0.05  # Near 0.6
+        assert abs(threshold - 0.45) < 0.05  # Near 0.45
 
     def test_conservative_phase_threshold(self, behavior: PhaseBehavior) -> None:
-        """At equity=500 (conservative), threshold should be 0.7."""
+        """At equity=500 (conservative), threshold should be 0.6."""
         threshold = behavior.get_confidence_threshold(500.0)
-        assert abs(threshold - 0.7) < 0.05  # Near 0.7
+        assert abs(threshold - 0.6) < 0.05  # Near 0.6
+
+    def test_aggressive_threshold_is_030(self, behavior: PhaseBehavior) -> None:
+        """At low equity ($20), threshold should be 0.30 per D-04/SIG-03."""
+        threshold = behavior.get_confidence_threshold(20.0)
+        assert abs(threshold - 0.30) < 0.02
 
     def test_smooth_transitions_not_step_functions(self, behavior: PhaseBehavior) -> None:
         """Transitions should be smooth (sigmoid), not step functions per FUSE-04."""

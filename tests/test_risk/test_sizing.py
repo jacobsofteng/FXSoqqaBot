@@ -85,11 +85,11 @@ class TestLotSizeCalculation:
     """Tests for calculate_lot_size with various equity/SL combinations."""
 
     def test_20_equity_2_sl_returns_min_lot(self, sizer: PositionSizer) -> None:
-        """$20 equity, $2 SL -> risk=$2, lot=0.01 (min), actual risk=$2=10%, can trade.
+        """$20 equity, $2 SL -> risk=$3, lot=0.01 (min), actual risk=$2=10% < 15%, can trade.
 
-        Calculation: risk_amount = $20 * 0.10 = $2.00
-                     lot = $2.00 / ($2.00 * 100) = 0.01 -> exactly min lot
-                     actual risk = 0.01 * $2.00 * 100 = $2.00 = 10%, equals limit
+        Calculation: risk_amount = $20 * 0.15 = $3.00
+                     lot = $3.00 / ($2.00 * 100) = 0.015 -> rounds to 0.01
+                     actual risk = 0.01 * $2.00 * 100 = $2.00 = 10%, below 15% limit
         """
         result = sizer.calculate_lot_size(equity=20.0, sl_distance=2.0)
         assert isinstance(result, SizingResult)
@@ -98,29 +98,29 @@ class TestLotSizeCalculation:
         assert result.capital_phase == "aggressive"
         assert result.skip_reason is None
 
-    def test_20_equity_3_sl_skips_trade(self, sizer: PositionSizer) -> None:
-        """$20 equity, $3 SL -> min lot 0.01 risks $3 = 15% > 10% limit, skip per D-04.
+    def test_20_equity_4_sl_skips_trade(self, sizer: PositionSizer) -> None:
+        """$20 equity, $4 SL -> min lot 0.01 risks $4 = 20% > 15% limit, skip per D-04.
 
-        Calculation: risk_amount = $20 * 0.10 = $2.00
-                     lot = $2.00 / ($3.00 * 100) = 0.0067 -> rounds to 0.00 -> clamps to 0.01
-                     actual risk = 0.01 * $3.00 * 100 = $3.00 = 15% > 10%
+        Calculation: risk_amount = $20 * 0.15 = $3.00
+                     lot = $3.00 / ($4.00 * 100) = 0.0075 -> rounds to 0.00 -> clamps to 0.01
+                     actual risk = 0.01 * $4.00 * 100 = $4.00 = 20% > 15%
         """
-        result = sizer.calculate_lot_size(equity=20.0, sl_distance=3.0)
+        result = sizer.calculate_lot_size(equity=20.0, sl_distance=4.0)
         assert result.can_trade is False
         assert result.skip_reason is not None
         assert "exceeds" in result.skip_reason.lower()
 
-    def test_20_equity_1_5_sl_returns_min_lot(self, sizer: PositionSizer) -> None:
-        """$20 equity, $1.5 SL -> lot=0.0133 rounds to 0.01, risk=7.5% < 10%, OK.
+    def test_20_equity_1_5_sl_returns_lot(self, sizer: PositionSizer) -> None:
+        """$20 equity, $1.5 SL -> lot=0.02, risk=15% <= 15%, can trade.
 
-        Calculation: risk_amount = $20 * 0.10 = $2.00
-                     lot = $2.00 / ($1.50 * 100) = 0.01333 -> rounds to 0.01
-                     actual risk = 0.01 * $1.50 * 100 = $1.50 = 7.5%
+        Calculation: risk_amount = $20 * 0.15 = $3.00
+                     lot = $3.00 / ($1.50 * 100) = 0.02 -> exactly 0.02
+                     actual risk = 0.02 * $1.50 * 100 = $3.00 = 15%
         """
         result = sizer.calculate_lot_size(equity=20.0, sl_distance=1.5)
-        assert result.lot_size == 0.01
+        assert result.lot_size == 0.02
         assert result.can_trade is True
-        assert result.risk_pct == pytest.approx(0.075, abs=0.001)
+        assert result.risk_pct == pytest.approx(0.15, abs=0.001)
 
     def test_200_equity_3_sl_selective_phase(self, sizer: PositionSizer) -> None:
         """$200 equity (selective), $3 SL -> lot=0.03.
@@ -216,14 +216,14 @@ class TestSpreadConsideration:
     def test_spread_increases_effective_sl(self, sizer: PositionSizer) -> None:
         """Adding spread to SL distance reduces effective lot size.
 
-        With spread=0.50 and SL=2.0, effective SL = 2.5
-        $20 equity: risk=$2, lot=$2/(2.5*100) = 0.008 -> 0.00 -> clamp 0.01
-        actual risk = 0.01 * 2.5 * 100 = $2.50 = 12.5% > 10% -> skip
+        With spread=0.50 and SL=3.5, effective SL = 4.0
+        $20 equity: risk=$3, lot=$3/(4.0*100) = 0.0075 -> 0.00 -> clamp 0.01
+        actual risk = 0.01 * 4.0 * 100 = $4.00 = 20% > 15% -> skip
         """
         result = sizer.calculate_lot_size(
-            equity=20.0, sl_distance=2.5
+            equity=20.0, sl_distance=4.0
         )
-        # SL=2.5 with $20: risk=$2, lot=0.008 -> 0.01 min, actual=2.5*100*0.01=$2.5=12.5%>10%
+        # SL=4.0 with $20 at 15%: risk=$3, lot=0.0075 -> 0.01 min, actual=4.0*100*0.01=$4=20%>15%
         assert result.can_trade is False
 
 

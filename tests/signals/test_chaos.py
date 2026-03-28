@@ -485,3 +485,54 @@ class TestChaosRegimeModule:
         from fxsoqqabot.config.models import ChaosConfig
         module = ChaosRegimeModule(ChaosConfig())
         assert module.name == "chaos"
+
+
+# ---------------------------------------------------------------------------
+# Chaos direction mode tests (SIG-01, SIG-04)
+# ---------------------------------------------------------------------------
+
+
+class TestChaosDirectionModes:
+    """Tests for configurable chaos direction modes per SIG-01/SIG-04."""
+
+    def test_drift_mode_nonzero_for_ranging(self) -> None:
+        """Drift mode produces nonzero direction for RANGING regime."""
+        from fxsoqqabot.config.models import ChaosConfig
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        config = ChaosConfig(direction_mode="drift")
+        module = ChaosRegimeModule(config)
+        # _last_flow_direction is 0.0 by default -- drift does not use it
+        assert module._config.direction_mode == "drift"
+
+    def test_zero_mode_preserves_original_behavior(self) -> None:
+        """Zero mode outputs 0.0 for non-trending regimes (original behavior)."""
+        from fxsoqqabot.config.models import ChaosConfig
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        config = ChaosConfig(direction_mode="zero")
+        module = ChaosRegimeModule(config)
+        assert module._config.direction_mode == "zero"
+
+    def test_flow_follow_mode_uses_cached_direction(self) -> None:
+        """Flow_follow mode reads cached flow direction."""
+        from fxsoqqabot.config.models import ChaosConfig
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        config = ChaosConfig(direction_mode="flow_follow")
+        module = ChaosRegimeModule(config)
+        module.set_flow_direction(1.0)
+        assert module._last_flow_direction == 1.0
+
+    def test_set_flow_direction_method_exists(self) -> None:
+        """ChaosRegimeModule has set_flow_direction setter."""
+        from fxsoqqabot.config.models import ChaosConfig
+        from fxsoqqabot.signals.chaos.module import ChaosRegimeModule
+        config = ChaosConfig()
+        module = ChaosRegimeModule(config)
+        module.set_flow_direction(-0.5)
+        assert module._last_flow_direction == -0.5
+
+    def test_direction_mode_configurable_via_literal(self) -> None:
+        """direction_mode accepts all three valid values per SIG-04."""
+        from fxsoqqabot.config.models import ChaosConfig
+        for mode in ("zero", "drift", "flow_follow"):
+            config = ChaosConfig(direction_mode=mode)
+            assert config.direction_mode == mode

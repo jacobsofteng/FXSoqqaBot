@@ -39,7 +39,11 @@ def session_filter(session_config: SessionConfig) -> SessionFilter:
 
 @pytest.fixture
 def multi_window_config() -> SessionConfig:
-    """SessionConfig with two trading windows."""
+    """SessionConfig with two trading windows.
+
+    Note: defaults now match this config (08:00-12:00 + 13:00-17:00).
+    These tests are kept for explicit multi-window coverage.
+    """
     return SessionConfig(
         windows=[
             {"start": "08:00", "end": "12:00"},
@@ -67,10 +71,10 @@ class TestTradingAllowed:
         now = datetime(2026, 3, 27, 14, 0, 0, tzinfo=timezone.utc)
         assert session_filter.is_trading_allowed(now) is True
 
-    def test_blocked_at_08_00_utc(self, session_filter: SessionFilter) -> None:
-        """08:00 UTC is before the window."""
+    def test_allowed_at_08_00_utc(self, session_filter: SessionFilter) -> None:
+        """08:00 UTC is the start of the London window (inclusive)."""
         now = datetime(2026, 3, 27, 8, 0, 0, tzinfo=timezone.utc)
-        assert session_filter.is_trading_allowed(now) is False
+        assert session_filter.is_trading_allowed(now) is True
 
     def test_blocked_at_18_00_utc(self, session_filter: SessionFilter) -> None:
         """18:00 UTC is after the window."""
@@ -93,9 +97,19 @@ class TestTradingAllowed:
         assert session_filter.is_trading_allowed(now) is True
 
     def test_blocked_at_12_59(self, session_filter: SessionFilter) -> None:
-        """12:59 UTC is just before the window."""
+        """12:59 UTC is between London and London-NY windows (lunch gap)."""
         now = datetime(2026, 3, 27, 12, 59, 0, tzinfo=timezone.utc)
         assert session_filter.is_trading_allowed(now) is False
+
+    def test_london_lunch_gap_blocked(self, session_filter: SessionFilter) -> None:
+        """12:00-13:00 UTC gap is blocked per D-15 (London lunch, low liquidity)."""
+        lunch_time = datetime(2026, 3, 28, 12, 30, tzinfo=timezone.utc)
+        assert session_filter.is_trading_allowed(lunch_time) is False
+
+    def test_allowed_at_10_00_london_session(self, session_filter: SessionFilter) -> None:
+        """10:00 UTC is within the London session window (08:00-12:00)."""
+        now = datetime(2026, 3, 27, 10, 0, 0, tzinfo=timezone.utc)
+        assert session_filter.is_trading_allowed(now) is True
 
 
 # ---------------------------------------------------------------------------
@@ -233,8 +247,8 @@ class TestTimeUntilNextWindow:
     ) -> None:
         """After all windows today -> returns seconds until tomorrow's window."""
         now = datetime(2026, 3, 27, 18, 0, 0, tzinfo=timezone.utc)
-        # 18:00 -> next day 13:00 = 19 * 3600 = 68400 seconds
-        assert session_filter.time_until_next_window(now) == 68400.0
+        # 18:00 -> next day 08:00 = 14 * 3600 = 50400 seconds
+        assert session_filter.time_until_next_window(now) == 50400.0
 
     def test_picks_nearest_window(
         self, multi_window_filter: SessionFilter

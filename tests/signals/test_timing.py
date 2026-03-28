@@ -432,3 +432,33 @@ class TestQuantumTimingModule:
         }
         signal = await module.update({}, bar_arrays, None)
         assert signal.confidence == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Timing double-compression fix tests (SIG-02)
+# ---------------------------------------------------------------------------
+
+
+class TestTimingDoubleCompressionFix:
+    """Tests for SIG-02: urgency applied once, not twice."""
+
+    def test_window_confidence_equals_fit_quality(self) -> None:
+        """After fix, window_confidence = confidence (not confidence * urgency)."""
+        from fxsoqqabot.signals.timing.ou_model import compute_entry_window
+        # kappa=0.3, theta=100, sigma=1.0, price=99, confidence=0.7
+        direction, urgency, window_conf = compute_entry_window(0.3, 100.0, 1.0, 99.0, 0.7)
+        # window_conf should be exactly the fit confidence (0.7), not 0.7 * urgency
+        assert window_conf == 0.7, f"Expected 0.7, got {window_conf} -- double compression still present"
+
+    def test_moderate_urgency_preserves_signal(self) -> None:
+        """At moderate urgency, fixed confidence should preserve signal per SIG-02."""
+        from fxsoqqabot.signals.timing.ou_model import compute_entry_window
+        # Setup: price close to theta so base urgency is moderate (~0.3)
+        # kappa=0.3, theta=100, sigma=2.0, price=98.8, confidence=0.7
+        # base urgency = min(1.0, |100-98.8| / (2*2.0)) = 0.3
+        # half_life = ln(2)/0.3 = 2.31 < 5.0, so urgency boosted: 0.3*1.5 = 0.45
+        direction, urgency, window_conf = compute_entry_window(0.3, 100.0, 2.0, 98.8, 0.7)
+        assert 0.3 < urgency < 0.6, f"Expected boosted moderate urgency, got {urgency}"
+        # Final confidence in module.py = (window_conf * 0.6 + phase_conf * 0.4) * urgency
+        # With window_conf=0.7 (fixed), moderate urgency still produces usable signal
+        assert window_conf == 0.7, f"window_conf should be 0.7, got {window_conf}"
