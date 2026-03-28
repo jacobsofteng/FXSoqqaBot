@@ -115,6 +115,11 @@ Plans:
   2. ShadowManager.record_variant_trade() is called for every trade, shadow variants accumulate trade history, and evaluate_promotion() returns meaningful results
   3. LearningLoopManager holds an engine reference and promote_variant() applies promoted parameters to the live trading strategy
   4. set_walk_forward_validator() is called during engine startup and the walk-forward gate blocks promotions that fail validation
+**Plans**: 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md -- Wire adaptive weights, shadow trade recording, and promote callback in engine and learning loop
+- [ ] 05-02-PLAN.md -- Integration tests for all four feedback loop wiring points
 
 ### Phase 6: Dashboard Live State Wiring
 **Goal**: TUI and web dashboards display accurate live data — equity, connection status, kill state, module weights, regime timeline — and the pause command actually stops trading
@@ -140,7 +145,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -148,6 +153,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 2. Signal Pipeline and Decision Fusion | 6/6 | Complete | 2026-03-27 |
 | 3. Backtesting and Validation | 0/5 | Not started | - |
 | 4. Observability and Self-Learning | 8/8 | Complete | 2026-03-28 |
-| 5. Self-Learning Feedback Loop Wiring | 0/0 | Not started | - |
+| 5. Self-Learning Feedback Loop Wiring | 0/2 | Not started | - |
 | 6. Dashboard Live State Wiring | 0/0 | Not started | - |
 | 7. Validation Pipeline Entry Points | 0/0 | Not started | - |
