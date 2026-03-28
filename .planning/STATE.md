@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Live Demo Launch
-status: executing
-stopped_at: Completed 09-01-PLAN.md
-last_updated: "2026-03-28T14:28:01Z"
-last_activity: 2026-03-28 -- Phase 09 Plan 01 complete
+status: verifying
+stopped_at: Completed 09-02-PLAN.md
+last_updated: "2026-03-28T14:40:57.678Z"
+last_activity: 2026-03-28
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
   percent: 75
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-03-28)
 
 Phase: 09 (backtest-pipeline-automated-optimization) — EXECUTING
 Plan: 2 of 2
-Status: Executing Phase 09
-Last activity: 2026-03-28 -- Phase 09 Plan 01 complete
+Status: Phase complete — ready for verification
+Last activity: 2026-03-28
 
 Progress: [========--] 75%
 
@@ -47,6 +47,7 @@ Progress: [========--] 75%
 | 08 | 1 | 7min | 7min |
 | Phase 08 P02 | 6min | 3 tasks | 5 files |
 | Phase 09 P01 | 5min | 2 tasks | 5 files |
+| Phase 09 P02 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -62,6 +63,9 @@ Progress: [========--] 75%
 - 09-01: Default threshold values match previous hardcoded values for backward compatibility
 - 09-01: DEAP weight seeds folded into unified Optuna search space per D-08
 - 09-01: Confidence floor checks (>0.3, >0.2) left hardcoded -- not tunable thresholds
+- [Phase 09]: 09-02: NSGA-II replaces TPE+DEAP two-phase approach for unified multi-objective optimization
+- [Phase 09]: 09-02: Pareto selection prioritizes trade count proximity to 10-20/day, then maximizes PF within band
+- [Phase 09]: 09-02: TOML output maps params to correct config sections (fusion, risk, chaos, timing) instead of fusion-only
 
 ### Pending Todos
 
@@ -85,6 +89,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-28T14:28:01Z
-Stopped at: Completed 09-01-PLAN.md
-Resume file: .planning/phases/09-backtest-pipeline-automated-optimization/09-01-SUMMARY.md
+Last session: 2026-03-28T14:40:57.676Z
+Stopped at: Completed 09-02-PLAN.md
+Resume file: None

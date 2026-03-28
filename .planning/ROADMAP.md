@@ -56,7 +56,7 @@ Plans:
 **Plans:** 2 plans
 Plans:
 - [x] 09-01-PLAN.md -- Search space expansion: ~20 params across fusion/weights/risk/chaos/timing, configurable regime thresholds
-- [ ] 09-02-PLAN.md -- Unified NSGA-II optimizer: Pareto front, Rich progress, hang guard, warm-start, config diff, CLI update
+- [x] 09-02-PLAN.md -- Unified NSGA-II optimizer: Pareto front, Rich progress, hang guard, warm-start, config diff, CLI update
 
 ### Phase 10: Live Execution & Demo Launch
 **Goal**: The bot executes real trades on the MT5 demo account and runs unattended for a 1-week observation period
