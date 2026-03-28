@@ -53,7 +53,10 @@ Plans:
   2. Optimization search space covers ~20 parameters including chaos thresholds, timing urgency, SL/ATR config, and fusion thresholds
   3. Running the optimizer produces a Pareto front balancing profit factor against normalized trade count, and the selected config achieves target trade frequency
   4. An optimized.toml file exists on disk with all tuned parameters, and the user can see what changed from defaults via config diff output
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 09-01-PLAN.md -- Search space expansion: ~20 params across fusion/weights/risk/chaos/timing, configurable regime thresholds
+- [ ] 09-02-PLAN.md -- Unified NSGA-II optimizer: Pareto front, Rich progress, hang guard, warm-start, config diff, CLI update
 
 ### Phase 10: Live Execution & Demo Launch
 **Goal**: The bot executes real trades on the MT5 demo account and runs unattended for a 1-week observation period
@@ -74,6 +77,6 @@ Phases execute in numeric order: 8 -> 9 -> 10
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 8. Signal & Risk Calibration | v1.1 | 0/2 | Planned | - |
-| 9. Backtest Pipeline & Automated Optimization | v1.1 | 0/0 | Not started | - |
+| 8. Signal & Risk Calibration | v1.1 | 2/2 | Complete | 2026-03-28 |
+| 9. Backtest Pipeline & Automated Optimization | v1.1 | 0/2 | Planned | - |
 | 10. Live Execution & Demo Launch | v1.1 | 0/0 | Not started | - |
