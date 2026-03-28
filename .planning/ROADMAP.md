@@ -39,7 +39,10 @@ See [v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) for full archive.
   3. Fusion pipeline generates 10-20 trade signals per day on backtested London+NY sessions with the calibrated threshold
   4. Position sizer accepts trades at $20 equity without rejecting every signal, and aggregate exposure across concurrent positions stays within the single-position risk budget
   5. Circuit breaker daily drawdown limits are phase-aware (15-20% aggressive, 10% selective, 5% conservative) and do not trip on a single losing trade at $20
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 08-01-PLAN.md -- Signal pipeline fixes: config defaults, chaos direction modes, timing double-compression fix
+- [ ] 08-02-PLAN.md -- Risk management upgrades: phase-aware drawdown, concurrent positions, backtest sync
 
 ### Phase 9: Backtest Pipeline & Automated Optimization
 **Goal**: A single command runs the full backtest-optimize-validate pipeline and writes an optimized.toml with data-driven parameters
@@ -71,6 +74,6 @@ Phases execute in numeric order: 8 -> 9 -> 10
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 8. Signal & Risk Calibration | v1.1 | 0/0 | Not started | - |
+| 8. Signal & Risk Calibration | v1.1 | 0/2 | Planned | - |
 | 9. Backtest Pipeline & Automated Optimization | v1.1 | 0/0 | Not started | - |
 | 10. Live Execution & Demo Launch | v1.1 | 0/0 | Not started | - |
