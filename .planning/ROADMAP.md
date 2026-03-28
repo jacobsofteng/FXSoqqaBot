@@ -146,6 +146,11 @@ Plans:
   1. CLI command exists to run regime-aware evaluation (RegimeTagger) on backtest results, producing per-regime performance breakdown
   2. CLI command exists to run Feigenbaum stress testing on backtest data, verifying chaos module behavior during simulated regime transitions
   3. Both tools are integrated into the backtest runner so they can be invoked as part of a standard validation pipeline
+**Plans**: 2 plans
+
+Plans:
+- [ ] 07-01-PLAN.md -- CLI subcommands (validate-regimes, stress-test) and runner extension to 6 steps
+- [ ] 07-02-PLAN.md -- Integration tests for CLI wiring and runner pipeline
 
 ## Progress
 
@@ -160,4 +165,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | 4. Observability and Self-Learning | 8/8 | Complete | 2026-03-28 |
 | 5. Self-Learning Feedback Loop Wiring | 0/2 | Not started | - |
 | 6. Dashboard Live State Wiring | 0/2 | Not started | - |
-| 7. Validation Pipeline Entry Points | 0/0 | Not started | - |
+| 7. Validation Pipeline Entry Points | 0/2 | Not started | - |
