@@ -119,7 +119,7 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md -- Wire adaptive weights, shadow trade recording, and promote callback in engine and learning loop
-- [ ] 05-02-PLAN.md -- Integration tests for all four feedback loop wiring points
+- [x] 05-02-PLAN.md -- Integration tests for all four feedback loop wiring points
 
 ### Phase 6: Dashboard Live State Wiring
 **Goal**: TUI and web dashboards display accurate live data — equity, connection status, kill state, module weights, regime timeline — and the pause command actually stops trading
