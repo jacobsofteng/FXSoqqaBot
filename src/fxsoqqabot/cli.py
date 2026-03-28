@@ -4,6 +4,9 @@ Supports commands:
 - run: Start the trading bot (with optional --no-tui, --no-web, --no-learning)
 - dashboard: Run web dashboard only
 - learning: Show learning loop status
+- backtest: Run full backtesting pipeline (6 steps)
+- validate-regimes: Run regime-aware evaluation on backtest data (TEST-05)
+- stress-test: Run Feigenbaum stress test on chaos module (TEST-06)
 - optimize: Run Optuna + DEAP parameter optimization
 - kill: Activate kill switch (close all positions, halt trading)
 - status: Show circuit breaker states and counters
@@ -125,6 +128,34 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Skip CSV-to-Parquet ingestion (use existing Parquet data)",
+    )
+
+    # validate-regimes command
+    vr_parser = subparsers.add_parser(
+        "validate-regimes", help="Run regime-aware evaluation on backtest data"
+    )
+    vr_parser.add_argument(
+        "--config",
+        nargs="*",
+        default=None,
+        help="TOML config file(s) to load",
+    )
+    vr_parser.add_argument(
+        "--skip-ingestion",
+        action="store_true",
+        default=False,
+        help="Skip CSV-to-Parquet ingestion (use existing Parquet data)",
+    )
+
+    # stress-test command
+    st_parser = subparsers.add_parser(
+        "stress-test", help="Run Feigenbaum stress test on chaos module"
+    )
+    st_parser.add_argument(
+        "--config",
+        nargs="*",
+        default=None,
+        help="TOML config file(s) to load",
     )
 
     # optimize command
@@ -392,6 +423,111 @@ async def cmd_backtest(args: argparse.Namespace) -> None:
     await run_full_backtest(settings, bt_config, skip_ingestion=args.skip_ingestion)
 
 
+async def cmd_validate_regimes(args: argparse.Namespace) -> None:
+    """Run regime-aware evaluation on backtest results per TEST-05.
+
+    Loads historical data, runs a backtest, tags bars with regime states
+    via ChaosRegimeModule, then evaluates per-regime performance.
+    """
+    from fxsoqqabot.backtest.config import BacktestConfig
+    from fxsoqqabot.backtest.engine import BacktestEngine
+    from fxsoqqabot.backtest.historical import HistoricalDataLoader
+    from fxsoqqabot.backtest.regime_tagger import RegimeTagger
+    from fxsoqqabot.backtest.runner import _ts_to_str
+
+    settings = load_settings(args.config)
+    _setup_logging(settings)
+
+    bt_config = BacktestConfig()
+
+    print()
+    print("=" * 70)
+    print("  FXSoqqaBot Regime-Aware Evaluation")
+    print("=" * 70)
+    print()
+
+    # Step 1: Load data
+    if not args.skip_ingestion:
+        loader = HistoricalDataLoader(bt_config)
+        loader.ingest_all()
+
+    loader = HistoricalDataLoader(bt_config)
+    data_start, data_end = loader.get_time_range()
+    bars_df = loader.load_bars(data_start, data_end)
+    print(f"  Loaded {len(bars_df):,} bars ({_ts_to_str(data_start)} -> {_ts_to_str(data_end)})")
+    print()
+
+    # Step 2: Run backtest to get trades
+    print("  Running backtest...")
+    engine = BacktestEngine(settings, bt_config)
+    result = await engine.run(bars_df, run_id="regime_eval")
+    print(f"  Trades: {result.n_trades}")
+    print()
+
+    # Step 3: Tag bars with regime states
+    print("  Tagging bars with regime states (this may take a while)...")
+    tagger = RegimeTagger(settings.signals.chaos)
+    tags = await tagger.tag_bars(bars_df)
+    print(f"  Tagged {len(tags):,} bars")
+    print()
+
+    # Step 4: Evaluate per-regime performance
+    eval_result = tagger.evaluate_regime_performance(result.trades, tags)
+    _print_regime_eval(eval_result)
+
+
+def _print_regime_eval(eval_result) -> None:
+    """Print regime evaluation results in runner format."""
+    print("  Regime-Aware Performance")
+    print("  " + "-" * 38)
+    print(f"  Regimes with trades:  {eval_result.regimes_with_trades}/5")
+    print(f"  Best regime:          {eval_result.best_regime}")
+    print(f"  Worst regime:         {eval_result.worst_regime}")
+    print()
+    print(f"  {'Regime':<20}  {'Trades':>7}  {'WinRate':>8}  {'PF':>8}  {'AvgPnL':>10}  {'TotalPnL':>10}")
+    print(f"  {'--------------------':<20}  {'-------':>7}  {'--------':>8}  {'--------':>8}  {'----------':>10}  {'----------':>10}")
+    for regime, perf in eval_result.regime_performance.items():
+        if perf.n_trades == 0:
+            continue
+        pf_str = f"{perf.profit_factor:.2f}" if perf.profit_factor != float("inf") else "inf"
+        print(f"  {regime:<20}  {perf.n_trades:>7}  {perf.win_rate*100:>7.1f}%  {pf_str:>8}  ${perf.avg_pnl:>9.2f}  ${perf.total_pnl:>9.2f}")
+    print()
+
+
+async def cmd_stress_test(args: argparse.Namespace) -> None:
+    """Run Feigenbaum stress test on chaos module per TEST-06.
+
+    Generates synthetic price series with controlled bifurcation and
+    verifies chaos module correctly detects regime transitions.
+    """
+    from fxsoqqabot.backtest.stress_test import FeigenbaumStressTest
+
+    settings = load_settings(args.config)
+    _setup_logging(settings)
+
+    print()
+    print("=" * 70)
+    print("  FXSoqqaBot Feigenbaum Stress Test")
+    print("=" * 70)
+    print()
+
+    stress = FeigenbaumStressTest(settings.signals.chaos)
+    result = await stress.run_stress_test()
+    _print_stress_test(result)
+
+
+def _print_stress_test(result) -> None:
+    """Print stress test results in runner format."""
+    from fxsoqqabot.backtest.runner import _pass_fail
+
+    print(f"  Pre-transition:        {result.pre_transition_regime} (stable: {_pass_fail(result.pre_transition_detected)})")
+    print(f"  Transition:            {result.transition_regime} (detected: {_pass_fail(result.transition_detected)})")
+    print(f"  Post-transition:       {result.post_transition_regime} (chaos: {_pass_fail(result.chaos_detected)})")
+    print(f"  Bifurcation proximity: {result.bifurcation_proximity_at_transition:.4f}")
+    print(f"  Status:                {_pass_fail(result.passes)}")
+    print()
+
+
 def cmd_optimize(args: argparse.Namespace) -> None:
     """Run parameter optimization. Synchronous -- Optuna drives the event loop.
 
@@ -448,6 +584,8 @@ def main() -> None:
         "status": cmd_status,
         "reset": cmd_reset,
         "backtest": lambda: cmd_backtest(args),
+        "validate-regimes": lambda: cmd_validate_regimes(args),
+        "stress-test": lambda: cmd_stress_test(args),
         "optimize": lambda: cmd_optimize(args),
     }
 
