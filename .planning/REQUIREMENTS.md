@@ -60,7 +60,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Signal Fusion & Decision
 
 - [x] **FUSE-01**: Decision core fuses signals from all upstream modules (chaos regime, order flow, institutional, quantum timing) into a single trade decision using confidence-weighted combination
-- [x] **FUSE-02**: Each module produces a signal with a confidence score; fusion weights adapt based on which modules have been accurate in the recent rolling window
+- [ ] **FUSE-02**: Each module produces a signal with a confidence score; fusion weights adapt based on which modules have been accurate in the recent rolling window
 - [x] **FUSE-03**: Bot applies phase-aware position sizing: aggressive leverage utilization ($20-$100), selective with tighter risk ($100-$300), conservative capital preservation ($300+)
 - [x] **FUSE-04**: Bot auto-transitions between capital phases based on equity, with smooth behavioral transitions (no sudden strategy flip at exact threshold)
 - [x] **FUSE-05**: Decision core fires trades into MT5 with precise entry, SL, and TP parameters and manages open positions in real time, exiting when conditions reverse
@@ -70,9 +70,9 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **LEARN-01**: Bot logs every trade with full context: regime state, order flow conditions, signal combination and individual confidences, position size, entry/exit timing, win/loss, hold duration, spread at entry, slippage
 - [x] **LEARN-02**: Genetic algorithm evolves rule parameters (SL distance, entry thresholds, timeframe weights, signal fusion weights) using trade outcomes as fitness function
 - [x] **LEARN-03**: ML classifiers (RandomForest/XGBoost) trained on trade context data to improve regime detection and win probability prediction over time
-- [x] **LEARN-04**: Shadow mode tests strategy variants in parallel — mutated parameter sets run alongside live strategy without risking capital, promoted to live when they outperform
-- [x] **LEARN-05**: Learning loop identifies which signal combinations win above 70%, which regimes are most favorable, and which rules are degrading — retires underperforming rules automatically
-- [x] **LEARN-06**: Walk-forward validation of evolved parameters prevents the learning loop from overfitting to recent market conditions
+- [ ] **LEARN-04**: Shadow mode tests strategy variants in parallel — mutated parameter sets run alongside live strategy without risking capital, promoted to live when they outperform
+- [ ] **LEARN-05**: Learning loop identifies which signal combinations win above 70%, which regimes are most favorable, and which rules are degrading — retires underperforming rules automatically
+- [ ] **LEARN-06**: Walk-forward validation of evolved parameters prevents the learning loop from overfitting to recent market conditions
 
 ### Backtesting & Validation
 
@@ -80,16 +80,16 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **TEST-02**: Walk-forward validation trains on one period and validates on the next unseen period, rolling forward continuously — strategy must generalize, not memorize
 - [x] **TEST-03**: Monte Carlo simulation randomizes trade order sequences and entry timing 10,000+ times to verify robustness — results must be statistically significant (p < 0.05)
 - [x] **TEST-04**: Out-of-sample testing reserves a portion of recent history (never touched during development) for final validation only
-- [x] **TEST-05**: Regime-aware evaluation measures performance separately across trending, ranging, high-volatility, low-volatility, and news-driven market regimes
-- [x] **TEST-06**: Feigenbaum stress testing injects simulated regime transitions into backtests to verify the chaos module correctly anticipates and adapts to bifurcation events
+- [ ] **TEST-05**: Regime-aware evaluation measures performance separately across trending, ranging, high-volatility, low-volatility, and news-driven market regimes
+- [ ] **TEST-06**: Feigenbaum stress testing injects simulated regime transitions into backtests to verify the chaos module correctly anticipates and adapts to bifurcation events
 - [x] **TEST-07**: Backtesting shares 100% of analysis code with live trading via interface abstraction (DataFeedProtocol + Clock) — no separate backtest-only code paths
 
 ### Observability
 
-- [x] **OBS-01**: Rich terminal TUI dashboard shows in real time: current regime (color-coded), signal confidence per module, open positions with live P&L, spread/slippage metrics, circuit breaker status, daily stats
+- [ ] **OBS-01**: Rich terminal TUI dashboard shows in real time: current regime (color-coded), signal confidence per module, open positions with live P&L, spread/slippage metrics, circuit breaker status, daily stats
 - [x] **OBS-02**: TUI displays order flow visualization — volume delta, bid-ask pressure, institutional flow direction estimate
 - [x] **OBS-03**: TUI flags moments where the strategy mutated or adapted, showing what changed and why
-- [x] **OBS-04**: Lightweight web dashboard shows historical equity curve, trade history with filters, regime timeline, module performance comparison, and cumulative win rate
+- [ ] **OBS-04**: Lightweight web dashboard shows historical equity curve, trade history with filters, regime timeline, module performance comparison, and cumulative win rate
 - [x] **OBS-05**: Web dashboard is accessible from any device on the local network for remote monitoring
 
 ### Configuration
@@ -170,7 +170,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | QTIM-02 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | QTIM-03 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-01 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
-| FUSE-02 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
+| FUSE-02 | Phase 5: Self-Learning Feedback Loop Wiring | Pending |
 | FUSE-03 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-04 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-05 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
@@ -178,20 +178,20 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-02 | Phase 3: Backtesting and Validation | Complete |
 | TEST-03 | Phase 3: Backtesting and Validation | Complete |
 | TEST-04 | Phase 3: Backtesting and Validation | Complete |
-| TEST-05 | Phase 3: Backtesting and Validation | Complete |
-| TEST-06 | Phase 3: Backtesting and Validation | Complete |
+| TEST-05 | Phase 7: Validation Pipeline Entry Points | Pending |
+| TEST-06 | Phase 7: Validation Pipeline Entry Points | Pending |
 | TEST-07 | Phase 3: Backtesting and Validation | Complete |
-| OBS-01 | Phase 4: Observability and Self-Learning | Complete |
+| OBS-01 | Phase 6: Dashboard Live State Wiring | Pending |
 | OBS-02 | Phase 4: Observability and Self-Learning | Complete |
 | OBS-03 | Phase 4: Observability and Self-Learning | Complete |
-| OBS-04 | Phase 4: Observability and Self-Learning | Complete |
+| OBS-04 | Phase 6: Dashboard Live State Wiring | Pending |
 | OBS-05 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-01 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-02 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-03 | Phase 4: Observability and Self-Learning | Complete |
-| LEARN-04 | Phase 4: Observability and Self-Learning | Complete |
-| LEARN-05 | Phase 4: Observability and Self-Learning | Complete |
-| LEARN-06 | Phase 4: Observability and Self-Learning | Complete |
+| LEARN-04 | Phase 5: Self-Learning Feedback Loop Wiring | Pending |
+| LEARN-05 | Phase 5: Self-Learning Feedback Loop Wiring | Pending |
+| LEARN-06 | Phase 5: Self-Learning Feedback Loop Wiring | Pending |
 | CONF-01 | Phase 1: Trading Infrastructure | Complete |
 | CONF-02 | Phase 1: Trading Infrastructure | Complete |
 
@@ -202,4 +202,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-27*
-*Last updated: 2026-03-27 after roadmap creation*
+*Last updated: 2026-03-28 after gap closure phase creation*

@@ -16,6 +16,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: Signal Pipeline and Decision Fusion** - All analysis modules (chaos, order flow, quantum timing) simplified and fused into trade decisions
 - [ ] **Phase 3: Backtesting and Validation** - Scientific validation with walk-forward, Monte Carlo, and regime-aware evaluation on 2015-present XAUUSD data
 - [ ] **Phase 4: Observability and Self-Learning** - Real-time dashboards (TUI + web) and self-learning mutation loop for continuous strategy evolution
+- [ ] **Phase 5: Self-Learning Feedback Loop Wiring** - Wire disconnected learning/evolution components into engine runtime (gap closure)
+- [ ] **Phase 6: Dashboard Live State Wiring** - Connect engine state to TUI/web dashboards and fix pause behavior (gap closure)
+- [ ] **Phase 7: Validation Pipeline Entry Points** - Wire orphaned RegimeTagger and FeigenbaumStressTest into backtest CLI (gap closure)
 
 ## Phase Details
 
@@ -102,6 +105,38 @@ Plans:
 - [x] 04-07-PLAN.md -- Gap closure: fix trade logging pipeline (FillEvent return, close logging, learning loop wiring)
 - [x] 04-08-PLAN.md -- Gap closure: add walk-forward validation gate to shadow variant promotion
 
+### Phase 5: Self-Learning Feedback Loop Wiring
+**Goal**: All learning and evolution feedback loops are connected at runtime — trade outcomes flow into adaptive weights, shadow variants accumulate trade data, promoted variants apply to the live engine, and walk-forward validation gates promotions
+**Depends on**: Phase 4
+**Requirements**: FUSE-02, LEARN-04, LEARN-05, LEARN-06
+**Gap Closure**: Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. AdaptiveWeightTracker.record_outcome() is called after every trade close, and fusion weights evolve from warmup values based on module accuracy
+  2. ShadowManager.record_variant_trade() is called for every trade, shadow variants accumulate trade history, and evaluate_promotion() returns meaningful results
+  3. LearningLoopManager holds an engine reference and promote_variant() applies promoted parameters to the live trading strategy
+  4. set_walk_forward_validator() is called during engine startup and the walk-forward gate blocks promotions that fail validation
+
+### Phase 6: Dashboard Live State Wiring
+**Goal**: TUI and web dashboards display accurate live data — equity, connection status, kill state, module weights, regime timeline — and the pause command actually stops trading
+**Depends on**: Phase 4
+**Requirements**: OBS-01, OBS-04
+**Gap Closure**: Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. _current_equity and _connected are assigned on the engine instance from MT5 account info, and dashboards display real equity values
+  2. is_killed reads a boolean value (not a coroutine object) and displays correctly in TUI/web
+  3. equity_history is populated over time, /api/equity returns real data, /api/module-weights returns current fusion weights, and regime timeline data flows to the web dashboard
+  4. When is_paused is set via TUI/web, _signal_loop, _tick_loop, and _bar_loop skip evaluation until unpaused
+
+### Phase 7: Validation Pipeline Entry Points
+**Goal**: RegimeTagger and FeigenbaumStressTest are callable from the backtest CLI and runner — completing the validation pipeline with regime-aware evaluation and chaos stress testing
+**Depends on**: Phase 3
+**Requirements**: TEST-05, TEST-06
+**Gap Closure**: Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. CLI command exists to run regime-aware evaluation (RegimeTagger) on backtest results, producing per-regime performance breakdown
+  2. CLI command exists to run Feigenbaum stress testing on backtest data, verifying chaos module behavior during simulated regime transitions
+  3. Both tools are integrated into the backtest runner so they can be invoked as part of a standard validation pipeline
+
 ## Progress
 
 **Execution Order:**
@@ -112,4 +147,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Trading Infrastructure | 7/7 | Complete | 2026-03-27 |
 | 2. Signal Pipeline and Decision Fusion | 6/6 | Complete | 2026-03-27 |
 | 3. Backtesting and Validation | 0/5 | Not started | - |
-| 4. Observability and Self-Learning | 6/8 | Gap closure | - |
+| 4. Observability and Self-Learning | 8/8 | Complete | 2026-03-28 |
+| 5. Self-Learning Feedback Loop Wiring | 0/0 | Not started | - |
+| 6. Dashboard Live State Wiring | 0/0 | Not started | - |
+| 7. Validation Pipeline Entry Points | 0/0 | Not started | - |
