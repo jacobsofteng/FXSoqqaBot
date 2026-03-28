@@ -4,10 +4,10 @@ milestone: v1.1
 milestone_name: Live Demo Launch
 status: active
 stopped_at: null
-last_updated: "2026-03-28T18:00:00.000Z"
+last_updated: "2026-03-28T19:00:00.000Z"
 last_activity: 2026-03-28
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,29 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-28)
 
 **Core value:** The bot reads the market's true state through the fusion of all analysis modules and trades with the dominant forces. The edge is the fusion.
-**Current focus:** v1.1 Live Demo Launch — fix trade frequency, optimize, wire live execution
+**Current focus:** Phase 8 — Signal & Risk Calibration
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 8 of 10 (Signal & Risk Calibration) — first phase of v1.1
 Plan: —
-Status: Defining requirements
-Last activity: 2026-03-28 — Milestone v1.1 started
+Status: Ready to plan
+Last activity: 2026-03-28 — Roadmap created for v1.1 Live Demo Launch
+
+Progress: [░░░░░░░░░░] 0%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 0 (v1.1)
+- Average duration: —
+- Total execution time: —
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| - | - | - | - |
 
 ## Accumulated Context
 
@@ -43,8 +58,9 @@ None.
 ### Blockers/Concerns
 
 - DOM data quality from RoboForex ECN is unknown — flow module degrades gracefully to tick-only
-- $20 starting capital makes 1-2% risk per trade mathematically challenging at 0.01 lot minimum — addressed by aggressive phase risk (10%)
-- Learning loop disabled by default — user must opt-in after sufficient trade history
+- $20 starting capital constraint addressed by aggressive phase risk (15-20%) — marked DEMO_ONLY
+- Actual fused_confidence distribution unknown until Phase 8 signal fixes are measured — threshold must be data-driven
+- RoboForex ECN filling mode behavior must be confirmed live during Phase 10
 
 ### Quick Tasks Completed
 
@@ -58,5 +74,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-28
-Stopped at: Milestone v1.0 completed
+Stopped at: Roadmap created for v1.1 milestone
 Resume file: None

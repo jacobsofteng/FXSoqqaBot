@@ -64,28 +64,28 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SIG-01 | — | Pending |
-| SIG-02 | — | Pending |
-| SIG-03 | — | Pending |
-| SIG-04 | — | Pending |
-| RISK-01 | — | Pending |
-| RISK-02 | — | Pending |
-| RISK-03 | — | Pending |
-| RISK-04 | — | Pending |
-| OPT-01 | — | Pending |
-| OPT-02 | — | Pending |
-| OPT-03 | — | Pending |
-| OPT-04 | — | Pending |
-| EXEC-01 | — | Pending |
-| EXEC-02 | — | Pending |
-| EXEC-03 | — | Pending |
-| EXEC-04 | — | Pending |
+| SIG-01 | Phase 8 | Pending |
+| SIG-02 | Phase 8 | Pending |
+| SIG-03 | Phase 8 | Pending |
+| SIG-04 | Phase 8 | Pending |
+| RISK-01 | Phase 8 | Pending |
+| RISK-02 | Phase 8 | Pending |
+| RISK-03 | Phase 8 | Pending |
+| RISK-04 | Phase 8 | Pending |
+| OPT-01 | Phase 9 | Pending |
+| OPT-02 | Phase 9 | Pending |
+| OPT-03 | Phase 9 | Pending |
+| OPT-04 | Phase 9 | Pending |
+| EXEC-01 | Phase 10 | Pending |
+| EXEC-02 | Phase 10 | Pending |
+| EXEC-03 | Phase 10 | Pending |
+| EXEC-04 | Phase 10 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 16 total
-- Mapped to phases: 0
-- Unmapped: 16 (pending roadmap creation)
+- Mapped to phases: 16
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-28*
-*Last updated: 2026-03-28 after initial definition*
+*Last updated: 2026-03-28 after roadmap creation*
