@@ -42,7 +42,7 @@ See [v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) for full archive.
 **Plans:** 2 plans
 Plans:
 - [x] 08-01-PLAN.md -- Signal pipeline fixes: config defaults, chaos direction modes, timing double-compression fix
-- [ ] 08-02-PLAN.md -- Risk management upgrades: phase-aware drawdown, concurrent positions, backtest sync
+- [x] 08-02-PLAN.md -- Risk management upgrades: phase-aware drawdown, concurrent positions, backtest sync
 
 ### Phase 9: Backtest Pipeline & Automated Optimization
 **Goal**: A single command runs the full backtest-optimize-validate pipeline and writes an optimized.toml with data-driven parameters

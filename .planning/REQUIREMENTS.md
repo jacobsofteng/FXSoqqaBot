@@ -17,8 +17,8 @@ Requirements for Live Demo Launch milestone. Each maps to roadmap phases.
 ### Risk Management
 
 - [x] **RISK-01**: Position sizer accepts trades at $20 equity with ATR x1.0 SL multiplier and 15% aggressive risk_pct
-- [ ] **RISK-02**: Circuit breaker daily drawdown limit is phase-aware (15-20% for aggressive, 10% for selective, 5% for conservative)
-- [ ] **RISK-03**: Bot supports 2-3 concurrent positions with aggregate exposure across all open positions capped at the single-position risk budget (e.g., 15% total, not 15% per position)
+- [x] **RISK-02**: Circuit breaker daily drawdown limit is phase-aware (15-20% for aggressive, 10% for selective, 5% for conservative)
+- [x] **RISK-03**: Bot supports 2-3 concurrent positions with aggregate exposure across all open positions capped at the single-position risk budget (e.g., 15% total, not 15% per position)
 - [x] **RISK-04**: Trading session windows include London (08:00-12:00 UTC) and London-NY overlap (13:00-17:00 UTC)
 
 ### Backtesting & Optimization
@@ -69,8 +69,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SIG-03 | Phase 8 | Complete |
 | SIG-04 | Phase 8 | Complete |
 | RISK-01 | Phase 8 | Complete |
-| RISK-02 | Phase 8 | Pending |
-| RISK-03 | Phase 8 | Pending |
+| RISK-02 | Phase 8 | Complete |
+| RISK-03 | Phase 8 | Complete |
 | RISK-04 | Phase 8 | Complete |
 | OPT-01 | Phase 9 | Pending |
 | OPT-02 | Phase 9 | Pending |

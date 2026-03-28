@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Live Demo Launch
-status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-03-28T12:34:13Z"
-last_activity: 2026-03-28 -- Phase 08 plan 01 complete
+status: verifying
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-03-28T12:46:38.253Z"
+last_activity: 2026-03-28
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 50
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-03-28)
 
 Phase: 08 (signal-risk-calibration) -- EXECUTING
 Plan: 2 of 2
-Status: Plan 01 complete, Plan 02 pending
-Last activity: 2026-03-28 -- Phase 08 plan 01 complete
+Status: Phase complete — ready for verification
+Last activity: 2026-03-28
 
 Progress: [=====-----] 50%
 
@@ -45,6 +45,7 @@ Progress: [=====-----] 50%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 08 | 1 | 7min | 7min |
+| Phase 08 P02 | 6min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -54,6 +55,9 @@ Progress: [=====-----] 50%
 - 08-01: Flow_follow via cached setter, not Protocol change
 - 08-01: Proportional threshold shift 0.30/0.45/0.60
 - 08-01: Urgency fix in ou_model.py (not module.py)
+- [Phase 08]: 08-02: Inversion of control for circuit breaker drawdown limit (caller passes, not breaker queries)
+- [Phase 08]: 08-02: OpenPosition dataclass with risk_amount for per-position budget tracking
+- [Phase 08]: 08-02: Backtest engine already reads config - no code changes needed for sync
 
 ### Pending Todos
 
@@ -77,6 +81,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-28T12:34:13Z
-Stopped at: Completed 08-01-PLAN.md
-Resume file: .planning/phases/08-signal-risk-calibration/08-02-PLAN.md
+Last session: 2026-03-28T12:46:38.251Z
+Stopped at: Completed 08-02-PLAN.md
+Resume file: None
