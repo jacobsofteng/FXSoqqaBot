@@ -60,7 +60,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Signal Fusion & Decision
 
 - [x] **FUSE-01**: Decision core fuses signals from all upstream modules (chaos regime, order flow, institutional, quantum timing) into a single trade decision using confidence-weighted combination
-- [ ] **FUSE-02**: Each module produces a signal with a confidence score; fusion weights adapt based on which modules have been accurate in the recent rolling window
+- [x] **FUSE-02**: Each module produces a signal with a confidence score; fusion weights adapt based on which modules have been accurate in the recent rolling window
 - [x] **FUSE-03**: Bot applies phase-aware position sizing: aggressive leverage utilization ($20-$100), selective with tighter risk ($100-$300), conservative capital preservation ($300+)
 - [x] **FUSE-04**: Bot auto-transitions between capital phases based on equity, with smooth behavioral transitions (no sudden strategy flip at exact threshold)
 - [x] **FUSE-05**: Decision core fires trades into MT5 with precise entry, SL, and TP parameters and manages open positions in real time, exiting when conditions reverse
@@ -70,9 +70,9 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **LEARN-01**: Bot logs every trade with full context: regime state, order flow conditions, signal combination and individual confidences, position size, entry/exit timing, win/loss, hold duration, spread at entry, slippage
 - [x] **LEARN-02**: Genetic algorithm evolves rule parameters (SL distance, entry thresholds, timeframe weights, signal fusion weights) using trade outcomes as fitness function
 - [x] **LEARN-03**: ML classifiers (RandomForest/XGBoost) trained on trade context data to improve regime detection and win probability prediction over time
-- [ ] **LEARN-04**: Shadow mode tests strategy variants in parallel — mutated parameter sets run alongside live strategy without risking capital, promoted to live when they outperform
-- [ ] **LEARN-05**: Learning loop identifies which signal combinations win above 70%, which regimes are most favorable, and which rules are degrading — retires underperforming rules automatically
-- [ ] **LEARN-06**: Walk-forward validation of evolved parameters prevents the learning loop from overfitting to recent market conditions
+- [x] **LEARN-04**: Shadow mode tests strategy variants in parallel — mutated parameter sets run alongside live strategy without risking capital, promoted to live when they outperform
+- [x] **LEARN-05**: Learning loop identifies which signal combinations win above 70%, which regimes are most favorable, and which rules are degrading — retires underperforming rules automatically
+- [x] **LEARN-06**: Walk-forward validation of evolved parameters prevents the learning loop from overfitting to recent market conditions
 
 ### Backtesting & Validation
 
@@ -170,7 +170,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | QTIM-02 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | QTIM-03 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-01 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
-| FUSE-02 | Phase 5: Self-Learning Feedback Loop Wiring | Pending |
+| FUSE-02 | Phase 5: Self-Learning Feedback Loop Wiring | Complete |
 | FUSE-03 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-04 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
 | FUSE-05 | Phase 2: Signal Pipeline and Decision Fusion | Complete |
@@ -189,9 +189,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LEARN-01 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-02 | Phase 4: Observability and Self-Learning | Complete |
 | LEARN-03 | Phase 4: Observability and Self-Learning | Complete |
-| LEARN-04 | Phase 5: Self-Learning Feedback Loop Wiring | Pending |
-| LEARN-05 | Phase 5: Self-Learning Feedback Loop Wiring | Pending |
-| LEARN-06 | Phase 5: Self-Learning Feedback Loop Wiring | Pending |
+| LEARN-04 | Phase 5: Self-Learning Feedback Loop Wiring | Complete |
+| LEARN-05 | Phase 5: Self-Learning Feedback Loop Wiring | Complete |
+| LEARN-06 | Phase 5: Self-Learning Feedback Loop Wiring | Complete |
 | CONF-01 | Phase 1: Trading Infrastructure | Complete |
 | CONF-02 | Phase 1: Trading Infrastructure | Complete |
 

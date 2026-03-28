@@ -118,7 +118,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md -- Wire adaptive weights, shadow trade recording, and promote callback in engine and learning loop
+- [x] 05-01-PLAN.md -- Wire adaptive weights, shadow trade recording, and promote callback in engine and learning loop
 - [ ] 05-02-PLAN.md -- Integration tests for all four feedback loop wiring points
 
 ### Phase 6: Dashboard Live State Wiring

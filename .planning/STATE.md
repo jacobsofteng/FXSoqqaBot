@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Completed quick task 260328-3ve: Optuna parameter optimizer with DEAP rule evolution"
-last_updated: "2026-03-27T22:04:30.524Z"
-last_activity: 2026-03-27
+stopped_at: Completed 05-01-PLAN.md self-learning feedback loop wiring
+last_updated: "2026-03-28T07:07:12.456Z"
+last_activity: 2026-03-28 -- Completed 05-01 self-learning feedback loop wiring
 progress:
-  total_phases: 4
+  total_phases: 7
   completed_phases: 4
-  total_plans: 26
-  completed_plans: 26
-  percent: 77
+  total_plans: 28
+  completed_plans: 27
+  percent: 96
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** The bot reads the market's true state through the fusion of all eight modules and trades with the dominant forces. The edge is the fusion.
-**Current focus:** Phase 04 — observability-and-self-learning
+**Current focus:** Phase 05 — self-learning-feedback-loop-wiring
 
 ## Current Position
 
-Phase: 04
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-03-27
+Phase: 05 (self-learning-feedback-loop-wiring) — EXECUTING
+Plan: 2 of 2
+Status: Executing Phase 05
+Last activity: 2026-03-28 -- Completed 05-01 self-learning feedback loop wiring
 
-Progress: [████████░░] 77%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -77,6 +77,7 @@ Progress: [████████░░] 77%
 | Phase 04 P06 | 5min | 2 tasks | 5 files |
 | Phase 04 P07 | 9min | 2 tasks | 4 files |
 | Phase 04 P08 | 4min | 1 tasks | 3 files |
+| Phase 05 P01 | 4min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -161,6 +162,8 @@ Recent decisions affecting current work:
 - [Phase quick-260328-31c]: Replicate nolds nb_neighbors lag check in lyapunov to prevent orbit-too-small on short data
 - [Phase quick-260328-3ve]: Synchronous run_optimization with per-trial asyncio.run() to avoid nested event loop (Optuna Pitfall 2)
 - [Phase quick-260328-3ve]: FusionConfig.model_fields over hasattr for Pydantic v2 field detection in apply_params_to_settings
+- [Phase 05]: Promote callback rebuilds only FusionCore/PhaseBehavior/TradeManager -- not bridge, buffers, storage, or signal modules
+- [Phase 05]: Late import of apply_params_to_settings inside _create_promote_callback to avoid circular imports
 
 ### Pending Todos
 
@@ -183,6 +186,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T22:04:07.447Z
-Stopped at: Completed quick task 260328-3ve: Optuna parameter optimizer with DEAP rule evolution
+Last session: 2026-03-28T07:07:12.453Z
+Stopped at: Completed 05-01-PLAN.md self-learning feedback loop wiring
 Resume file: None
