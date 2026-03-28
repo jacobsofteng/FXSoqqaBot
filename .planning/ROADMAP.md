@@ -131,6 +131,11 @@ Plans:
   2. is_killed reads a boolean value (not a coroutine object) and displays correctly in TUI/web
   3. equity_history is populated over time, /api/equity returns real data, /api/module-weights returns current fusion weights, and regime timeline data flows to the web dashboard
   4. When is_paused is set via TUI/web, _signal_loop, _tick_loop, and _bar_loop skip evaluation until unpaused
+**Plans**: 2 plans
+
+Plans:
+- [ ] 06-01-PLAN.md -- Fix all 4 dashboard wiring bugs in engine, state snapshot, circuit breakers, and web server
+- [ ] 06-02-PLAN.md -- Unit tests for all 4 success criteria (equity, is_killed, history/weights, pause)
 
 ### Phase 7: Validation Pipeline Entry Points
 **Goal**: RegimeTagger and FeigenbaumStressTest are callable from the backtest CLI and runner — completing the validation pipeline with regime-aware evaluation and chaos stress testing
@@ -154,5 +159,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | 3. Backtesting and Validation | 0/5 | Not started | - |
 | 4. Observability and Self-Learning | 8/8 | Complete | 2026-03-28 |
 | 5. Self-Learning Feedback Loop Wiring | 0/2 | Not started | - |
-| 6. Dashboard Live State Wiring | 0/0 | Not started | - |
+| 6. Dashboard Live State Wiring | 0/2 | Not started | - |
 | 7. Validation Pipeline Entry Points | 0/0 | Not started | - |
