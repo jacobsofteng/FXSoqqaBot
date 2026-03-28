@@ -42,6 +42,7 @@ class TradingEngineState:
     is_connected: bool = False
     is_paused: bool = False
     is_killed: bool = False
+    module_weights: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Serialize for WebSocket JSON transmission."""
@@ -64,7 +65,9 @@ class TradingEngineState:
             "ask_pressure": self.ask_pressure,
             "daily_trade_count": self.daily_trade_count,
             "daily_win_rate": self.daily_win_rate,
+            "equity_history": self.equity_history[-50:],
             "is_connected": self.is_connected,
             "is_paused": self.is_paused,
             "is_killed": self.is_killed,
+            "module_weights": self.module_weights,
         }

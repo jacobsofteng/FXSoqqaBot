@@ -254,3 +254,19 @@ class CircuitBreakerManager:
     def snapshot(self) -> CircuitBreakerSnapshot:
         """Return current circuit breaker snapshot."""
         return self._snapshot
+
+    @property
+    def is_killed(self) -> bool:
+        """Synchronous check if kill switch is active."""
+        return self._snapshot.kill_switch == BreakerState.KILLED
+
+    def get_breaker_status(self) -> dict[str, str]:
+        """Return all breaker states as a dict for dashboard display."""
+        return {
+            "kill_switch": self._snapshot.kill_switch.value,
+            "daily_drawdown": self._snapshot.daily_drawdown.value,
+            "loss_streak": self._snapshot.loss_streak.value,
+            "rapid_equity_drop": self._snapshot.rapid_equity_drop.value,
+            "max_trades": self._snapshot.max_trades.value,
+            "spread_spike": self._snapshot.spread_spike.value,
+        }
