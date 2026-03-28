@@ -251,6 +251,11 @@ class TradingEngine:
                 )
                 # Learning loop will operate without WF gate (statistical-only mode)
 
+            # LEARN-05: Wire promote callback to apply variant params to live strategy
+            self._learning_loop.set_promote_callback(
+                self._create_promote_callback()
+            )
+
         # Phase 4: Web dashboard server
         if self._web_enabled:
             from fxsoqqabot.dashboard.web.server import DashboardServer
@@ -344,6 +349,45 @@ class TradingEngine:
                 return False  # Fail-safe: reject promotion on error
 
         return _validate
+
+    def _create_promote_callback(self) -> Callable[[dict[str, float]], None]:
+        """Create callback to apply promoted variant params to live strategy.
+
+        Returns a closure that:
+        1. Calls apply_params_to_settings to create new BotSettings
+        2. Replaces self._settings with the new settings
+        3. Rebuilds FusionCore, PhaseBehavior, and TradeManager
+        Does NOT rebuild bridge, buffers, storage, or signal modules.
+
+        Per Research Pitfall 6: Uses model_copy (new object), does NOT mutate.
+        Per Research Pitfall 3: Keeps it lightweight (no I/O, no computation).
+        """
+        from fxsoqqabot.optimization.search_space import apply_params_to_settings
+
+        def _apply(params: dict[str, float]) -> None:
+            new_settings = apply_params_to_settings(self._settings, params)
+            self._settings = new_settings
+
+            # Rebuild only affected components with new settings
+            sig_config = new_settings.signals
+            self._fusion_core = FusionCore(sig_config.fusion)
+            self._phase_behavior = PhaseBehavior(
+                sig_config.fusion, new_settings.risk
+            )
+            self._trade_manager = TradeManager(
+                fusion_config=sig_config.fusion,
+                phase_behavior=self._phase_behavior,
+                order_manager=self._order_manager,
+                position_sizer=self._sizer,
+                breaker_manager=self._breakers,
+            )
+
+            self._logger.info(
+                "promoted_params_applied",
+                params=list(params.keys()),
+            )
+
+        return _apply
 
     # -- Connection -----------------------------------------------------------
 

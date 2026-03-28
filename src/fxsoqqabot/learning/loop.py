@@ -75,6 +75,10 @@ class LearningLoopManager:
         # Injected by engine or set to None for statistical-only mode
         self._walk_forward_validator: Callable[[dict[str, float]], bool] | None = None
 
+        # Promote callback to apply promoted params to live engine (LEARN-05)
+        # Callable that takes param dict and applies to live strategy
+        self._promote_callback: Callable[[dict[str, float]], None] | None = None
+
         # Mutation event log for TUI display
         self._last_mutation_events: list[dict] = []
 
@@ -98,6 +102,21 @@ class LearningLoopManager:
         """
         self._walk_forward_validator = validator
         logger.info("walk_forward_validator_set")
+
+    def set_promote_callback(
+        self, callback: Callable[[dict[str, float]], None]
+    ) -> None:
+        """Set callback to apply promoted params to live strategy.
+
+        Called when a variant passes both statistical and walk-forward gates.
+        The callback receives the promoted parameter dict and should apply
+        it to the live trading engine's settings.
+
+        Args:
+            callback: Callable that takes param dict and applies to engine.
+        """
+        self._promote_callback = callback
+        logger.info("promote_callback_set")
 
     async def on_trade_closed(self, trade_result: dict) -> list[dict]:
         """Main entry point called when a live trade closes.
@@ -234,6 +253,17 @@ class LearningLoopManager:
                 promoted_params = self._shadow.promote_variant(
                     variant.variant_id
                 )
+
+                # LEARN-05: Apply promoted params to live engine
+                if self._promote_callback is not None:
+                    try:
+                        self._promote_callback(promoted_params)
+                    except Exception:
+                        logger.error(
+                            "promote_callback_error",
+                            variant_id=variant.variant_id,
+                            exc_info=True,
+                        )
 
                 mutation_event = {
                     "mutation": True,
