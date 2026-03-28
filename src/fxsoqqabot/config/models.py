@@ -7,7 +7,7 @@ from TOML files with environment variable overrides.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,7 +17,7 @@ class RiskConfig(BaseModel):
     """Risk management configuration with three-phase capital model (D-03).
 
     Phase thresholds:
-      - Aggressive: equity < aggressive_max ($100)  -> 10% risk/trade
+      - Aggressive: equity < aggressive_max ($100)  -> 15% risk/trade
       - Selective:  equity < selective_max ($300)    -> 5% risk/trade
       - Conservative: equity >= selective_max        -> 2% risk/trade
     """
@@ -27,7 +27,7 @@ class RiskConfig(BaseModel):
     selective_max: float = 300.0
 
     # Risk per trade by phase
-    aggressive_risk_pct: float = 0.10
+    aggressive_risk_pct: float = 0.15  # Per D-05/RISK-01: raised from 0.10
     selective_risk_pct: float = 0.05
     conservative_risk_pct: float = 0.02
 
@@ -88,7 +88,10 @@ class SessionConfig(BaseModel):
     at which daily counters reset (D-10).
     """
 
-    windows: list[dict[str, str]] = [{"start": "13:00", "end": "17:00"}]
+    windows: list[dict[str, str]] = [
+        {"start": "08:00", "end": "12:00"},  # London session per D-14
+        {"start": "13:00", "end": "17:00"},  # London-NY overlap per D-14
+    ]
     timezone: str = "UTC"
     reset_hour: int = 0  # Session boundary for counter reset per D-10
 
@@ -103,7 +106,7 @@ class ExecutionConfig(BaseModel):
     magic_number: int = 20260327
     deviation: int = 20  # Slippage tolerance in points
     mode: str = "paper"  # Per D-01/D-02: "paper" or "live", manual switch only
-    sl_atr_multiplier: float = 2.0  # Per RISK-01
+    sl_atr_multiplier: float = 1.0  # Per D-06/RISK-01: tighter stops
     mt5_path: str | None = None
     mt5_login: int | None = None
     mt5_password: str | None = None
@@ -166,6 +169,7 @@ class ChaosConfig(BaseModel):
     computation_timeout_ms: int = 50  # Max time per module update in milliseconds
     primary_timeframe: str = "M5"  # Timeframe for primary regime detection
     secondary_timeframe: str = "H1"  # Timeframe for trend confirmation
+    direction_mode: Literal["zero", "drift", "flow_follow"] = "drift"
 
 
 class FlowConfig(BaseModel):
@@ -215,9 +219,9 @@ class FusionConfig(BaseModel):
     """
 
     # Confidence thresholds per capital phase (D-03, D-04)
-    aggressive_confidence_threshold: float = 0.5  # $20-$100
-    selective_confidence_threshold: float = 0.6  # $100-$300
-    conservative_confidence_threshold: float = 0.7  # $300+
+    aggressive_confidence_threshold: float = 0.3  # Per D-04/SIG-03: $20-$100
+    selective_confidence_threshold: float = 0.45  # Proportional shift: $100-$300
+    conservative_confidence_threshold: float = 0.6  # Proportional shift: $300+
     # Adaptive weights (D-02)
     ema_alpha: float = 0.1  # EMA decay for accuracy tracking
     weight_warmup_trades: int = 10  # Trades before weights diverge
@@ -227,7 +231,7 @@ class FusionConfig(BaseModel):
     high_chaos_rr_ratio: float = 2.0  # High-chaos regime RR
     # ATR-based SL (D-09)
     sl_atr_period: int = 14  # ATR lookback for SL computation
-    sl_atr_base_multiplier: float = 2.0  # Base ATR multiplier for SL
+    sl_atr_base_multiplier: float = 1.0  # Per D-06/RISK-01: down from 2.0
     sl_chaos_widen_factor: float = 1.5  # Extra widen for high-chaos (D-06)
     # Trailing stops per regime (D-10)
     trending_trail_activation_atr: float = 1.0  # Activate after 1x SL distance profit
@@ -239,7 +243,7 @@ class FusionConfig(BaseModel):
     # Phase transition smoothing (D-04, FUSE-04)
     phase_transition_equity_buffer: float = 10.0  # Sigmoid smoothing window in $
     # Position limit (D-11)
-    max_concurrent_positions: int = 1
+    max_concurrent_positions: int = 2  # Per D-09/RISK-03: up from 1
     # Signal weight seeds for optimizer (initial accuracy values for AdaptiveWeightTracker)
     weight_chaos_seed: float = 0.5
     weight_flow_seed: float = 0.5
