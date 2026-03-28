@@ -19,12 +19,13 @@ The bot reads the market's true state through the fusion of all eight modules �
 - [x] Quantum timing engine treating price-time as coupled state variables with probability-weighted entry/exit windows — Validated in Phase 2: Signal Pipeline and Decision Fusion
 - [x] Chaos/fractal/Feigenbaum regime classifier detecting market dynamical state (fractal dimension, strange attractors, bifurcation proximity, crowd entropy) — Validated in Phase 2: Signal Pipeline and Decision Fusion
 - [x] Decision and execution core fusing all upstream signals into trade decisions with phase-aware position sizing — Validated in Phase 2: Signal Pipeline and Decision Fusion
-
-### Active
-
 - [x] Self-learning mutation loop logging full trade context and evolving rules via hybrid genetic + ML optimization — Validated in Phase 4: Observability and Self-Learning
 - [x] Dual dashboard: rich terminal TUI for real-time monitoring + lightweight web dashboard for charts, stats, regime visualization — Validated in Phase 4: Observability and Self-Learning
 - [x] Backtesting framework with walk-forward validation, Monte Carlo simulation, out-of-sample testing, regime-aware evaluation, and Feigenbaum stress testing across XAUUSD 2015-present — Validated in Phase 3: Backtesting and Validation
+
+### Active
+
+None — all v1.0 requirements validated.
 
 ### Out of Scope
 
@@ -113,4 +114,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-28 after Phase 6 completion — dashboard live state wiring complete, engine writes real equity/connection/kill/weights/breakers to shared state, pause guards active in all loops*
+*Last updated: 2026-03-28 after Phase 7 completion — validation pipeline entry points complete, RegimeTagger and FeigenbaumStressTest callable from CLI and integrated into backtest runner (6-step pipeline). All v1.0 milestone phases complete.*
