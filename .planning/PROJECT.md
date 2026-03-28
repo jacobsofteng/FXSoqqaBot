@@ -23,7 +23,7 @@ The bot reads the market's true state through the fusion of all analysis modules
 
 **Shipped:** v1.0 MVP (2026-03-28)
 **Codebase:** 14,811 LOC Python source, 14,594 LOC tests (772+ tests passing)
-**Status:** v1.1 Phase 8 complete — signal pipeline calibrated (chaos direction modes, timing fix, phase-aware risk). Next: backtest pipeline & automated optimization.
+**Status:** v1.1 Phase 9 complete — NSGA-II optimizer with 25-param search space, Pareto selection, Rich progress, warm-start. Next: live MT5 execution & demo launch.
 
 ## Requirements
 
@@ -47,7 +47,7 @@ The bot reads the market's true state through the fusion of all analysis modules
 **v1.1 — Live Demo Launch:**
 - [ ] Signal pipeline overhaul — fix chaos direction, timing urgency, fusion thresholds for 10-20 trades/day
 - [ ] Backtesting pipeline fix — performance optimization, complete 6-step pipeline
-- [ ] Automated optimization — single command backtest → optimize → validate → write config
+- [x] Automated optimization — single command backtest → optimize → validate → write config (Phase 9)
 - [ ] Live MT5 execution — real order_send() on demo account, position tracking, reconnection
 - [ ] Demo hardening — log levels, session management, crash recovery, monitoring
 
