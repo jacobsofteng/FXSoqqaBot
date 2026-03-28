@@ -147,8 +147,10 @@ class DashboardServer:
 
         @app.get("/api/module-weights")
         async def get_module_weights() -> dict[str, Any]:
-            """Return module weight history (placeholder until learning loop wired)."""
-            # Placeholder -- will be populated when learning loop tracks weight history
+            """Return current module weights from adaptive weight tracker."""
+            weights = self._state.module_weights
+            if weights:
+                return {"data": [weights]}
             return {"data": []}
 
         @app.post("/api/kill")

@@ -69,6 +69,10 @@ class TradingEngine:
         self._logger = structlog.get_logger().bind(component="engine")
         self._tick_poll_count = 0
 
+        # Dashboard state tracking (assigned in loops, read by _update_engine_state)
+        self._current_equity: float = 0.0
+        self._connected: bool = False
+
         # Component slots -- initialized in _initialize_components()
         self._bridge: MT5Bridge | None = None
         self._state: StateManager | None = None
@@ -470,6 +474,9 @@ class TradingEngine:
         interval_s = self._settings.data.tick_poll_interval_ms / 1000.0
 
         while self._running:
+            if self._engine_state.is_paused:
+                await asyncio_sleep(interval_s)
+                continue
             try:
                 # Check MT5 connection
                 if not await self._bridge.ensure_connected():
@@ -533,6 +540,9 @@ class TradingEngine:
         interval_s = self._settings.data.bar_refresh_interval_seconds
 
         while self._running:
+            if self._engine_state.is_paused:
+                await asyncio_sleep(interval_s)
+                continue
             try:
                 bars_by_tf = await self._feed.fetch_multi_timeframe_bars(
                     symbol
@@ -562,6 +572,7 @@ class TradingEngine:
                 account_info = await self._bridge.get_account_info()
                 if account_info is not None:
                     await self._breakers.check_equity(account_info.equity)
+                    self._current_equity = account_info.equity
 
                     # Save account snapshot
                     await self._state.save_account_snapshot(
@@ -575,6 +586,8 @@ class TradingEngine:
                             else 0.0
                         ),
                     )
+
+                self._connected = self._bridge.connected
 
                 # Log tripped breakers
                 tripped = self._breakers.get_tripped_breakers()
@@ -603,6 +616,9 @@ class TradingEngine:
         interval_s = self._settings.data.bar_refresh_interval_seconds
 
         while self._running:
+            if self._engine_state.is_paused:
+                await asyncio_sleep(interval_s)
+                continue
             try:
                 # Prepare data for signal modules
                 tick_arrays = self._tick_buffer.as_arrays()
@@ -641,6 +657,7 @@ class TradingEngine:
                 # Get equity for phase-aware threshold
                 account_info = await self._bridge.get_account_info()
                 equity = account_info.equity if account_info else 20.0
+                self._current_equity = equity
 
                 # Get confidence threshold for current equity
                 threshold = self._phase_behavior.get_confidence_threshold(equity)
@@ -910,28 +927,28 @@ class TradingEngine:
                 s.spread = float(arrays["spread"][-1])
 
         # Equity
-        s.equity = getattr(self, "_current_equity", 0.0)
+        s.equity = self._current_equity
+
+        # Populate equity history for sparkline and charts (capped at 1000)
+        if s.equity > 0:
+            s.equity_history.append(s.equity)
+            if len(s.equity_history) > 1000:
+                s.equity_history = s.equity_history[-500:]
+
+        # Module weights for web dashboard
+        if self._weight_tracker:
+            s.module_weights = self._weight_tracker.get_weights()
 
         # Breaker status
         if self._breakers:
-            try:
-                snapshot = self._breakers.get_snapshot()
-                s.breaker_status = {
-                    "daily_drawdown": (
-                        snapshot.daily_drawdown_state.value
-                        if hasattr(snapshot, "daily_drawdown_state")
-                        else "unknown"
-                    )
-                }
-            except Exception:
-                pass
+            s.breaker_status = self._breakers.get_breaker_status()
 
         # Connection status
-        s.is_connected = getattr(self, "_connected", False)
+        s.is_connected = self._connected
 
-        # Kill switch
-        if self._kill_switch:
-            s.is_killed = getattr(self._kill_switch, "is_killed", False)
+        # Kill switch -- read synchronously from breaker snapshot (not async method)
+        if self._breakers:
+            s.is_killed = self._breakers.is_killed
 
         # Order flow from last flow signal
         if self._last_signals:
@@ -962,7 +979,10 @@ class TradingEngine:
     async def _handle_kill(self) -> None:
         """Handle kill switch activation from dashboard callback."""
         if self._kill_switch:
-            await self._kill_switch.activate(self._order_manager)
+            await self._kill_switch.activate()
+        # Update cached kill state for dashboard
+        if self._breakers:
+            self._engine_state.is_killed = self._breakers.is_killed
 
     async def _handle_pause(self) -> None:
         """Toggle pause state from dashboard callback."""
@@ -1001,6 +1021,7 @@ class TradingEngine:
             self._logger.error("engine_cannot_connect_mt5_aborting")
             await self.stop()
             return
+        self._connected = True
 
         # Crash recovery
         await self._crash_recovery()
