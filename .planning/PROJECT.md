@@ -2,38 +2,48 @@
 
 ## What This Is
 
-A self-learning, self-adapting Forex scalping bot for XAUUSD (Gold) on MetaTrader 5 via RoboForex ECN with 1:500 leverage. It reads the market's current state — institutional flow, order flow microstructure, chaos regime dynamics, and quantum-inspired timing — and positions itself in harmony with the dominant forces. Python-first architecture with a thin MQL5 execution layer, designed to evolve its own strategy through a hybrid rule-based + ML mutation loop.
+A self-learning, self-adapting Forex scalping bot for XAUUSD (Gold) on MetaTrader 5 via RoboForex ECN with 1:500 leverage. It reads the market's current state through chaos regime dynamics, order flow microstructure, and quantum-inspired timing, then fuses these signals into confidence-weighted trade decisions. Python-first architecture with a thin MQL5 execution layer, dual dashboards (TUI + web), and a hybrid genetic + ML evolution loop that promotes strategy improvements only after walk-forward validation.
 
 ## Core Value
 
-The bot reads the market's true state through the fusion of all eight modules — institutional flow, order flow, chaos dynamics, quantum timing — and trades with the dominant forces. The edge is not in any single module but in the fusion. If everything else fails, the multi-module state reading must work.
+The bot reads the market's true state through the fusion of all analysis modules and trades with the dominant forces. The edge is not in any single module but in the fusion. If everything else fails, the multi-module state reading must work.
+
+## Current State
+
+**Shipped:** v1.0 MVP (2026-03-28)
+**Codebase:** 14,811 LOC Python source, 14,594 LOC tests (772+ tests passing)
+**Status:** Feature-complete for all v1 requirements. Ready for live MT5 testing.
 
 ## Requirements
 
 ### Validated
 
-- [x] Three-phase growth model: aggressive ($20-$100), selective ($100-$300), conservative ($300+) with adaptive behavior per capital phase — Validated in Phase 1: Trading Infrastructure
-- [x] Graceful degradation when DOM depth data is limited or unavailable from broker feed — Validated in Phase 1: Trading Infrastructure (MarketDataFeed degrades to tick-only)
-- [x] Market microstructure sensor ingesting tick-level data, DOM depth, volume delta, and bid-ask flow in real time from MT5/RoboForex ECN — Validated in Phase 1: Trading Infrastructure (data pipeline complete)
-- [x] Institutional footprint detector classifying activity as retail noise vs. institutional flow (absorptions, iceberg patterns, DOM shifts, HFT signatures) — Validated in Phase 2: Signal Pipeline and Decision Fusion
-- [x] Quantum timing engine treating price-time as coupled state variables with probability-weighted entry/exit windows — Validated in Phase 2: Signal Pipeline and Decision Fusion
-- [x] Chaos/fractal/Feigenbaum regime classifier detecting market dynamical state (fractal dimension, strange attractors, bifurcation proximity, crowd entropy) — Validated in Phase 2: Signal Pipeline and Decision Fusion
-- [x] Decision and execution core fusing all upstream signals into trade decisions with phase-aware position sizing — Validated in Phase 2: Signal Pipeline and Decision Fusion
-- [x] Self-learning mutation loop logging full trade context and evolving rules via hybrid genetic + ML optimization — Validated in Phase 4: Observability and Self-Learning
-- [x] Dual dashboard: rich terminal TUI for real-time monitoring + lightweight web dashboard for charts, stats, regime visualization — Validated in Phase 4: Observability and Self-Learning
-- [x] Backtesting framework with walk-forward validation, Monte Carlo simulation, out-of-sample testing, regime-aware evaluation, and Feigenbaum stress testing across XAUUSD 2015-present — Validated in Phase 3: Backtesting and Validation
+- ✓ Market microstructure sensor ingesting tick-level data, DOM depth, volume delta from MT5/RoboForex ECN — v1.0
+- ✓ Graceful degradation when DOM depth data is limited or unavailable — v1.0
+- ✓ Three-phase growth model: aggressive/selective/conservative with adaptive behavior per capital phase — v1.0
+- ✓ Institutional footprint detector (absorptions, iceberg patterns, DOM shifts, HFT signatures) — v1.0
+- ✓ Quantum timing engine with OU mean-reversion and phase transition detection — v1.0
+- ✓ Chaos/fractal/Feigenbaum regime classifier (Hurst, Lyapunov, fractal dimension, entropy, bifurcation) — v1.0
+- ✓ Decision core fusing all upstream signals with confidence-weighted combination and adaptive EMA weights — v1.0
+- ✓ Multi-tier risk management (5 circuit breakers + kill switch + session filter) — v1.0
+- ✓ Self-learning mutation loop with GA evolution, shadow variants, ML regime classifier, walk-forward gate — v1.0
+- ✓ Dual dashboard: rich TUI + lightweight web dashboard with live equity, signals, regime, positions — v1.0
+- ✓ Backtesting framework with walk-forward, Monte Carlo, regime evaluation, Feigenbaum stress testing — v1.0
+- ✓ Full cross-phase integration: all feedback loops wired, all 6 E2E flows verified — v1.0
 
 ### Active
 
-None — all v1.0 requirements validated.
+None — next milestone requirements to be defined via `/gsd:new-milestone`.
 
 ### Out of Scope
 
-- Multi-asset trading (other pairs, indices, crypto) — focus entirely on XAUUSD mastery first
-- Cloud deployment or distributed architecture — runs on single Windows machine with MT5
-- Mobile app or mobile dashboard — web dashboard accessible from any device is sufficient
-- Social/copy trading features — this is a solo autonomous system
-- Fundamental news calendar integration as a primary signal — the bot reads the market's reaction through flow, not the news itself
+- Multi-asset trading (other pairs, indices, crypto) — XAUUSD mastery first
+- Cloud deployment or distributed architecture — single Windows machine with MT5
+- Mobile app — web dashboard accessible from any device is sufficient
+- Social/copy trading — solo autonomous system
+- News calendar as primary signal — bot reads market reaction through flow, not news
+- Deep learning / neural networks — overfits on small datasets, prefer interpretable hybrid approach
+- Real-time sub-second WebSocket updates — 1-5s polling sufficient, CPU reserved for trading logic
 
 ## Context
 
@@ -44,37 +54,36 @@ None — all v1.0 requirements validated.
 - Instrument: XAUUSD (Gold) exclusively
 - Starting capital: $20 (Phase 1 aggressive growth)
 
-**Technical architecture:**
-- Python-first via MetaTrader5 Python package — Python controls all logic
-- Thin MQL5 Expert Advisor for order execution only
-- Same-machine deployment: Python brain + MT5 on one Windows box, localhost communication
-- Full scientific computing stack: NumPy, SciPy, scikit-learn, and domain-specific libraries
-- Hybrid learning: rule-based trading core with ML layers for regime detection and parameter optimization
-- Genetic algorithms for evolving rule parameters, ML classifiers for market state
+**Technical architecture (as shipped v1.0):**
+- Python 3.12 with MetaTrader5 Python package for all logic and data
+- Async engine with concurrent tick/bar/signal/health loops via asyncio.gather
+- 3 signal modules (chaos, order flow, quantum timing) implementing SignalModule Protocol
+- FusionCore with adaptive EMA weights persisted to SQLite
+- Paper trading engine with spread/slippage simulation
+- DuckDB/Parquet for analytical tick storage, SQLite for operational state
+- Textual TUI + FastAPI web dashboard
+- DEAP genetic algorithms + scikit-learn RandomForest for self-learning
+- vectorbt-compatible backtesting with DataFeedProtocol abstraction
 
-**Data access strategy:**
-- Design for best-case: full DOM depth snapshots + tick-level bid/ask data
-- Degrade gracefully if RoboForex ECN limits DOM exposure
-- Tick data is the minimum viable feed; DOM is the ideal
+**Codebase structure:**
+- `src/fxsoqqabot/` — 14,811 LOC across config, core, data, execution, risk, signals, backtest, dashboard, learning
+- `tests/` — 14,594 LOC, 772+ tests, all passing
+- `config/` — TOML configuration files (default, paper, live profiles)
 
-**Market philosophy:**
-- Gold is volatile, institutionally dominated, geopolitically sensitive
-- The market is a complex adaptive system — part deterministic, part chaotic
-- The bot does not predict the market — it reads the market's current state
-- Standard technical analysis is table stakes that every trader knows; the edge comes from deeper physics-inspired market reading
-- Institutional flow alignment is survival, not strategy
+## Key Decisions
 
-**The eight modules (interconnected, not siloed):**
-1. Market Microstructure Sensor — raw data nervous system
-2. Institutional Footprint Detector — smart money tracker
-3. Quantum Timing Engine — price-time coupled state modeling
-4. Chaos/Fractal/Feigenbaum Regime Classifier — dynamical state detection
-5. Decision and Execution Core — signal fusion + trade firing
-6. Self-Learning Mutation Loop — continuous strategy evolution
-7. Dashboard and Telemetry — TUI + web observability
-8. Backtesting and Anti-Overfitting Framework — scientific validation
-
-**Build approach:** All eight modules in simplified form from the start — the power is in the fusion, not individual modules in isolation. Each module starts simple and deepens over iterations.
+| Decision | Rationale | Outcome |
+|----------|-----------|---------|
+| Python-first architecture | Full scientific computing ecosystem, MT5 Python API, MQL5 too limited for chaos math/ML | ✓ Good — 14.8K LOC of clean Python, all 16 analysis algorithms in Python |
+| Hybrid learning (rules + ML) | Pure ML is black-box; pure rules can't adapt. Hybrid gives interpretable core + adaptive layers | ✓ Good — GA evolves parameters, RandomForest improves regime detection |
+| All modules simplified first | The edge is fusion, not any single module perfected in isolation | ✓ Good — full pipeline working end-to-end, all modules contribute to fusion |
+| Same-machine deployment | Simplest setup, lowest latency for Python-MT5 communication | ✓ Good — no network issues, localhost sufficient |
+| XAUUSD only | Gold mastery before diversification | — Pending (not yet live-tested) |
+| Graceful DOM degradation | Broker DOM availability uncertain | ✓ Good — tick-only path works, DOM enhances when available |
+| DataFeedProtocol abstraction | Share 100% analysis code between live and backtest | ✓ Good — zero separate backtest code paths |
+| Learning disabled by default | Prevent accidental evolution before sufficient trade history at $20 | ✓ Good — safety-first for micro account |
+| Synchronous is_killed property | Avoid async overhead for frequently-checked state | ✓ Good — fixed coroutine bug, clean sync reads |
+| Walk-forward promotion gate | Prevent overfitting of evolved parameters | ✓ Good — callback injection pattern, fail-safe to rejection |
 
 ## Constraints
 
@@ -82,30 +91,19 @@ None — all v1.0 requirements validated.
 - **Broker**: RoboForex ECN — data availability depends on what their feed exposes (DOM depth uncertain)
 - **Capital**: Starting at $20 — position sizing and risk management must account for micro-account constraints
 - **Leverage**: 1:500 — powerful but dangerous, bot must manage exposure intelligently per growth phase
-- **Latency**: Same-machine localhost communication — acceptable for scalping but Python-MT5 bridge latency must be minimized
-- **Backtesting**: Must cover 2015-present XAUUSD history — need reliable historical tick data source
-
-## Key Decisions
-
-| Decision | Rationale | Outcome |
-|----------|-----------|---------|
-| Python-first architecture | Full scientific computing ecosystem (NumPy, SciPy, ML), MT5 Python API available, MQL5 too limited for chaos math and ML | — Pending |
-| Hybrid learning (rules + ML) | Pure ML is black-box and hard to debug in trading; pure rules can't adapt. Hybrid gives interpretable core with adaptive layers | — Pending |
-| All modules simplified first | The edge is fusion of all signals, not any single module perfected in isolation. Simplified full pipeline beats one perfect component | — Pending |
-| Same-machine deployment | Simplest setup, lowest latency for Python-MT5 communication, no network overhead | — Pending |
-| XAUUSD only | Gold mastery before diversification — one instrument deeply understood beats many instruments superficially | — Pending |
-| Graceful DOM degradation | Broker DOM data availability is uncertain — design for best case but ensure system works with tick-only data | — Pending |
+- **Latency**: Same-machine localhost communication — acceptable for scalping
+- **Backtesting**: Covers 2015-present XAUUSD history via histdata.com M1 bar data
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
 
 **After each phase transition** (via `/gsd:transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
+1. Requirements invalidated? Move to Out of Scope with reason
+2. Requirements validated? Move to Validated with phase reference
+3. New requirements emerged? Add to Active
+4. Decisions to log? Add to Key Decisions
+5. "What This Is" still accurate? Update if drifted
 
 **After each milestone** (via `/gsd:complete-milestone`):
 1. Full review of all sections
@@ -114,4 +112,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-28 after Phase 7 completion — validation pipeline entry points complete, RegimeTagger and FeigenbaumStressTest callable from CLI and integrated into backtest runner (6-step pipeline). All v1.0 milestone phases complete.*
+*Last updated: 2026-03-28 after v1.0 milestone completion*
