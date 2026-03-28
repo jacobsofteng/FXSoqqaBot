@@ -45,7 +45,12 @@ class BacktestEngine:
         self._bt_config = backtest_config
         self._logger = structlog.get_logger().bind(component="backtest_engine")
 
-    async def run(self, bars_df: pd.DataFrame, run_id: str = "") -> BacktestResult:
+    async def run(
+        self,
+        bars_df: pd.DataFrame,
+        run_id: str = "",
+        bar_step: int = 1,
+    ) -> BacktestResult:
         """Replay bars through signal pipeline and collect trade results.
 
         Creates fresh instances of all components for each run to ensure
@@ -55,6 +60,9 @@ class BacktestEngine:
             bars_df: M1 bar DataFrame with columns time, open, high, low, close, volume.
                      Must be sorted by time ascending.
             run_id: Identifier for this backtest run (for structured logging).
+            bar_step: Process signals every Nth bar (default 1 = every bar).
+                      SL/TP checks still run on every bar for accuracy.
+                      Use bar_step > 1 for fast optimizer evaluation.
 
         Returns:
             BacktestResult with all trades, equity curve, and performance metrics.
@@ -93,12 +101,18 @@ class BacktestEngine:
         sizer = PositionSizer(self._settings.risk)
 
         # Replay loop: iterate bar-by-bar
+        # SL/TP checks run on EVERY bar for accuracy.
+        # Signal evaluation runs every bar_step bars for speed.
         for bar_idx in range(len(bars_df)):
             bar = data_feed.advance_bar(bar_idx)
             clock.advance(bar["time"] * 1000)  # Convert seconds to milliseconds
 
-            # Check SL/TP hits on current bar
+            # Check SL/TP hits on current bar (always, regardless of bar_step)
             executor.check_sl_tp(bar)
+
+            # Signal evaluation: only every bar_step bars
+            if bar_step > 1 and bar_idx % bar_step != 0:
+                continue
 
             # Get data in same format as live engine
             tick_arrays = await data_feed.get_tick_arrays(self._bt_config.symbol)

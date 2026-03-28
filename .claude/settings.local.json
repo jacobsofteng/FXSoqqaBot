@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from fxsoqqabot.backtest.engine import BacktestEngine; from fxsoqqabot.backtest.data_feed import BacktestDataFeed; from fxsoqqabot.optimization.optimizer import run_optimization; print\\(''All imports OK''\\)\")"
+    ]
+  }
+}

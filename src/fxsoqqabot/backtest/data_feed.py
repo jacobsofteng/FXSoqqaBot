@@ -16,7 +16,6 @@ Key shapes match existing buffer outputs:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Iterator
 
 import numpy as np
@@ -145,11 +144,33 @@ class BacktestDataFeed:
         closes_slice = self._closes[start:end]
         volumes_slice = self._volumes[start:end]
 
-        # Synthesize spreads for each tick
-        spreads = np.empty(n, dtype=np.float64)
-        for i in range(n):
-            hour_utc = datetime.fromtimestamp(int(times_slice[i]), tz=UTC).hour
-            spreads[i] = self._config.spread_model.sample_spread(hour_utc, self._rng)
+        # Vectorized spread sampling: extract UTC hour via integer math
+        # (seconds since epoch % 86400) / 3600 = hour of day in UTC
+        hours_utc = ((times_slice % 86400) // 3600).astype(np.int32)
+
+        # Vectorized session-based spread: map hours to (low, high) ranges
+        spread_model = self._config.spread_model
+        pip = spread_model.pip_to_price
+        lows = np.empty(n, dtype=np.float64)
+        highs = np.empty(n, dtype=np.float64)
+
+        # Session masks (vectorized)
+        london_ny = (hours_utc >= 13) & (hours_utc <= 17)
+        london = (~london_ny) & (hours_utc >= 8) & (hours_utc <= 12)
+        asian = (~london_ny) & (~london) & (hours_utc <= 7)
+        low_liq = ~(london_ny | london | asian)
+
+        lows[london_ny] = spread_model.london_ny_overlap_pips[0]
+        highs[london_ny] = spread_model.london_ny_overlap_pips[1]
+        lows[london] = spread_model.london_session_pips[0]
+        highs[london] = spread_model.london_session_pips[1]
+        lows[asian] = spread_model.asian_session_pips[0]
+        highs[asian] = spread_model.asian_session_pips[1]
+        lows[low_liq] = spread_model.low_liquidity_pips[0]
+        highs[low_liq] = spread_model.low_liquidity_pips[1]
+
+        # Sample uniform spreads in one call
+        spreads = self._rng.uniform(lows, highs) * pip
 
         # Build tick arrays matching TickBuffer.as_arrays() keys
         time_msc = (times_slice * 1000).astype(np.int64)

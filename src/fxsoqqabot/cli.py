@@ -538,11 +538,7 @@ def cmd_optimize(args: argparse.Namespace) -> None:
     from fxsoqqabot.optimization.optimizer import run_optimization
 
     settings = load_settings(args.config)
-    # Suppress structlog during optimization per D-11
-    import logging
-    structlog.configure(
-        wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING),
-    )
+    # Log suppression handled inside run_optimization() per D-11
 
     bt_config = BacktestConfig()
     run_optimization(

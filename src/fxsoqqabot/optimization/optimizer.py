@@ -69,7 +69,7 @@ STALE_ARTIFACTS = [
     "data/analytics.duckdb",
 ]
 
-console = Console()
+console = Console(stderr=True)
 _logger = structlog.get_logger().bind(component="optimizer")
 
 
@@ -136,7 +136,7 @@ async def _fast_backtest(
     holdout_months_sec = bt_config.holdout_months * int(30.44 * 86400)
     holdout_start = data_end - holdout_months_sec
 
-    opt_window_sec = 3 * int(30.44 * 86400)
+    opt_window_sec = 1 * int(30.44 * 86400)  # 1 month for fast optimizer eval
     opt_start = max(holdout_start - opt_window_sec, data_start)
     opt_end = holdout_start
 
@@ -145,7 +145,7 @@ async def _fast_backtest(
         return 0.0, 0.0
 
     engine = BacktestEngine(settings, bt_config)
-    result: BacktestResult = await engine.run(bars, run_id="opt_fast")
+    result: BacktestResult = await engine.run(bars, run_id="opt_fast", bar_step=5)
 
     # Profit factor capped at 10.0
     pf = min(result.profit_factor, 10.0)
@@ -371,10 +371,22 @@ def run_optimization(
     # ------------------------------------------------------------------
     # [3] Suppress logs during optimization per D-11
     # ------------------------------------------------------------------
-    structlog.configure(
-        wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING),
-    )
+    # Module-level loggers (e.g. chaos/module.py) are created at import time
+    # and cached forever — structlog.configure() cannot change them.
+    # Since PrintLoggerFactory writes directly to sys.stdout, we redirect
+    # stdout to devnull during optimization trials. The module-level
+    # console uses stderr (Console(stderr=True)) so the progress bar
+    # remains visible while stdout is suppressed.
+    import io
+    import sys
+    import warnings
+
+    _real_stdout = sys.stdout
+    _devnull = io.StringIO()
     optuna.logging.set_verbosity(optuna.logging.WARNING)
+    # Suppress sklearn R² warnings from trials with <2 trades and nolds RANSAC warnings
+    warnings.filterwarnings("ignore", message="R.*score is not well-defined", category=UserWarning)
+    warnings.filterwarnings("ignore", message="RANSAC did not reach consensus", category=RuntimeWarning)
 
     # ------------------------------------------------------------------
     # [4] Run NSGA-II optimization with Rich progress bar
@@ -388,16 +400,31 @@ def run_optimization(
         BarColumn(),
         MofNCompleteColumn(),
         TimeElapsedColumn(),
+        console=console,
     ) as progress:
         task = progress.add_task("Optimizing (NSGA-II)...", total=n_trials)
+        best_pf = 0.0
 
         def objective(trial: optuna.Trial) -> tuple[float, float]:
+            nonlocal best_pf
+            trial_start = time.time()
             params = sample_trial(trial)
             trial_settings = apply_params_to_settings(settings, params)
-            pf, tpd = asyncio.run(
-                _fast_backtest_with_timeout(trial_settings, bt_config, opt_loader)
+            sys.stdout = _devnull
+            try:
+                pf, tpd = asyncio.run(
+                    _fast_backtest_with_timeout(trial_settings, bt_config, opt_loader)
+                )
+            finally:
+                sys.stdout = _real_stdout
+            trial_sec = time.time() - trial_start
+            if pf > best_pf:
+                best_pf = pf
+            progress.update(
+                task,
+                advance=1,
+                description=f"Trial {trial.number}: PF={pf:.2f} T/d={tpd:.1f} best={best_pf:.2f} ({trial_sec:.0f}s)",
             )
-            progress.advance(task)
             return pf, tpd
 
         opt_start = time.time()
@@ -427,9 +454,13 @@ def run_optimization(
     # ------------------------------------------------------------------
     # [6] Restore logging
     # ------------------------------------------------------------------
-    structlog.configure(
-        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-    )
+    sys.stdout = _real_stdout  # Ensure restored even if optimize() raises
+    _devnull.close()
+    warnings.resetwarnings()
+    from fxsoqqabot.config.models import LoggingConfig
+    from fxsoqqabot.logging.setup import setup_logging
+
+    setup_logging(LoggingConfig())
 
     # ------------------------------------------------------------------
     # [7] Validation -- walk-forward + OOS + Monte Carlo
