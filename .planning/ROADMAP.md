@@ -149,7 +149,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md -- CLI subcommands (validate-regimes, stress-test) and runner extension to 6 steps
+- [x] 07-01-PLAN.md -- CLI subcommands (validate-regimes, stress-test) and runner extension to 6 steps
 - [ ] 07-02-PLAN.md -- Integration tests for CLI wiring and runner pipeline
 
 ## Progress
