@@ -9,17 +9,17 @@ Requirements for Live Demo Launch milestone. Each maps to roadmap phases.
 
 ### Signal Calibration
 
-- [ ] **SIG-01**: Chaos module produces nonzero directional signal during RANGING, HIGH_CHAOS, and PRE_BIFURCATION regimes using drift-based or flow-following direction
-- [ ] **SIG-02**: Timing module urgency applied once (not double-squared), preserving moderate urgency signals above 0.25 confidence
-- [ ] **SIG-03**: Fusion confidence threshold for aggressive phase reduced to 0.25-0.35 range (configurable, Optuna-searchable)
-- [ ] **SIG-04**: Chaos regime-to-direction mapping is configurable (zero/drift/flow_follow modes) and included in optimization search space
+- [x] **SIG-01**: Chaos module produces nonzero directional signal during RANGING, HIGH_CHAOS, and PRE_BIFURCATION regimes using drift-based or flow-following direction
+- [x] **SIG-02**: Timing module urgency applied once (not double-squared), preserving moderate urgency signals above 0.25 confidence
+- [x] **SIG-03**: Fusion confidence threshold for aggressive phase reduced to 0.25-0.35 range (configurable, Optuna-searchable)
+- [x] **SIG-04**: Chaos regime-to-direction mapping is configurable (zero/drift/flow_follow modes) and included in optimization search space
 
 ### Risk Management
 
-- [ ] **RISK-01**: Position sizer accepts trades at $20 equity with ATR x1.0 SL multiplier and 15% aggressive risk_pct
+- [x] **RISK-01**: Position sizer accepts trades at $20 equity with ATR x1.0 SL multiplier and 15% aggressive risk_pct
 - [ ] **RISK-02**: Circuit breaker daily drawdown limit is phase-aware (15-20% for aggressive, 10% for selective, 5% for conservative)
 - [ ] **RISK-03**: Bot supports 2-3 concurrent positions with aggregate exposure across all open positions capped at the single-position risk budget (e.g., 15% total, not 15% per position)
-- [ ] **RISK-04**: Trading session windows include London (08:00-12:00 UTC) and London-NY overlap (13:00-17:00 UTC)
+- [x] **RISK-04**: Trading session windows include London (08:00-12:00 UTC) and London-NY overlap (13:00-17:00 UTC)
 
 ### Backtesting & Optimization
 
@@ -64,14 +64,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SIG-01 | Phase 8 | Pending |
-| SIG-02 | Phase 8 | Pending |
-| SIG-03 | Phase 8 | Pending |
-| SIG-04 | Phase 8 | Pending |
-| RISK-01 | Phase 8 | Pending |
+| SIG-01 | Phase 8 | Complete |
+| SIG-02 | Phase 8 | Complete |
+| SIG-03 | Phase 8 | Complete |
+| SIG-04 | Phase 8 | Complete |
+| RISK-01 | Phase 8 | Complete |
 | RISK-02 | Phase 8 | Pending |
 | RISK-03 | Phase 8 | Pending |
-| RISK-04 | Phase 8 | Pending |
+| RISK-04 | Phase 8 | Complete |
 | OPT-01 | Phase 9 | Pending |
 | OPT-02 | Phase 9 | Pending |
 | OPT-03 | Phase 9 | Pending |

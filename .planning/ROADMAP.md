@@ -41,7 +41,7 @@ See [v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) for full archive.
   5. Circuit breaker daily drawdown limits are phase-aware (15-20% aggressive, 10% selective, 5% conservative) and do not trip on a single losing trade at $20
 **Plans:** 2 plans
 Plans:
-- [ ] 08-01-PLAN.md -- Signal pipeline fixes: config defaults, chaos direction modes, timing double-compression fix
+- [x] 08-01-PLAN.md -- Signal pipeline fixes: config defaults, chaos direction modes, timing double-compression fix
 - [ ] 08-02-PLAN.md -- Risk management upgrades: phase-aware drawdown, concurrent positions, backtest sync
 
 ### Phase 9: Backtest Pipeline & Automated Optimization
