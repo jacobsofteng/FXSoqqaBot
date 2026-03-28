@@ -286,6 +286,43 @@ class TestRecordTradeOutcome:
         assert loaded.daily_drawdown == BreakerState.TRIPPED
 
 
+class TestPhaseAwareDrawdown:
+    """Test phase-aware daily drawdown limit per RISK-02."""
+
+    async def test_no_trip_at_18pct_limit_with_small_loss(self, cb_manager):
+        """With 18% limit (aggressive phase), a $5 loss on $100 does NOT trip."""
+        cb_manager.set_daily_starting_equity(100.0)
+        await cb_manager.record_trade_outcome(
+            pnl=-5.0, equity=95.0, daily_drawdown_limit=0.18
+        )
+        assert cb_manager._snapshot.daily_drawdown == BreakerState.ACTIVE
+
+    async def test_trips_at_18pct_limit_with_large_loss(self, cb_manager):
+        """With 18% limit, an $18 loss on $100 trips the breaker."""
+        cb_manager.set_daily_starting_equity(100.0)
+        await cb_manager.record_trade_outcome(
+            pnl=-18.0, equity=82.0, daily_drawdown_limit=0.18
+        )
+        assert cb_manager._snapshot.daily_drawdown == BreakerState.TRIPPED
+
+    async def test_20_equity_single_loss_no_trip(self, cb_manager):
+        """At $20 equity with 18% limit, a $3 loss (15% risk) does NOT trip per D-13."""
+        cb_manager.set_daily_starting_equity(20.0)
+        # Maximum single trade risk at $20: $3 = 15%. 18% limit > 15%.
+        await cb_manager.record_trade_outcome(
+            pnl=-3.0, equity=17.0, daily_drawdown_limit=0.18
+        )
+        assert cb_manager._snapshot.daily_drawdown == BreakerState.ACTIVE
+
+    async def test_none_limit_falls_back_to_config(self, cb_manager):
+        """When daily_drawdown_limit=None, uses config.daily_drawdown_pct (5%)."""
+        cb_manager.set_daily_starting_equity(100.0)
+        await cb_manager.record_trade_outcome(
+            pnl=-5.0, equity=95.0, daily_drawdown_limit=None
+        )
+        assert cb_manager._snapshot.daily_drawdown == BreakerState.TRIPPED
+
+
 class TestGetTrippedBreakers:
     """Test get_tripped_breakers helper."""
 

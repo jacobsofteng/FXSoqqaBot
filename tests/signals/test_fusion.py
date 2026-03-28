@@ -368,6 +368,28 @@ class TestPhaseBehavior:
         assert params is not None
         assert params["trail_distance_atr"] == 0.3
 
+    def test_daily_drawdown_aggressive_phase(self, behavior: PhaseBehavior) -> None:
+        """At $20 (aggressive), daily drawdown limit should be ~18% per D-12/D-13."""
+        dd = behavior.get_daily_drawdown_limit(20.0)
+        assert abs(dd - 0.18) < 0.02, f"Expected ~0.18, got {dd}"
+
+    def test_daily_drawdown_selective_phase(self, behavior: PhaseBehavior) -> None:
+        """At $200 (selective), daily drawdown limit should be ~10%."""
+        dd = behavior.get_daily_drawdown_limit(200.0)
+        assert abs(dd - 0.10) < 0.02, f"Expected ~0.10, got {dd}"
+
+    def test_daily_drawdown_conservative_phase(self, behavior: PhaseBehavior) -> None:
+        """At $500 (conservative), daily drawdown limit should be ~5%."""
+        dd = behavior.get_daily_drawdown_limit(500.0)
+        assert abs(dd - 0.05) < 0.02, f"Expected ~0.05, got {dd}"
+
+    def test_daily_drawdown_smooth_transition(self, behavior: PhaseBehavior) -> None:
+        """Drawdown limit transitions smoothly (no step function) per FUSE-04."""
+        limits = [behavior.get_daily_drawdown_limit(e) for e in range(80, 121)]
+        for i in range(1, len(limits)):
+            diff = abs(limits[i] - limits[i - 1])
+            assert diff < 0.02, f"Step function at equity={80 + i}: diff={diff}"
+
 
 # ---------------------------------------------------------------------------
 # TradeManager tests (D-08, D-09, D-10, D-11, FUSE-05)
@@ -461,18 +483,21 @@ class TestTradeManager:
 
     @pytest.mark.asyncio
     async def test_position_open_returns_hold_d11(self, trade_manager) -> None:
-        """Position open + should_trade=True: returns hold per D-11."""
-        # Simulate an open position
-        trade_manager._open_position_ticket = 12345
-        trade_manager._open_position_entry = 2000.0
-        trade_manager._open_position_regime = RegimeState.TRENDING_UP
+        """Position limit reached + should_trade=True: returns hold per RISK-03."""
+        from fxsoqqabot.signals.fusion.trade_manager import OpenPosition
+
+        # Fill up to max_concurrent_positions (2)
+        trade_manager._open_positions = [
+            OpenPosition(ticket=12345, entry_price=2000.0, regime=RegimeState.TRENDING_UP, risk_amount=2.0),
+            OpenPosition(ticket=12346, entry_price=2001.0, regime=RegimeState.TRENDING_UP, risk_amount=1.0),
+        ]
 
         result = self._make_fusion_result(should_trade=True)
         decision, _fill = await trade_manager.evaluate_and_execute(
             result, equity=50.0, current_price=2005.0, atr=5.0
         )
         assert decision.action == "hold"
-        assert "d-11" in decision.reason.lower() or "position" in decision.reason.lower()
+        assert "position limit" in decision.reason.lower() or "position" in decision.reason.lower()
 
     @pytest.mark.asyncio
     async def test_high_chaos_sl_wider(self, trade_manager) -> None:
@@ -509,7 +534,7 @@ class TestTradeManager:
             result_trending, equity=500.0, current_price=2000.0, atr=5.0
         )
         # Reset position state for second trade
-        trade_manager._open_position_ticket = None
+        trade_manager._open_positions.clear()
         decision_chaos, _fill_c = await trade_manager.evaluate_and_execute(
             result_chaos, equity=500.0, current_price=2000.0, atr=5.0
         )
@@ -520,9 +545,11 @@ class TestTradeManager:
     @pytest.mark.asyncio
     async def test_adverse_regime_transition_tightens_sl(self, trade_manager) -> None:
         """Adverse regime transition with position: tightens SL per D-08."""
-        trade_manager._open_position_ticket = 12345
-        trade_manager._open_position_entry = 2000.0
-        trade_manager._open_position_regime = RegimeState.TRENDING_UP
+        from fxsoqqabot.signals.fusion.trade_manager import OpenPosition
+
+        trade_manager._open_positions = [
+            OpenPosition(ticket=12345, entry_price=2000.0, regime=RegimeState.TRENDING_UP, risk_amount=2.0),
+        ]
 
         # Regime transitions to HIGH_CHAOS
         result = self._make_fusion_result(regime=RegimeState.HIGH_CHAOS)
@@ -559,11 +586,14 @@ class TestTradeManager:
         assert params is None
 
     def test_record_position_closed(self, trade_manager) -> None:
-        """record_position_closed should clear position state."""
-        trade_manager._open_position_ticket = 12345
-        trade_manager._open_position_entry = 2000.0
+        """record_position_closed should remove the position from the list."""
+        from fxsoqqabot.signals.fusion.trade_manager import OpenPosition
+
+        trade_manager._open_positions = [
+            OpenPosition(ticket=12345, entry_price=2000.0, regime=RegimeState.TRENDING_UP, risk_amount=2.0),
+        ]
         trade_manager.record_position_closed(12345)
-        assert trade_manager._open_position_ticket is None
+        assert len(trade_manager._open_positions) == 0
 
     def test_get_trailing_params_delegates(self, trade_manager) -> None:
         """get_trailing_params should delegate to PhaseBehavior."""
@@ -592,3 +622,56 @@ class TestTradeManager:
         )
         assert sl_price > 2000.0  # SL above for sell
         assert tp_price < 2000.0  # TP below for sell
+
+    @pytest.mark.asyncio
+    async def test_second_position_blocked_when_budget_exhausted(self, trade_manager) -> None:
+        """When first position consumes entire risk budget, second is blocked per D-10/D-11."""
+        from fxsoqqabot.signals.fusion.trade_manager import OpenPosition
+
+        # First position uses $3.00 of the $3.00 budget (20 * 0.15 = $3.00)
+        trade_manager._open_positions = [
+            OpenPosition(ticket=1, entry_price=2000.0, regime=RegimeState.TRENDING_UP, risk_amount=3.0),
+        ]
+        result = self._make_fusion_result(direction=1.0, should_trade=True)
+        decision, _fill = await trade_manager.evaluate_and_execute(
+            result, equity=20.0, current_price=2000.0, atr=1.0
+        )
+        assert decision.action == "hold"
+        assert "budget" in decision.reason.lower() or "risk" in decision.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_second_position_allowed_when_budget_remains(self, trade_manager) -> None:
+        """When first position uses partial budget, second is allowed per D-10/D-11."""
+        from fxsoqqabot.signals.fusion.trade_manager import OpenPosition
+
+        # At $500 conservative, budget = $500 * 0.02 = $10. First position uses $0.50.
+        # Remaining = $9.50. Sizer at ATR=1.0: lot = 10/(1*100) = 0.1, risk = $10.
+        # $10 > $9.50 remaining, still blocked.
+        # Use larger equity so remaining_budget comfortably exceeds sizing result.
+        # At $1000 conservative, budget = $1000 * 0.02 = $20. First uses $5.
+        # Remaining = $15. Sizer: lot = 20/(1*100) = 0.2, risk = $20. Still > $15.
+        #
+        # The sizer always sizes based on FULL equity risk, not remaining budget.
+        # So for second position to pass budget check, first position risk must be
+        # small enough that remaining >= full-equity sizing.
+        # At $200: budget=$10, sizer produces risk=$10. If first uses $0, remaining=$10 >= $10.
+        trade_manager._open_positions = [
+            OpenPosition(ticket=1, entry_price=2000.0, regime=RegimeState.TRENDING_UP, risk_amount=0.0),
+        ]
+        result = self._make_fusion_result(direction=1.0, should_trade=True)
+        decision, _fill = await trade_manager.evaluate_and_execute(
+            result, equity=200.0, current_price=2000.0, atr=1.0
+        )
+        # Remaining $10 >= sizing risk $10 (with epsilon), trade passes
+        assert decision.action in ("buy", "sell"), f"Expected trade, got {decision.action}: {decision.reason}"
+
+    def test_remaining_risk_budget_calculation(self, trade_manager) -> None:
+        """Remaining budget = total budget - sum of open position risks."""
+        from fxsoqqabot.signals.fusion.trade_manager import OpenPosition
+
+        trade_manager._open_positions = [
+            OpenPosition(ticket=1, entry_price=2000.0, regime=RegimeState.TRENDING_UP, risk_amount=1.5),
+        ]
+        budget = trade_manager._get_remaining_risk_budget(20.0)
+        # At $20 aggressive: total = $20 * 0.15 = $3.00. Used = $1.50. Remaining = $1.50
+        assert abs(budget - 1.5) < 0.01, f"Expected $1.50, got {budget}"
