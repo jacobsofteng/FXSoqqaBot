@@ -5,7 +5,7 @@ Implements:
 - ATR-based SL with chaos-aware widening (D-06, D-09)
 - Dynamic risk-reward ratios per regime (D-09)
 - Regime-aware trailing stops (D-10)
-- Single position limit (D-11)
+- Concurrent position limit with remaining-budget tracking (D-11, RISK-03)
 - Adverse regime transition SL tightening (D-08)
 - Position size reduction in high-chaos (D-06)
 """
@@ -27,6 +27,23 @@ if TYPE_CHECKING:
     from fxsoqqabot.execution.orders import OrderManager
     from fxsoqqabot.risk.circuit_breakers import CircuitBreakerManager
     from fxsoqqabot.risk.sizing import PositionSizer
+
+
+@dataclass(slots=True)
+class OpenPosition:
+    """Track an open position for concurrent position management per RISK-03.
+
+    Attributes:
+        ticket: Position ticket number from broker.
+        entry_price: Fill price of the position.
+        regime: Market regime at time of entry.
+        risk_amount: Actual dollar risk for this position (from SizingResult).
+    """
+
+    ticket: int
+    entry_price: float
+    regime: RegimeState
+    risk_amount: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,10 +99,25 @@ class TradeManager:
         self._orders = order_manager
         self._sizer = position_sizer
         self._breakers = breaker_manager
-        self._open_position_ticket: int | None = None
-        self._open_position_entry: float = 0.0
-        self._open_position_regime: RegimeState | None = None
+        self._open_positions: list[OpenPosition] = []
         self._logger = structlog.get_logger().bind(component="trade_manager")
+
+    def _get_remaining_risk_budget(self, equity: float) -> float:
+        """Remaining risk budget after accounting for open positions per D-10/D-11.
+
+        Total budget = equity * risk_pct. Used = sum of open position risk amounts.
+        Remaining = total - used, floored at 0.
+
+        Args:
+            equity: Current account equity in USD.
+
+        Returns:
+            Remaining risk budget in dollars. 0.0 if fully consumed.
+        """
+        risk_pct = self._sizer._config.get_risk_pct(equity)
+        total_budget = equity * risk_pct
+        used = sum(p.risk_amount for p in self._open_positions)
+        return max(0.0, total_budget - used)
 
     def compute_sl_tp(
         self,
@@ -159,36 +191,30 @@ class TradeManager:
         """
         regime = fusion_result.regime
 
-        # 1. Check position limit per D-11
-        if self._open_position_ticket is not None:
-            # Check for adverse regime transition per D-08
+        # 1a. Check for adverse regime transition on open positions per D-08
+        for pos in self._open_positions:
             if (
-                self._open_position_regime is not None
-                and regime != self._open_position_regime
+                pos.regime is not None
+                and regime != pos.regime
                 and regime in (RegimeState.HIGH_CHAOS, RegimeState.PRE_BIFURCATION)
             ):
-                # Tighten SL: lock in 50% of profit or reduce 50% of loss
-                profit_distance = current_price - self._open_position_entry
-                new_sl = self._open_position_entry + profit_distance * 0.5
+                profit_distance = current_price - pos.entry_price
+                new_sl = pos.entry_price + profit_distance * 0.5
 
                 if self._orders:
                     try:
-                        await self._orders.modify_sl(
-                            self._open_position_ticket, new_sl
-                        )
+                        await self._orders.modify_sl(pos.ticket, new_sl)
                     except Exception:
                         self._logger.warning(
-                            "modify_sl_failed",
-                            ticket=self._open_position_ticket,
+                            "modify_sl_failed", ticket=pos.ticket
                         )
 
                 self._logger.info(
                     "adverse_regime_tighten_sl",
-                    old_regime=self._open_position_regime.value
-                    if self._open_position_regime
-                    else "none",
+                    old_regime=pos.regime.value,
                     new_regime=regime.value,
                     new_sl=new_sl,
+                    ticket=pos.ticket,
                 )
 
                 return TradeDecision(
@@ -201,6 +227,8 @@ class TradeManager:
                     reason=f"Adverse regime transition to {regime.value} per D-08",
                 ), None
 
+        # 1b. Check position limit per D-09/RISK-03
+        if len(self._open_positions) >= self._config.max_concurrent_positions:
             return TradeDecision(
                 action="hold",
                 sl_distance=0.0,
@@ -208,7 +236,20 @@ class TradeManager:
                 lot_size=0.0,
                 confidence=fusion_result.fused_confidence,
                 regime=regime,
-                reason="Position already open per D-11",
+                reason=f"Position limit reached ({len(self._open_positions)}/{self._config.max_concurrent_positions})",
+            ), None
+
+        # 1c. Check remaining risk budget per D-10/D-11
+        remaining_budget = self._get_remaining_risk_budget(equity)
+        if remaining_budget <= 0:
+            return TradeDecision(
+                action="hold",
+                sl_distance=0.0,
+                tp_distance=0.0,
+                lot_size=0.0,
+                confidence=fusion_result.fused_confidence,
+                regime=regime,
+                reason="Risk budget fully consumed by open positions",
             ), None
 
         # 2. Check if fusion says trade
@@ -255,6 +296,18 @@ class TradeManager:
                 reason=sizing.skip_reason or "Sizing rejected trade",
             ), None
 
+        # Check if this trade's risk exceeds remaining budget per D-10/D-11
+        if sizing.risk_amount > remaining_budget + 0.001:  # Small epsilon for float comparison
+            return TradeDecision(
+                action="hold",
+                sl_distance=sl_dist,
+                tp_distance=tp_dist,
+                lot_size=0.0,
+                confidence=fusion_result.fused_confidence,
+                regime=regime,
+                reason=f"Trade risk ${sizing.risk_amount:.2f} exceeds remaining budget ${remaining_budget:.2f}",
+            ), None
+
         lot_size = sizing.lot_size
 
         # Apply regime size reduction per D-06
@@ -277,9 +330,14 @@ class TradeManager:
                     tp_price=tp_price,
                 )
                 if fill:
-                    self._open_position_ticket = fill.ticket
-                    self._open_position_entry = fill.fill_price
-                    self._open_position_regime = regime
+                    self._open_positions.append(
+                        OpenPosition(
+                            ticket=fill.ticket,
+                            entry_price=fill.fill_price,
+                            regime=regime,
+                            risk_amount=sizing.risk_amount,
+                        )
+                    )
                     self._logger.info(
                         "trade_executed",
                         action=action,
@@ -320,13 +378,14 @@ class TradeManager:
         Args:
             ticket: Position ticket that was closed.
         """
-        if self._open_position_ticket == ticket:
+        before = len(self._open_positions)
+        self._open_positions = [p for p in self._open_positions if p.ticket != ticket]
+        if len(self._open_positions) < before:
             self._logger.info(
-                "position_closed_recorded", ticket=ticket
+                "position_closed_recorded",
+                ticket=ticket,
+                remaining_positions=len(self._open_positions),
             )
-            self._open_position_ticket = None
-            self._open_position_entry = 0.0
-            self._open_position_regime = None
 
     def get_trailing_params(self, regime: RegimeState) -> dict[str, float] | None:
         """Get trailing stop parameters for current regime per D-10.
