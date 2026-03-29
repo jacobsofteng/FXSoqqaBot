@@ -1,7 +1,29 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c \"from fxsoqqabot.backtest.engine import BacktestEngine; from fxsoqqabot.backtest.data_feed import BacktestDataFeed; from fxsoqqabot.optimization.optimizer import run_optimization; print\\(''All imports OK''\\)\")"
+      "Bash(python -c \"from fxsoqqabot.backtest.engine import BacktestEngine; from fxsoqqabot.backtest.data_feed import BacktestDataFeed; from fxsoqqabot.optimization.optimizer import run_optimization; print\\(''All imports OK''\\)\")",
+      "Bash(find /c/Users/Windows 11/Desktop/FXSoqqaBot/src -type f -name *.py)",
+      "Bash(python -m pytest tests/ -x --tb=short -q)",
+      "Bash(python -m pytest tests/ --tb=line -q)",
+      "WebFetch(domain:investsocial.com)",
+      "mcp__ruflo__browser_open",
+      "WebSearch",
+      "Bash(python -m pytest tests/test_config/test_models.py::TestRiskConfig::test_default_values tests/test_config/test_models.py::TestSessionConfig::test_default_windows -x -v)",
+      "Bash(python -m pytest tests/test_risk/test_session.py::TestTradingAllowed::test_allowed_at_14_59 tests/test_risk/test_session.py::TestTradingAllowed::test_allowed_at_08_30_london_session tests/test_risk/test_session.py::TestTimeUntilNextWindow::test_returns_seconds_until_window_tomorrow -x -v)",
+      "Bash(python -m pytest tests/test_risk/test_circuit_breakers.py::TestMaxDailyTrades -x -v)",
+      "Bash(python -m pytest tests/test_core/test_engine.py::TestInitializeComponents::test_creates_all_components -x -v)",
+      "Bash(python -m pytest tests/test_core/test_dashboard_wiring.py::TestSC3EquityHistoryAndModuleWeights::test_module_weights_fixed_sniper tests/test_core/test_dashboard_wiring.py::TestSC4PauseGuards::test_signal_loop_skips_when_paused -x -v)",
+      "Bash(python -m pytest tests/test_core/test_dashboard_wiring.py::TestSC4PauseGuards::test_signal_loop_skips_when_paused -x -v)",
+      "WebFetch(domain:forexdengi.com)",
+      "WebFetch(domain:web.archive.org)",
+      "Bash(curl -s -c /tmp/forum_cookies.txt -X POST \"https://investsocial.com/ru/auth/ajax-api/login\" -d \"logintype=vb&userid=Josef1974&password=Forex1974_25\" -H \"Content-Type: application/x-www-form-urlencoded\" -L)",
+      "Bash(curl -s -c /tmp/forum_cookies.txt -X POST \"https://investsocial.com/ru/ajax/api/user/login\" -d \"username=Josef1974&password=Forex1974_25\" -H \"Content-Type: application/x-www-form-urlencoded\" -H \"X-Requested-With: XMLHttpRequest\" -L)",
+      "Bash(curl -s -c /tmp/forum_cookies.txt -X POST \"https://investsocial.com/ajax/api/user/login\" -d \"username=Josef1974&password=Forex1974_25\" -H \"Content-Type: application/x-www-form-urlencoded\" -H \"X-Requested-With: XMLHttpRequest\" -L)",
+      "Bash(python -m pytest tests/signals/test_integration.py -x -v)",
+      "Bash(python -m pytest tests/test_backtest/test_engine_replay.py::test_engine_uses_fusion_core -x -v)",
+      "Bash(python -m pytest tests/test_config/test_models.py::TestRiskConfig::test_default_values tests/test_config/test_models.py::TestSessionConfig::test_default_windows tests/test_risk/test_session.py::TestTradingAllowed::test_allowed_at_14_59 tests/test_risk/test_session.py::TestTradingAllowed::test_allowed_at_08_30_london_session tests/test_risk/test_session.py::TestTimeUntilNextWindow::test_returns_seconds_until_window_tomorrow tests/test_risk/test_circuit_breakers.py::TestMaxDailyTrades::test_max_trades_not_tripped_below_limit tests/test_risk/test_circuit_breakers.py::TestMaxDailyTrades::test_max_trades_trips_at_limit tests/test_core/test_engine.py::TestInitializeComponents::test_creates_all_components tests/test_core/test_dashboard_wiring.py::TestSC3EquityHistoryAndModuleWeights::test_module_weights_fixed_sniper tests/test_core/test_dashboard_wiring.py::TestSC4PauseGuards::test_signal_loop_skips_when_paused tests/signals/test_integration.py::TestEngineSignalModuleCreation::test_initialize_components_creates_signal_modules tests/signals/test_integration.py::TestSignalLoopProcessing::test_signal_loop_produces_fusion_result tests/signals/test_integration.py::TestModuleFailureIsolation::test_failing_module_skipped tests/signals/test_integration.py::TestSignalLoopTiming::test_signal_loop_uses_5_minute_cadence tests/test_backtest/test_engine_replay.py::test_engine_uses_fusion_core -v)",
+      "Bash(python -m pytest -v)",
+      "Bash(*)"
     ]
   }
 }
