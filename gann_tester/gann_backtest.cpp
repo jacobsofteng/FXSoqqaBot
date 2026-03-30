@@ -1,19 +1,20 @@
 /*
- * Gann Fast Backtester v2.0 — Honest Execution + Full Gann Scoring
+ * Gann Fast Backtester v9.1 — Triangle-First Architecture
  *
- * KEY FIXES vs v1.0:
- * 1. Next-bar entry: detect on bar[i-1], enter at bar[i].open (like MT5)
- * 2. Spread simulation: buy at open+spread, sell at open
- * 3. Pessimistic conflicts: when both SL & TP possible in same bar, SL wins
- * 4. NO breakeven stop: dishonest in bar-based testing
- * 5. Independent convergence scoring (7 factors, not additive)
- * 6. 3-Limit alignment system (Hellcat)
- * 7. Natural square timing filter
- * 8. Price-time squaring as quality score
- * 9. Score-based statistics output
+ * Direct port of the Python v9.1 strategy:
+ *   constants.py → sq9_engine.py → vibration.py → proportional.py →
+ *   time_structure.py → swing_detector.py → wave_counter.py →
+ *   triangle_engine.py → convergence.py → three_limits.py →
+ *   execution.py → risk.py → strategy.py → backtester.py
  *
- * Compile: g++ -O3 -std=c++17 -o gann_bt gann_backtest.cpp -lm
- * Run:     ./gann_bt data.bin [params...]
+ * 4-State Machine: SCANNING → QUANT_FORMING → BOX_ACTIVE → IN_TRADE
+ *
+ * Binary data format (XAUUSD_M5.bin):
+ *   8-byte header: int64 record count
+ *   Records: int32 timestamp + int32 padding + 4 doubles (OHLC) = 40 bytes
+ *
+ * Compile: C:/msys64/mingw64/bin/g++.exe -O3 -std=c++17 -o gann_bt gann_backtest.cpp -lm
+ * Run:     ./gann_bt ../data/clean/XAUUSD_M5.bin
  */
 
 #include <cstdio>
@@ -24,1716 +25,1690 @@
 #include <algorithm>
 #include <cstdint>
 #include <cfloat>
+#include <string>
+#include <numeric>
 
 // ============================================================
-// Data structures
+// CONSTANTS (from constants.py — DO NOT CHANGE)
+// ============================================================
+
+static constexpr double BASE_VIBRATION        = 72.0;
+static constexpr double SWING_QUANTUM         = 12.0;   // V/6
+static constexpr double GROWTH_QUANTUM        = 18.0;   // V/4
+static constexpr double CORRECTION_QUANTUM    = 24.0;   // V/3
+static constexpr double LOST_MOTION           = 3.0;
+static constexpr int    POWER_ANGLES[]        = {30, 45};
+static constexpr int    NATURAL_SQ[]          = {4, 9, 16, 24, 36, 49, 72, 81};
+static constexpr double NATURAL_SQ_STRENGTH[] = {0.23, 0.28, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03};
+static constexpr int    NUM_NATURAL_SQ        = 8;
+static constexpr int    MAX_HOLD_BARS         = 288;    // M5 bars = 24h
+static constexpr int    MAX_DAILY_TRADES      = 5;
+static constexpr int    MIN_CONVERGENCE       = 4;
+static constexpr int    MIN_LIMITS            = 2;
+static constexpr double MIN_RR_RATIO          = 3.0;
+static constexpr int    WAVE_MULTIPLIER       = 4;
+static constexpr double VIBRATION_OVERRIDE    = 4.0 * BASE_VIBRATION; // $288
+
+static constexpr int    ATR_PERIOD            = 14;
+static constexpr double ATR_MULTIPLIER        = 1.5;
+
+// Impulse ratios (in V-units, H1 bars / SWING_QUANTUM)
+static constexpr int    IMPULSE_RATIOS[]      = {8, 16, 64};
+static constexpr int    NUM_IMPULSE_RATIOS    = 3;
+
+// Spread simulation
+static constexpr double SPREAD                = 0.30;   // ECN spread
+
+// M5-to-higher-TF conversion
+static constexpr int    M5_PER_H1             = 12;
+static constexpr int    M5_PER_H4             = 48;
+static constexpr int    M5_PER_D1             = 288;
+
+// Gann angle ratios for box diagonals
+static constexpr double GANN_ANGLE_RATIOS[]   = {1.0, 2.0, 0.5, 4.0, 0.25};
+static constexpr int    NUM_ANGLE_RATIOS      = 5;
+
+// ============================================================
+// DATA STRUCTURES
 // ============================================================
 
 struct Bar {
     int64_t timestamp;
     double open, high, low, close;
+    int bar_index;
 };
 
 struct Swing {
     double price;
-    int barIndex;     // Bar where extreme occurred
-    int confirmBar;   // Bar where swing was confirmed (availability gate)
-    int type;         // 1=high, -1=low
+    int bar_index;         // Bar where extreme occurred (in source TF)
+    int m5_bar_index;      // Corresponding M5 bar index (for cross-TF mapping)
+    int type;              // 1=high, -1=low
+    double atr_at_swing;
 };
 
-struct GannLevel {
+struct WaveState {
+    int wave_number;
+    double wave_0_price;
+    double wave_0_size;
+    int direction;         // 1=up, -1=down, 0=flat
+    double targets[8];
+    int num_targets;
+    bool is_trending;
+    bool valid;
+};
+
+struct QuantMeasurement {
+    double quant_pips;
+    int quant_bars;
+    double box_height;
+    int box_width;
+    double scale;          // price per bar (1x1)
+    int triangle_apex_bar;
+    int direction;         // 1=up, -1=down
+    double touch_price;
+    double extreme_price;
+    int convergence_bar;
+    bool valid;
+};
+
+struct Point2D {
+    double x, y;           // x=bar, y=price
+};
+
+struct Diagonal {
+    Point2D start, end;
+    int type;              // 0=main, 1=gann_angle, 2=inner, 3=grid
+};
+
+struct Intersection {
+    int bar;
     double price;
-    int convergence;
-    bool hasSq9, hasVib, hasProp;
+    int count;             // number of crossings clustered here
 };
 
-struct IndepScore {
-    bool sq9_swing1;      // A: Sq9 from most recent swing
-    bool sq9_swing2;      // B: Sq9 from 2nd most recent swing
-    bool vibration;       // C: Vibration multiple of move
-    bool proportional;    // D: Proportional level of swing range
-    bool natural_square;  // E: Time from swing near natural square
-    bool pt_squaring;     // F: Price-time Sq9 degree match
-    bool trend_aligned;   // G: H1 direction matches trade
-    int total() const {
-        return sq9_swing1 + sq9_swing2 + vibration + proportional +
-               natural_square + pt_squaring + trend_aligned;
-    }
+struct GannBox {
+    // Box boundaries
+    double top, bottom, height;
+    int start_bar, end_bar, width;
+    double scale;
+
+    // Zones (M5 bar indices)
+    int red_end;           // start_bar .. red_end
+    int yellow_end;        // red_end .. yellow_end
+    int green_end;         // yellow_end .. end_bar = green_end
+
+    // Midpoint
+    double mid_price;
+    int mid_bar;
+
+    // Diagonals and intersections
+    std::vector<Diagonal> diagonals;
+    std::vector<Intersection> power_points;     // count >= 3
+    std::vector<Intersection> green_zone_points;
+
+    // Quant info
+    QuantMeasurement quant;
+
+    bool valid;
 };
 
-struct LimitCheck {
-    bool limit1_pt;   // Price-by-Time (Sq9 degrees match)
-    bool limit2_pp;   // Price-by-Price (at Gann level — always true if we got here)
-    bool limit3_tt;   // Time-by-Time (duration matches natural square or proportion)
-    int count() const { return limit1_pt + limit2_pp + limit3_tt; }
-};
-
-struct Trade {
-    int entryBar, exitBar;
-    double entryPrice, exitPrice;
-    int direction;    // 1=long, -1=short
-    double lotSize, pnl, commission, netPnl;
+struct TradeRecord {
+    int entry_bar, exit_bar;
+    double entry_price, exit_price;
+    int direction;         // 1=long, -1=short
     double sl, tp;
-    int exitReason;   // 0=tp, 1=sl, 2=time
-    int convergence;
-    int indepScore;
-    int limitsAligned;
-    int angleStrength;
-    char angleDir[8];
+    double sl_distance, tp_distance;
+    double rr_ratio;
+    double pnl;
+    int bars_held;
+    bool won;
+    int exit_reason;       // 0=TP, 1=SL, 2=timeout, 3=close
+    int convergence_score;
+};
+
+struct OpenTrade {
+    double entry_price;
+    double sl, tp;
+    int direction;         // 1=long, -1=short
+    int entry_bar;
+    double sl_distance, tp_distance;
+    double rr_ratio;
+    bool active;
 };
 
 // ============================================================
-// ============================================================
-// Wave Counting (Hellcat/FFM protocol)
-// "wave(0) × (N+1) = wave(2N+1)" — Hellcat
+// SQ9 ENGINE (from sq9_engine.py)
 // ============================================================
 
-struct WaveResult {
-    int waveNumber;        // Current wave in sequence (1-based)
-    int direction;         // 1=long, -1=short, 0=neutral
-    double confidence;     // 0.0 to 1.0
-    int phase;             // 0=scenario, 1=transition, 2=legend
-    double wave0Size;      // Size of dominant wave (sets targets)
-    double expectedTarget; // wave_0_size * (N+1)
+static inline double sq9_degree(double price) {
+    if (price <= 0) return 0.0;
+    double v = fmod(sqrt(price) * 180.0 - 225.0, 360.0);
+    return v < 0.0 ? v + 360.0 : v;
+}
+
+static void sq9_levels_from_price(double price, std::vector<double>& out,
+                                  int count = 3) {
+    out.clear();
+    if (price <= 0) return;
+
+    double ref_sqrt = sqrt(price);
+
+    for (int a = 0; a < 2; a++) {
+        double step = POWER_ANGLES[a] / 180.0;
+        for (int ring = -count; ring <= count; ring++) {
+            if (ring == 0) continue;
+            double target_sqrt = ref_sqrt + step * ring;
+            if (target_sqrt > 0) {
+                double level = target_sqrt * target_sqrt;
+                if (fabs(level - price) <= price * 0.15) {
+                    out.push_back(level);
+                }
+            }
+        }
+    }
+
+    std::sort(out.begin(), out.end());
+    // Remove duplicates
+    out.erase(std::unique(out.begin(), out.end(),
+              [](double a, double b) { return fabs(a - b) < 0.005; }),
+              out.end());
+}
+
+// ============================================================
+// VIBRATION (from vibration.py)
+// ============================================================
+
+static bool check_vibration_level(double current_price, double swing_price) {
+    double distance = fabs(current_price - swing_price);
+    double remainder = fmod(distance, SWING_QUANTUM);
+    return (remainder <= LOST_MOTION ||
+            (SWING_QUANTUM - remainder) <= LOST_MOTION);
+}
+
+static bool check_vibration_override(double move_from_swing) {
+    return fabs(move_from_swing) >= VIBRATION_OVERRIDE;
+}
+
+// ============================================================
+// PROPORTIONAL (from proportional.py)
+// ============================================================
+
+static bool check_proportional_level(double current_price,
+                                     double swing_high, double swing_low) {
+    double range = swing_high - swing_low;
+    if (range < SWING_QUANTUM) return false;
+
+    // Check primary fractions: 1/3, 1/2, 2/3
+    double fracs[] = {1.0/3.0, 1.0/2.0, 2.0/3.0};
+    for (int i = 0; i < 3; i++) {
+        double level = swing_low + range * fracs[i];
+        if (fabs(current_price - level) <= LOST_MOTION) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ============================================================
+// TIME STRUCTURE (from time_structure.py)
+// ============================================================
+
+struct TimeWindowResult {
+    bool active;
+    int matching_square;
+    double window_strength;
+    bool impulse_match;
 };
 
-static WaveResult countWaves(const Swing* swings, int swingCount, int currentBar) {
-    WaveResult r = {0, 0, 0.0, 0, 0.0, 0.0};
-    if (swingCount < 4) return r;
+static TimeWindowResult check_time_window(int h4_bars_elapsed) {
+    TimeWindowResult r = {false, -1, 0.0, false};
 
-    // Only use confirmed swings up to current bar
-    int active = 0;
-    for (int s = 0; s < swingCount; s++)
-        if (swings[s].confirmBar <= currentBar) active = s + 1;
-    if (active < 4) return r;
-
-    // Get last 10 swings
-    int start = active > 10 ? active - 10 : 0;
-    int count = active - start;
-
-    // Compute swing moves and find the largest (wave 0)
-    double moves[20];
-    double absMax = 0;
-    int maxIdx = 0;
-    for (int i = 0; i < count - 1; i++) {
-        moves[i] = swings[start + i + 1].price - swings[start + i].price;
-        if (fabs(moves[i]) > absMax) {
-            absMax = fabs(moves[i]);
-            maxIdx = i;
+    // Check natural square timing (±1 H4 bar tolerance)
+    for (int i = 0; i < NUM_NATURAL_SQ; i++) {
+        if (abs(h4_bars_elapsed - NATURAL_SQ[i]) <= 1) {
+            r.active = true;
+            r.matching_square = NATURAL_SQ[i];
+            r.window_strength = NATURAL_SQ_STRENGTH[i];
+            return r;
         }
     }
-    if (absMax < 1.0) return r;
 
-    r.wave0Size = absMax;
-    int impulseDir = (moves[maxIdx] > 0) ? 1 : -1;  // impulse direction
-
-    // Count waves AFTER wave 0
-    int nAfter = (count - 1) - maxIdx - 1;
-    if (nAfter < 0) nAfter = 0;
-
-    // Count even waves exceeding wave 0 (for target formula)
-    int nEvenExceeding = 0;
-    for (int i = maxIdx + 1; i < count - 1; i++) {
-        int waveNum = i - maxIdx;
-        if (waveNum % 2 == 0 && fabs(moves[i]) > absMax)
-            nEvenExceeding++;
-    }
-    r.expectedTarget = absMax * (nEvenExceeding + 1);
-
-    // Current wave = next to form
-    int currentWave = nAfter + 1;
-    r.waveNumber = currentWave;
-
-    // Phase and direction determination
-    if (currentWave <= 5) {
-        r.phase = 0;  // scenario
-        if (currentWave % 2 == 1) {
-            // Odd wave = impulse direction
-            r.direction = impulseDir;
-            r.confidence = 0.7 - (currentWave - 1) * 0.05;
-        } else {
-            // Even wave = correction (opposite)
-            r.direction = -impulseDir;
-            r.confidence = 0.5;
-        }
-    } else if (currentWave == 6) {
-        r.phase = 1;  // transition — expect reversal
-        r.direction = -impulseDir;
-        r.confidence = 0.75;
-    } else {
-        r.phase = 2;  // legend — ABC correction
-        int abcWave = currentWave - 6;
-        if (abcWave % 2 == 1) {
-            r.direction = -impulseDir;  // A or C
-            r.confidence = 0.6;
-        } else {
-            r.direction = impulseDir;   // B
-            r.confidence = 0.4;
+    // Check vibration-scaled impulse timing (on H1 bars)
+    int bars_h1 = h4_bars_elapsed * 4;
+    if (SWING_QUANTUM > 0) {
+        double scaled_ratio = (double)bars_h1 / SWING_QUANTUM;
+        for (int i = 0; i < NUM_IMPULSE_RATIOS; i++) {
+            if (fabs(scaled_ratio - IMPULSE_RATIOS[i]) <= 1.0) {
+                r.active = true;
+                r.window_strength = 0.15;
+                r.impulse_match = true;
+                return r;
+            }
         }
     }
+
     return r;
 }
 
 // ============================================================
-// Triangle System — Angle line crossings (Hellcat/Ferro)
-// "The main meaning of Gann's System is in that FIGURE which
-//  nobody uses." — Hellcat
+// SWING DETECTOR (from swing_detector.py — ATR ZigZag)
 // ============================================================
 
-struct AngleLine {
-    double pivotPrice;
-    int pivotH1Bar;
-    int confirmH1Bar;
-    int direction;       // 1=ascending (from low), -1=descending (from high)
-    double slopePerH1;   // $ per H1 bar
-    double ratio;        // angle ratio (0.5, 1.0, 2.0, 4.0)
-    int importance;      // 1x1=10, 2x1=8, 1x2=7, 4x1=6
-};
+static void detect_swings_atr(const std::vector<Bar>& bars,
+                              std::vector<Swing>& swings,
+                              int atr_period = ATR_PERIOD,
+                              double atr_multiplier = ATR_MULTIPLIER) {
+    swings.clear();
+    int n = (int)bars.size();
+    if (n < atr_period + 1) return;
 
-struct TriCrossing {
-    double h1Bar;          // fractional H1 bar of crossing
-    double price;          // price at crossing point
-    int latestConfirmH1;   // max confirmBar of both parent angles
-    int importance;        // sum of angle importances (max 20 for 1x1+1x1)
-    double ascSlopePerH1;  // ascending angle's slope
-    double descSlopePerH1; // descending angle's slope
-};
-
-// ============================================================
-// Parameters
-// ============================================================
-
-struct Params {
-    // Gann core
-    double vibration = 72.0;
-    double swingQuantum = 12.0;
-    int minConvergence = 7;
-    double lostMotion = 3.0;
-    double touchTol = 2.0;
-
-    // Independent scoring
-    int minIndepScore = 4;    // Ferro: minimum 4 factors
-    int minLimits = 2;        // At least 2 of 3 limits
-    double scoreTol = 3.0;    // Tolerance for factor checks ($)
-    double ptTol = 15.0;      // Price-time squaring degree tolerance
-    int natSqTol = 2;         // Natural square bar tolerance
-
-    // Angles
-    bool useAngles = true;
-    double h1Scale = 7.0;
-    double d1Scale = 7.0;
-
-    // Execution (HONEST)
-    double spread = 0.30;     // ECN spread $
-    double maxSlippage = 3.0; // Max entry offset from level
-    int entryMode = 1;        // 0=next-bar open, 1=level price (limit order)
-    int pessimistic = 1;      // 1=SL first when both possible, 0=TP first
-    // NO trailBE — dishonest in bar testing
-
-    // Risk
-    double slDollars = 3.0;   // Tight SL at level (Gann: $2-3)
-    double tpDollars = 10.0;  // Fallback TP
-    double maxTPDist = 20.0;  // Cap TP distance
-    double minRR = 1.0;       // Minimum reward:risk
-    double slAtrMult = 0.0;   // If >0, SL = slAtrMult * ATR (overrides slDollars)
-    double tpRatio = 0.0;     // If >0, TP = tpRatio * SL (overrides tpDollars)
-    double riskPct = 0.02;
-    double startCapital = 10000.0;
-    int leverage = 500;
-
-    // Filters
-    bool filterFold = true;
-    bool filterSpeed = true;
-    bool filter4thTouch = true;
-    int maxDailyTrades = 10;
-    int maxHoldBars = 36;     // 3 hours on M5
-    double atrMultiplier = 2.5;
-    int atrPeriod = 14;
-    int maxSwings = 10;
-
-    // Triangle system
-    bool useTriangles = false;
-    double triPriceTol = 5.0;     // $ tolerance for crossing price proximity
-    int triBarTolH1 = 3;          // H1 bars tolerance for crossing timing
-    int triMinImportance = 10;    // Min importance (1x1+1x1=20, 1x1+2x1=18)
-    bool triConvGate = false;     // Also require convergence level nearby?
-    bool geoSLTP = false;         // Use geometric SL/TP from triangle angles
-    double triScale = 12.0;       // $/bar for 1x1 angle (H1: $7, M5: $0.58)
-    int triMaxSwings = 20;        // Swings for triangle construction
-    bool triM5 = false;           // Use M5 swings (scalping mode)
-    double triM5AtrMult = 1.5;    // ATR multiplier for M5 swing detection
-    int triTPMode = 0;            // 0=level TP, 1=next crossing TP, 2=best of both
-    double triMinTPDist = 1.5;    // Min TP distance from entry
-    bool fixedTP = false;         // Force TP to exactly tpDollars (ignore levels)
-    bool filterMom = false;        // Momentum confirmation filter
-    int momLookback = 6;           // Momentum lookback bars
-    bool filterBounce = false;     // Bounce quality filter (wick confirmation)
-    double penetration = 0.5;      // $ past level required for fill (adverse selection filter)
-    bool noEntryBarTP = true;      // Skip entry-bar TP (honest for limit orders)
-
-    // Gann time gating (Phase 2)
-    int timeGate = 0;             // 0=off, 1=natural sq required, 2=natSq+PT required
-    bool useD1 = false;           // D1 direction filter
-    bool useWaves = false;        // Wave counting direction filter
-
-    // Date range
-    int64_t fromDate = 0;
-    int64_t toDate = INT64_MAX;
-
-    // Output
-    bool verbose = false;     // Per-trade CSV output
-};
-
-// ============================================================
-// Square of 9
-// ============================================================
-
-static inline double sq9Degree(double price) {
-    if (price <= 0) return 0;
-    double v = fmod(sqrt(price) * 180.0 - 225.0, 360.0);
-    return v < 0 ? v + 360.0 : v;
-}
-
-static inline double sq9Add(double price, double deg) {
-    double s = sqrt(fmax(price, 0.01)) + deg / 180.0;
-    return s * s;
-}
-
-static inline double sq9Sub(double price, double deg) {
-    double s = sqrt(fmax(price, 0.01)) - deg / 180.0;
-    return s > 0 ? s * s : 0;
-}
-
-// ============================================================
-// ATR computation
-// ============================================================
-
-static void computeATR(const Bar* bars, int n, int period, double* atr) {
-    for (int i = 0; i < n; i++) atr[i] = 0;
-    double sum = 0;
+    // Calculate True Range
+    std::vector<double> trs(n, 0.0);
     for (int i = 1; i < n; i++) {
         double tr = bars[i].high - bars[i].low;
-        double h_pc = fabs(bars[i].high - bars[i-1].close);
-        double l_pc = fabs(bars[i].low - bars[i-1].close);
-        if (h_pc > tr) tr = h_pc;
-        if (l_pc > tr) tr = l_pc;
-        if (i < period) {
-            sum += tr;
-            atr[i] = sum / i;
-        } else if (i == period) {
-            sum += tr;
-            atr[i] = sum / period;
+        tr = std::max(tr, fabs(bars[i].high - bars[i-1].close));
+        tr = std::max(tr, fabs(bars[i].low  - bars[i-1].close));
+        trs[i] = tr;
+    }
+
+    int direction = 0;     // 0=none, 1=up, -1=down
+    double last_high = bars[0].high;
+    int last_high_idx = 0;
+    double last_low = bars[0].low;
+    int last_low_idx = 0;
+
+    for (int i = atr_period; i < n; i++) {
+        // Rolling ATR
+        int start = std::max(1, i - atr_period);
+        double atr_sum = 0;
+        int atr_count = 0;
+        for (int j = start; j <= i; j++) {
+            atr_sum += trs[j];
+            atr_count++;
+        }
+        double atr = atr_count > 0 ? atr_sum / atr_count : 1.0;
+        double threshold = atr * atr_multiplier;
+
+        if (bars[i].high > last_high) {
+            last_high = bars[i].high;
+            last_high_idx = i;
+        }
+        if (bars[i].low < last_low) {
+            last_low = bars[i].low;
+            last_low_idx = i;
+        }
+
+        if (direction != -1 && last_high - bars[i].low > threshold) {
+            // Confirm swing HIGH
+            Swing sw;
+            sw.price = last_high;
+            sw.bar_index = last_high_idx;
+            sw.m5_bar_index = bars[last_high_idx].bar_index;
+            sw.type = 1;
+            sw.atr_at_swing = atr;
+            swings.push_back(sw);
+
+            direction = -1;
+            last_low = bars[i].low;
+            last_low_idx = i;
+        }
+        else if (direction != 1 && bars[i].high - last_low > threshold) {
+            // Confirm swing LOW
+            Swing sw;
+            sw.price = last_low;
+            sw.bar_index = last_low_idx;
+            sw.m5_bar_index = bars[last_low_idx].bar_index;
+            sw.type = -1;
+            sw.atr_at_swing = atr;
+            swings.push_back(sw);
+
+            direction = 1;
+            last_high = bars[i].high;
+            last_high_idx = i;
+        }
+    }
+}
+
+// ============================================================
+// WAVE COUNTER (from wave_counter.py — vpM2F(t))
+// ============================================================
+
+static WaveState count_waves(const std::vector<Swing>& swings) {
+    WaveState w = {};
+    w.valid = false;
+    w.num_targets = 0;
+
+    if ((int)swings.size() < 4) return w;
+
+    // Find wave 0 = transition point (largest ratio change)
+    int lookback = 6;
+    int start = std::max(0, (int)swings.size() - lookback);
+    if ((int)swings.size() - start < 3) {
+        start = std::max(0, (int)swings.size() - 3);
+    }
+
+    int best_idx = start;
+    double best_score = 0.0;
+
+    for (int i = start + 2; i < (int)swings.size(); i++) {
+        double prev_size = fabs(swings[i-1].price - swings[i-2].price);
+        double curr_size = fabs(swings[i].price - swings[i-1].price);
+        if (prev_size < 0.01) continue;
+
+        double ratio_change = curr_size / prev_size;
+        if (ratio_change > 1.5 || ratio_change < 0.67) {
+            double score = fabs(log(ratio_change));
+            if (score > best_score) {
+                best_score = score;
+                best_idx = i - 1;
+            }
+        }
+    }
+
+    if (best_score <= 0.3) return w;  // No clear transition
+
+    int wave_0_idx = best_idx;
+    int scenario_count = (int)swings.size() - wave_0_idx;
+
+    // Wave 0 size
+    double wave_0_size = 0.0;
+    if (scenario_count >= 2) {
+        wave_0_size = fabs(swings[wave_0_idx + 1].price - swings[wave_0_idx].price);
+    } else {
+        int n2 = (int)swings.size();
+        wave_0_size = fabs(swings[n2-1].price - swings[n2-2].price);
+    }
+
+    if (wave_0_size < 1.0) return w;
+
+    w.valid = true;
+    w.wave_number = scenario_count - 1;
+    w.wave_0_price = swings[wave_0_idx].price;
+    w.wave_0_size = wave_0_size;
+
+    // Direction from wave 0 swing type
+    if (swings[wave_0_idx].type == -1) {  // low
+        w.direction = 1;   // up
+    } else {
+        w.direction = -1;  // down
+    }
+
+    w.is_trending = (w.wave_number % 2 == 1);
+
+    // Generate targets
+    w.num_targets = 0;
+    for (int n = 1; n <= 7 && w.num_targets < 8; n++) {
+        if (w.direction == 1) {
+            w.targets[w.num_targets] = w.wave_0_price + wave_0_size * (n + 1);
         } else {
-            atr[i] = (atr[i-1] * (period - 1) + tr) / period;
+            w.targets[w.num_targets] = w.wave_0_price - wave_0_size * (n + 1);
         }
-    }
-}
-
-// ============================================================
-// Swing detection (ATR-based ZigZag with confirmBar)
-// ============================================================
-
-static int detectSwings(const Bar* bars, int n, const double* atr,
-                        double multiplier, std::vector<Swing>& swings) {
-    int state = 0;
-    double ext = 0;
-    int extIdx = 0;
-    int atrPeriod = 14;
-
-    for (int i = atrPeriod; i < n; i++) {
-        double thresh = atr[i] * multiplier;
-        if (thresh <= 0) continue;
-
-        if (state == 0) {
-            double rLow = 1e18, rHigh = -1e18;
-            int rLowIdx = i, rHighIdx = i;
-            int start = i > 20 ? i - 20 : atrPeriod;
-            for (int j = start; j <= i; j++) {
-                if (bars[j].low < rLow) { rLow = bars[j].low; rLowIdx = j; }
-                if (bars[j].high > rHigh) { rHigh = bars[j].high; rHighIdx = j; }
-            }
-            if (bars[i].high - rLow >= thresh) {
-                swings.push_back({rLow, rLowIdx, i, -1});
-                state = 1; ext = bars[i].high; extIdx = i;
-            } else if (rHigh - bars[i].low >= thresh) {
-                swings.push_back({rHigh, rHighIdx, i, 1});
-                state = -1; ext = bars[i].low; extIdx = i;
-            }
-        } else if (state == 1) {
-            if (bars[i].high > ext) { ext = bars[i].high; extIdx = i; }
-            if (ext - bars[i].low >= thresh) {
-                if (swings.empty() || extIdx - swings.back().barIndex >= 3)
-                    swings.push_back({ext, extIdx, i, 1});
-                state = -1; ext = bars[i].low; extIdx = i;
-            }
-        } else {
-            if (bars[i].low < ext) { ext = bars[i].low; extIdx = i; }
-            if (bars[i].high - ext >= thresh) {
-                if (swings.empty() || extIdx - swings.back().barIndex >= 3)
-                    swings.push_back({ext, extIdx, i, -1});
-                state = 1; ext = bars[i].high; extIdx = i;
-            }
-        }
-    }
-    return (int)swings.size();
-}
-
-// ============================================================
-// H1 resampling (from M5 bars, group by every 12)
-// ============================================================
-
-static int resampleH1(const Bar* m5, int n, Bar* h1, int maxH1) {
-    int count = 0;
-    for (int i = 0; i < n && count < maxH1; i += 12) {
-        int end = std::min(i + 12, n);
-        h1[count].timestamp = m5[i].timestamp;
-        h1[count].open = m5[i].open;
-        h1[count].high = m5[i].high;
-        h1[count].low = m5[i].low;
-        h1[count].close = m5[end - 1].close;
-        for (int j = i + 1; j < end; j++) {
-            if (m5[j].high > h1[count].high) h1[count].high = m5[j].high;
-            if (m5[j].low < h1[count].low) h1[count].low = m5[j].low;
-        }
-        count++;
-    }
-    return count;
-}
-
-// ============================================================
-// Gann Level calculation (from H1 swings)
-// ============================================================
-
-static int calculateLevels(const Swing* swings, int swingCount, int fromSw,
-                           double currentPrice, double vibQ,
-                           GannLevel* levels, int maxLevels) {
-    int count = 0;
-    double clusterTol = 3.0;
-
-    auto addLevel = [&](double price, bool sq9, bool vib, bool prop) {
-        if (fabs(price - currentPrice) > 200) return;
-        for (int i = 0; i < count; i++) {
-            if (fabs(levels[i].price - price) <= clusterTol) {
-                levels[i].convergence++;
-                if (sq9) levels[i].hasSq9 = true;
-                if (vib) levels[i].hasVib = true;
-                if (prop) levels[i].hasProp = true;
-                return;
-            }
-        }
-        if (count < maxLevels) {
-            levels[count] = {price, 1, sq9, vib, prop};
-            count++;
-        }
-    };
-
-    int start = fromSw > 0 ? fromSw : 0;
-    for (int s = start; s < swingCount; s++) {
-        double ref = swings[s].price;
-        double degs[] = {30, 45, 60, 90, 120, 180};
-        for (int d = 0; d < 6; d++) {
-            addLevel(sq9Add(ref, degs[d]), true, false, false);
-            addLevel(sq9Sub(ref, degs[d]), true, false, false);
-        }
-        for (int m = 1; m <= 9; m++) {
-            addLevel(ref + m * vibQ, false, true, false);
-            addLevel(ref - m * vibQ, false, true, false);
-        }
-    }
-    for (int s = start; s < swingCount - 1; s++) {
-        double hi = fmax(swings[s].price, swings[s + 1].price);
-        double lo = fmin(swings[s].price, swings[s + 1].price);
-        double rng = hi - lo;
-        if (rng < 5) continue;
-        double fracs[] = {0.125, 0.25, 0.333, 0.375, 0.5, 0.625, 0.667, 0.75, 0.875};
-        for (int f = 0; f < 9; f++)
-            addLevel(lo + rng * fracs[f], false, false, true);
-    }
-    std::sort(levels, levels + count, [](const GannLevel& a, const GannLevel& b) {
-        return a.convergence > b.convergence;
-    });
-    return count;
-}
-
-// ============================================================
-// Independent Convergence Scoring (7 factors)
-// Ferro: "minimum 4 simultaneous mathematical indications"
-// Hellcat: "5-6 factors = 85-96% probability"
-// ============================================================
-
-static bool checkSq9FromSwing(double entry, double swingPrice, double tol) {
-    double degs[] = {30, 45, 60, 90, 120, 180};
-    for (int d = 0; d < 6; d++) {
-        if (fabs(sq9Add(swingPrice, degs[d]) - entry) <= tol) return true;
-        if (fabs(sq9Sub(swingPrice, degs[d]) - entry) <= tol) return true;
-    }
-    return false;
-}
-
-static bool checkVibrationMultiple(double entry, double swingPrice, double vib, double tol) {
-    double move = fabs(entry - swingPrice);
-    if (move < 1.0) return false;
-    double remainder = fmod(move, vib);
-    return remainder <= tol || (vib - remainder) <= tol;
-}
-
-static bool checkProportional(double entry, double swingHigh, double swingLow, double tol) {
-    double range = swingHigh - swingLow;
-    if (range < 5) return false;
-    double fracs[] = {0.25, 0.333, 0.5, 0.667, 0.75};
-    for (int f = 0; f < 5; f++) {
-        double level = swingLow + range * fracs[f];
-        if (fabs(level - entry) <= tol) return true;
-    }
-    return false;
-}
-
-static bool checkNaturalSquareTiming(int barsFromSwing, int tolerance) {
-    int squares[] = {4, 9, 16, 24, 36, 49, 72, 81};
-    for (int s = 0; s < 8; s++) {
-        if (abs(barsFromSwing - squares[s]) <= tolerance) return true;
-    }
-    return false;
-}
-
-static bool checkPTSquaring(double entryPrice, double refSwingPrice, int barsFromSwing, double degTol) {
-    if (barsFromSwing <= 0) return false;
-    double priceDeg = sq9Degree(fabs(entryPrice - refSwingPrice));
-    double timeDeg = sq9Degree((double)barsFromSwing);
-    double diff = fabs(priceDeg - timeDeg);
-    if (diff > 180) diff = 360 - diff;
-    return diff <= degTol;
-}
-
-static IndepScore computeIndependentScore(
-    double entry, const Swing* h1Swings, int validSw,
-    int barsFromLastSwing, int h1Dir, int tradeDir, const Params& p)
-{
-    IndepScore sc = {};
-    if (validSw < 2) return sc;
-
-    // Find most recent and 2nd most recent swings
-    int last = validSw - 1;
-    int prev = validSw - 2;
-
-    // A: Sq9 from most recent swing
-    sc.sq9_swing1 = checkSq9FromSwing(entry, h1Swings[last].price, p.scoreTol);
-
-    // B: Sq9 from 2nd most recent swing (independent evidence)
-    sc.sq9_swing2 = checkSq9FromSwing(entry, h1Swings[prev].price, p.scoreTol);
-
-    // C: Vibration multiple of move from recent swing
-    sc.vibration = checkVibrationMultiple(entry, h1Swings[last].price, p.swingQuantum, p.scoreTol);
-
-    // D: Proportional level of most recent swing pair range
-    double hi = fmax(h1Swings[last].price, h1Swings[prev].price);
-    double lo = fmin(h1Swings[last].price, h1Swings[prev].price);
-    sc.proportional = checkProportional(entry, hi, lo, p.scoreTol);
-
-    // E: Natural square timing (H1 bars from last swing)
-    sc.natural_square = checkNaturalSquareTiming(barsFromLastSwing, p.natSqTol);
-
-    // F: Price-time squaring
-    sc.pt_squaring = checkPTSquaring(entry, h1Swings[last].price, barsFromLastSwing, p.ptTol);
-
-    // G: H1 trend alignment
-    sc.trend_aligned = (h1Dir != 0 && h1Dir == tradeDir);
-
-    return sc;
-}
-
-// ============================================================
-// 3-Limit Alignment (Hellcat: "when all three = 85-96%")
-// ============================================================
-
-static LimitCheck checkThreeLimits(
-    double entry, const Swing* h1Swings, int validSw,
-    int barsFromLastSwing, double vibration, const Params& p)
-{
-    LimitCheck lc = {};
-    if (validSw < 2) { lc.limit2_pp = true; return lc; }
-
-    int last = validSw - 1;
-    int prev = validSw - 2;
-
-    // Limit 1: Price-by-Time
-    // Sq9 degree of price distance ≈ Sq9 degree of time elapsed
-    lc.limit1_pt = checkPTSquaring(entry, h1Swings[last].price, barsFromLastSwing, p.ptTol);
-
-    // Also check Gann angle ratios: price/time near 1:4, 1:2, 1:1, 2:1, 4:1
-    if (!lc.limit1_pt && barsFromLastSwing > 0) {
-        double priceMove = fabs(entry - h1Swings[last].price);
-        double timeUnits = (double)barsFromLastSwing;
-        double ratio = priceMove / timeUnits;
-        double gannRatios[] = {0.25, 0.5, 1.0, 2.0, 4.0};
-        for (int r = 0; r < 5; r++) {
-            // Scale by h1Scale to normalize
-            double scaledRatio = ratio / p.h1Scale;
-            if (fabs(scaledRatio - gannRatios[r]) / gannRatios[r] < 0.15)
-                { lc.limit1_pt = true; break; }
-        }
+        w.num_targets++;
     }
 
-    // Limit 2: Price-by-Price (entry at a Gann level — always true at this point)
-    lc.limit2_pp = true;
-
-    // Limit 3: Time-by-Time
-    // Duration matches natural square
-    lc.limit3_tt = checkNaturalSquareTiming(barsFromLastSwing, p.natSqTol);
-
-    // Also check proportional of prior swing duration
-    if (!lc.limit3_tt && validSw >= 3) {
-        int prevDuration = abs(h1Swings[last].barIndex - h1Swings[prev].barIndex);
-        if (prevDuration > 0) {
-            double propFracs[] = {0.5, 0.667, 1.0, 1.333, 1.5, 2.0};
-            for (int f = 0; f < 6; f++) {
-                int expected = (int)(prevDuration * propFracs[f]);
-                if (abs(barsFromLastSwing - expected) <= p.natSqTol)
-                    { lc.limit3_tt = true; break; }
-            }
-        }
-    }
-
-    return lc;
+    return w;
 }
 
 // ============================================================
-// Angle direction
+// CONVERGENCE SCORER (from convergence.py — 7 categories)
 // ============================================================
 
-struct DirResult {
-    int direction;  // 1=long, -1=short, 0=neutral
-    int strength;
+struct ConvergenceResult {
+    int score;
+    bool categories[7];   // A-G
+    bool is_tradeable;
 };
 
-static DirResult angleDirection(double price, int barIdx,
-                                const Swing* swings, int swingCount,
-                                double scale, double lostMotion) {
-    DirResult r = {0, 0};
-    if (swingCount < 2) return r;
+static ConvergenceResult score_convergence(
+    double current_price, int current_m5_bar,
+    const std::vector<Swing>& swings_h1,
+    const std::vector<Swing>& swings_h4,
+    const WaveState& wave,
+    const std::vector<Intersection>* triangle_power_points)
+{
+    ConvergenceResult r = {};
+    r.score = 0;
+    for (int i = 0; i < 7; i++) r.categories[i] = false;
+    r.is_tradeable = false;
 
-    int lastLowIdx = -1, lastHighIdx = -1;
-    double lastLowPrice = 0, lastHighPrice = 0;
-    int lastLowBar = -1, lastHighBar = -1;
+    if (swings_h1.size() < 2) return r;
 
-    for (int i = swingCount - 1; i >= 0 && i >= swingCount - 10; i--) {
-        if (swings[i].type == -1 && lastLowIdx < 0) {
-            lastLowIdx = i; lastLowPrice = swings[i].price; lastLowBar = swings[i].barIndex;
-        }
-        if (swings[i].type == 1 && lastHighIdx < 0) {
-            lastHighIdx = i; lastHighPrice = swings[i].price; lastHighBar = swings[i].barIndex;
-        }
-        if (lastLowIdx >= 0 && lastHighIdx >= 0) break;
-    }
-    if (lastLowIdx < 0 && lastHighIdx < 0) return r;
+    // Use last 5 H1 swings
+    int num_recent = std::min(5, (int)swings_h1.size());
+    int sw_start = (int)swings_h1.size() - num_recent;
 
-    double ascPrice = (lastLowBar >= 0 && barIdx > lastLowBar) ?
-        lastLowPrice + (barIdx - lastLowBar) * scale : 0;
-    double descPrice = (lastHighBar >= 0 && barIdx > lastHighBar) ?
-        lastHighPrice - (barIdx - lastHighBar) * scale : 1e18;
+    std::vector<double> sq9_levels;
 
-    if (lastLowBar > lastHighBar) {
-        if (price >= ascPrice - lostMotion) r.direction = 1;
-        else if (price <= descPrice + lostMotion) r.direction = -1;
-        else r.direction = 1;
-    } else {
-        if (price <= descPrice + lostMotion) r.direction = -1;
-        else if (price >= ascPrice - lostMotion) r.direction = 1;
-        else r.direction = -1;
-    }
-
-    double ratios[] = {0.5, 1.0, 2.0, 4.0};
-    int bull = 0, bear = 0;
-    for (int ri = 0; ri < 4; ri++) {
-        if (lastLowBar >= 0 && barIdx > lastLowBar) {
-            double a = lastLowPrice + (barIdx - lastLowBar) * scale * ratios[ri];
-            if (price > a - lostMotion) bull++;
-        }
-        if (lastHighBar >= 0 && barIdx > lastHighBar) {
-            double d = lastHighPrice - (barIdx - lastHighBar) * scale * ratios[ri];
-            if (price < d + lostMotion) bear++;
+    // --- CATEGORY A: Sq9 Price Level ---
+    for (int si = sw_start; si < (int)swings_h1.size() && !r.categories[0]; si++) {
+        sq9_levels_from_price(swings_h1[si].price, sq9_levels);
+        for (double level : sq9_levels) {
+            if (fabs(current_price - level) <= LOST_MOTION) {
+                r.categories[0] = true;
+                break;
+            }
         }
     }
-    r.strength = (r.direction == 1) ? bull : bear;
+
+    // --- CATEGORY B: Vibration Level (V=12 multiple) ---
+    for (int si = sw_start; si < (int)swings_h1.size() && !r.categories[1]; si++) {
+        if (check_vibration_level(current_price, swings_h1[si].price)) {
+            r.categories[1] = true;
+        }
+    }
+
+    // --- CATEGORY C: Proportional Division (1/3, 1/2, 2/3) ---
+    for (int i = sw_start; i < (int)swings_h1.size() - 1 && !r.categories[2]; i++) {
+        for (int j = i + 1; j < (int)swings_h1.size() && !r.categories[2]; j++) {
+            double hi = std::max(swings_h1[i].price, swings_h1[j].price);
+            double lo = std::min(swings_h1[i].price, swings_h1[j].price);
+            if (check_proportional_level(current_price, hi, lo)) {
+                r.categories[2] = true;
+            }
+        }
+    }
+
+    // --- CATEGORY D: Time Window (natural square from last H4 swing) ---
+    if (!swings_h4.empty()) {
+        const Swing& last_h4 = swings_h4.back();
+        int h4_bars_elapsed = (current_m5_bar - last_h4.m5_bar_index) / M5_PER_H4;
+        TimeWindowResult tw = check_time_window(h4_bars_elapsed);
+        r.categories[3] = tw.active;
+    }
+
+    // --- CATEGORY E: Triangle Crossing (near a power point) ---
+    if (triangle_power_points && !triangle_power_points->empty()) {
+        for (const auto& pp : *triangle_power_points) {
+            bool price_match = fabs(current_price - pp.price) <= LOST_MOTION * 2;
+            bool bar_match = abs(current_m5_bar - pp.bar) <= 3;
+            if (price_match && bar_match) {
+                r.categories[4] = true;
+                break;
+            }
+        }
+    }
+
+    // --- CATEGORY F: Wave Target ---
+    if (wave.valid && wave.num_targets > 0) {
+        int check_count = std::min(wave.num_targets, 4);
+        for (int i = 0; i < check_count; i++) {
+            if (fabs(current_price - wave.targets[i]) <= LOST_MOTION * 2) {
+                r.categories[5] = true;
+                break;
+            }
+        }
+    }
+
+    // --- CATEGORY G: Price-Time Square ---
+    if (num_recent > 0) {
+        const Swing& last_sw = swings_h1.back();
+        double price_move = fabs(current_price - last_sw.price);
+        double price_units = price_move / SWING_QUANTUM;
+        double time_units = (double)(current_m5_bar - last_sw.m5_bar_index) / M5_PER_H1;
+        if (time_units > 0 && fabs(price_units - time_units) <= 2.0) {
+            r.categories[6] = true;
+        }
+    }
+
+    // Final score
+    for (int i = 0; i < 7; i++) {
+        if (r.categories[i]) r.score++;
+    }
+    r.is_tradeable = (r.score >= MIN_CONVERGENCE);
+
     return r;
 }
 
 // ============================================================
-// Filters
+// THREE LIMITS (from three_limits.py)
 // ============================================================
 
-static bool filterFoldAtThird(const Bar* m5, int idx) {
-    if (idx < 36) return true;
-    double hi = -1e18, lo = 1e18;
-    for (int i = idx - 36; i <= idx; i++) {
-        if (m5[i].close > hi) hi = m5[i].close;
-        if (m5[i].close < lo) lo = m5[i].close;
-    }
-    double rng = hi - lo;
-    if (rng < 5) return true;
-    double third = lo + rng / 3, twoThird = lo + rng * 2 / 3;
-    int near = 0;
-    for (int i = idx - 35; i < idx; i++) {
-        if ((fabs(m5[i].close - third) < rng * 0.08 || fabs(m5[i].close - twoThird) < rng * 0.08) &&
-            ((m5[i].close > m5[i - 1].close && m5[i + 1].close < m5[i].close) ||
-             (m5[i].close < m5[i - 1].close && m5[i + 1].close > m5[i].close)))
-            near++;
-    }
-    return near < 2;
-}
-
-static bool filterSpeedAccel(const Bar* m5, int idx) {
-    if (idx < 24) return true;
-    double first = fabs(m5[idx - 12].close - m5[idx - 24].close);
-    double second = fabs(m5[idx].close - m5[idx - 12].close);
-    if (first <= 0) return true;
-    double speed = first / 12.0;
-    double accel = speed * speed;
-    double remSpeed = second / 12.0;
-    return !(remSpeed > accel && accel > 0.5);
-}
-
-static bool filter4thTouch(const Bar* m5, int idx, double level, int dir, double tol) {
-    if (idx < 144) return true;
-    int touches = 0;
-    for (int i = idx - 144; i < idx; i++)
-        if (m5[i].low <= level + tol && m5[i].high >= level - tol) touches++;
-    if (touches >= 3) {
-        // 4th+ touch: only trade WITH the breakout, not against it
-        if (dir == 1 && m5[idx].close < level) return false;
-        if (dir == -1 && m5[idx].close > level) return false;
-    }
-    return true;
-}
-
-// Momentum confirmation: last N bars show movement in trade direction
-static bool filterMomentum(const Bar* m5, int idx, int dir, int lookback) {
-    if (idx < lookback + 1) return true;
-    int bullBars = 0, bearBars = 0;
-    for (int i = idx - lookback; i < idx; i++) {
-        if (m5[i].close > m5[i].open) bullBars++;
-        else if (m5[i].close < m5[i].open) bearBars++;
-    }
-    // For long: need some bearish bars approaching from above (dipping to crossing)
-    // For short: need some bullish bars approaching from below (rising to crossing)
-    if (dir == 1) return bearBars >= lookback / 3;  // price was falling to crossing
-    else return bullBars >= lookback / 3;            // price was rising to crossing
-}
-
-// Bounce quality: the fill bar should show rejection (wick in trade direction)
-static bool filterBounceQuality(const Bar* m5, int idx, int dir, double crossPrice) {
-    double body = fabs(m5[idx].close - m5[idx].open);
-    double range = m5[idx].high - m5[idx].low;
-    if (range < 0.1) return false;  // doji = skip
-
-    if (dir == 1) {
-        // Long: want lower wick (dipped to crossing, bounced up)
-        double lowerWick = fmin(m5[idx].open, m5[idx].close) - m5[idx].low;
-        return lowerWick >= range * 0.3;  // at least 30% of bar is lower wick
-    } else {
-        // Short: want upper wick (rose to crossing, bounced down)
-        double upperWick = m5[idx].high - fmax(m5[idx].open, m5[idx].close);
-        return upperWick >= range * 0.3;
-    }
-}
-
-// ============================================================
-// TP calculation
-// ============================================================
-
-static double findTP(int dir, double entry, const GannLevel* levels, int levelCount,
-                     double maxDist, double fallbackTP, int minConvForTP = 2) {
-    double best = 0;
-    for (int j = 0; j < levelCount; j++) {
-        double lp = levels[j].price;
-        double dist = fabs(lp - entry);
-        if (dist < 3.0 || dist > maxDist) continue;
-        if (levels[j].convergence < minConvForTP) continue;  // skip noise levels
-        if (dir == 1 && lp > entry && (best == 0 || lp < best)) best = lp;
-        if (dir == -1 && lp < entry && (best == 0 || lp > best)) best = lp;
-    }
-    return (best != 0) ? best : entry + dir * fmin(fallbackTP, maxDist);
-}
-
-// Find TP from next triangle crossing in trade direction
-// Hellcat: "Exit from triangle is always a MULTIPLE of the entry"
-static double findTriTP(int dir, double entry, int curBar,
-                        const TriCrossing* crossings, int crossCount,
-                        double minDist, double maxDist) {
-    double best = 0;
-    double bestDist = 1e18;
-    for (int c = 0; c < crossCount; c++) {
-        double cp = crossings[c].price;
-        double dist = (dir == 1) ? cp - entry : entry - cp;
-        if (dist < minDist || dist > maxDist) continue;
-        // Must be a future crossing (after current bar)
-        if (crossings[c].h1Bar <= (double)curBar) continue;
-        if (dist < bestDist) {
-            bestDist = dist;
-            best = cp;
-        }
-    }
-    return best;
-}
-
-// ============================================================
-// Triangle System — Angle construction & crossing detection
-// ============================================================
-
-static int buildAngleLines(const Swing* swings, int from, int to, double scale,
-                           AngleLine* lines, int maxLines) {
-    static const double ratios[] = {0.5, 1.0, 2.0, 4.0};
-    static const int importances[] = {7, 10, 8, 6};  // 1x2, 1x1, 2x1, 4x1
-    int nR = 4;
-    int count = 0;
-
-    for (int s = from; s < to && count + nR <= maxLines; s++) {
-        int dir = (swings[s].type == -1) ? 1 : -1;
-        for (int r = 0; r < nR; r++) {
-            lines[count].pivotPrice = swings[s].price;
-            lines[count].pivotH1Bar = swings[s].barIndex;
-            lines[count].confirmH1Bar = swings[s].confirmBar;
-            lines[count].direction = dir;
-            lines[count].slopePerH1 = scale * ratios[r];
-            lines[count].ratio = ratios[r];
-            lines[count].importance = importances[r];
-            count++;
-        }
-    }
-    return count;
-}
-
-static int findTriCrossings(const AngleLine* lines, int lineCount,
-                            int minH1, int maxH1, double minPrice, double maxPrice,
-                            TriCrossing* crossings, int maxCross) {
-    int count = 0;
-
-    for (int a = 0; a < lineCount; a++) {
-        if (lines[a].direction != 1) continue;
-        for (int d = 0; d < lineCount; d++) {
-            if (lines[d].direction != -1) continue;
-            if (lines[a].pivotH1Bar == lines[d].pivotH1Bar) continue;
-
-            double denom = lines[a].slopePerH1 + lines[d].slopePerH1;
-            if (denom < 0.01) continue;
-
-            double numer = lines[d].pivotPrice - lines[a].pivotPrice
-                         + lines[a].slopePerH1 * lines[a].pivotH1Bar
-                         + lines[d].slopePerH1 * lines[d].pivotH1Bar;
-            double crossBar = numer / denom;
-
-            if (crossBar < minH1 || crossBar > maxH1) continue;
-
-            double crossPrice = lines[a].pivotPrice +
-                lines[a].slopePerH1 * (crossBar - lines[a].pivotH1Bar);
-            if (crossPrice < minPrice || crossPrice > maxPrice) continue;
-
-            int latestConf = std::max(lines[a].confirmH1Bar, lines[d].confirmH1Bar);
-            if (latestConf >= (int)crossBar) continue;
-
-            if (count >= maxCross) return count;
-            crossings[count].h1Bar = crossBar;
-            crossings[count].price = crossPrice;
-            crossings[count].latestConfirmH1 = latestConf;
-            crossings[count].importance = lines[a].importance + lines[d].importance;
-            crossings[count].ascSlopePerH1 = lines[a].slopePerH1;
-            crossings[count].descSlopePerH1 = lines[d].slopePerH1;
-            count++;
-        }
-    }
-    // Sort by importance descending
-    std::sort(crossings, crossings + count,
-        [](const TriCrossing& a, const TriCrossing& b) {
-            return a.importance > b.importance;
-        });
-    return count;
-}
-
-// ============================================================
-// Main simulation — HONEST execution
-// ============================================================
-
-struct Results {
-    int totalTrades;
-    int wins, losses;
-    double finalEquity, maxDD, peakEquity;
-    int tpExits, slExits, timeExits;
-    double totalCommission;
-    double avgWin, avgLoss;
-    std::vector<Trade> trades;
-    // Score breakdown
-    int scoreTradesArr[8] = {};  // index = score (0-7)
-    int scoreWinsArr[8] = {};
+struct LimitsResult {
+    bool limit1, limit2, limit3;
+    int count;
 };
 
-static Results runBacktest(const Bar* m5, int n, const Params& p) {
-    Results res = {};
-    res.finalEquity = p.startCapital;
-    res.peakEquity = p.startCapital;
-    double equity = p.startCapital;
+static LimitsResult check_three_limits(
+    double current_price, int current_m5_bar,
+    const std::vector<Swing>& swings_h1)
+{
+    LimitsResult r = {false, false, false, 0};
+    if (swings_h1.empty()) return r;
 
-    // ATR on M5
-    double* atr = new double[n];
-    computeATR(m5, n, p.atrPeriod, atr);
+    const Swing& last = swings_h1.back();
 
-    // H1 resampling
-    int h1Max = n / 12 + 10;
-    Bar* h1 = new Bar[h1Max];
-    int h1N = resampleH1(m5, n, h1, h1Max);
-    fprintf(stderr, "  H1 bars: %d\n", h1N);
+    // LIMIT 1: Price-by-Time (Sq9 degree matching with vibration scaling)
+    double price_move = fabs(current_price - last.price);
+    double price_units = price_move / SWING_QUANTUM;
+    double time_units = (double)(current_m5_bar - last.m5_bar_index);
 
-    // H1 ATR + swings
-    double* h1Atr = new double[h1N];
-    computeATR(h1, h1N, p.atrPeriod, h1Atr);
-    std::vector<Swing> h1Swings;
-    int h1SwCount = detectSwings(h1, h1N, h1Atr, p.atrMultiplier, h1Swings);
-    fprintf(stderr, "  H1 swings: %d\n", h1SwCount);
-
-    // D1 resampling (24 H1 bars = 288 M5 bars per D1 bar)
-    int d1Max = h1N / 24 + 10;
-    Bar* d1 = new Bar[d1Max];
-    int d1N = 0;
-    double* d1Atr = nullptr;
-    std::vector<Swing> d1Swings;
-    int d1SwCount = 0;
-    if (p.useD1) {
-        for (int j = 0; j < h1N && d1N < d1Max; j += 24) {
-            int end = std::min(j + 24, h1N);
-            d1[d1N].timestamp = h1[j].timestamp;
-            d1[d1N].open = h1[j].open;
-            d1[d1N].high = h1[j].high;
-            d1[d1N].low = h1[j].low;
-            d1[d1N].close = h1[end - 1].close;
-            for (int k = j + 1; k < end; k++) {
-                if (h1[k].high > d1[d1N].high) d1[d1N].high = h1[k].high;
-                if (h1[k].low < d1[d1N].low) d1[d1N].low = h1[k].low;
-            }
-            d1N++;
-        }
-        d1Atr = new double[d1N];
-        computeATR(d1, d1N, p.atrPeriod, d1Atr);
-        d1SwCount = detectSwings(d1, d1N, d1Atr, p.atrMultiplier, d1Swings);
-        fprintf(stderr, "  D1 bars: %d, D1 swings: %d\n", d1N, d1SwCount);
+    if (price_units > 0 && time_units > 0) {
+        double price_deg = sq9_degree(price_units);
+        double time_deg = sq9_degree(time_units);
+        double diff = fabs(price_deg - time_deg);
+        diff = std::min(diff, 360.0 - diff);
+        r.limit1 = (diff <= 5.0);
     }
 
-    // Level cache
-    GannLevel levels[500];
-    int levelCount = 0;
-    int cacheCounter = 0;
-    int dailyTrades = 0;
-    int64_t currentDay = 0;
+    // LIMIT 2: Price-by-Price (at any Gann level from last 5 swings)
+    int num_check = std::min(5, (int)swings_h1.size());
+    int sw_start = (int)swings_h1.size() - num_check;
+    std::vector<double> sq9_levels;
 
-    // Active position
-    bool hasPos = false;
-    Trade pos = {};
-    int lastExitBar = -2;  // No re-entry on same bar as exit
-
-    // Triangle system state
-    AngleLine triLines[400];
-    int triLineCount = 0;
-    TriCrossing triCross[10000];
-    int triCrossCount = 0;
-    int lastTriSwCount = -1;
-
-    // M5 swings for scalping triangles
-    std::vector<Swing> m5Swings;
-    int m5SwCount = 0;
-    if (p.useTriangles && p.triM5) {
-        m5SwCount = detectSwings(m5, n, atr, p.triM5AtrMult, m5Swings);
-        fprintf(stderr, "  M5 swings for triangles: %d\n", m5SwCount);
+    for (int si = sw_start; si < (int)swings_h1.size() && !r.limit2; si++) {
+        // Sq9 levels
+        sq9_levels_from_price(swings_h1[si].price, sq9_levels);
+        for (double level : sq9_levels) {
+            if (fabs(current_price - level) <= LOST_MOTION) {
+                r.limit2 = true;
+                break;
+            }
+        }
+        // Vibration levels
+        if (!r.limit2 && check_vibration_level(current_price, swings_h1[si].price)) {
+            r.limit2 = true;
+        }
     }
 
-    // Verbose header
-    if (p.verbose)
-        fprintf(stderr, "bar,dir,entry,sl,tp,conv,iscore,limits,exit_reason,exit_price,pnl\n");
-
-    for (int i = 62; i < n; i++) {
-        if (m5[i].timestamp < p.fromDate || m5[i].timestamp > p.toDate) continue;
-
-        int64_t day = m5[i].timestamp / 86400;
-        if (day != currentDay) { currentDay = day; dailyTrades = 0; }
-
-        // ============ EXIT LOGIC — MT5-realistic tick simulation ============
-        // Bar OHLC = bid prices. Spread modeled on SHORT exits.
-        // Tick order: Bullish bar (C>O): O→L→H→C. Bearish (C<O): O→H→L→C.
-        // This matches MT5 "Every tick" modeling.
-        if (hasPos) {
-            double exitPrice = 0;
-            int exitReason = -1;
-            bool isBullish = m5[i].close >= m5[i].open;
-
-            if (pos.direction == 1) {
-                // LONG: SL at bid low, TP at bid high
-                if (m5[i].open <= pos.sl) {
-                    exitPrice = m5[i].open; exitReason = 1; // gap SL
-                } else if (m5[i].open >= pos.tp) {
-                    exitPrice = pos.tp; exitReason = 0; // gap TP
-                } else {
-                    bool canHitSL = m5[i].low <= pos.sl;
-                    bool canHitTP = m5[i].high >= pos.tp;
-                    if (canHitSL && canHitTP) {
-                        // Bullish: O→L→H→C → SL(low) tested first
-                        // Bearish: O→H→L→C → TP(high) tested first
-                        if (isBullish) { exitPrice = pos.sl; exitReason = 1; }
-                        else           { exitPrice = pos.tp; exitReason = 0; }
-                    } else if (canHitSL) { exitPrice = pos.sl; exitReason = 1; }
-                    else if (canHitTP) { exitPrice = pos.tp; exitReason = 0; }
-                }
-            } else {
-                // SHORT: SL at ask high (bid.high + spread), TP at ask low (bid.low + spread)
-                double askHigh = m5[i].high + p.spread;
-                double askLow  = m5[i].low + p.spread;
-                double askOpen = m5[i].open + p.spread;
-                if (askOpen >= pos.sl) {
-                    exitPrice = askOpen; exitReason = 1; // gap SL
-                } else if (askOpen <= pos.tp) {
-                    exitPrice = pos.tp; exitReason = 0; // gap TP
-                } else {
-                    bool canHitSL = askHigh >= pos.sl;
-                    bool canHitTP = askLow <= pos.tp;
-                    if (canHitSL && canHitTP) {
-                        // Bullish: O→L→H → TP(low) first, then SL(high)
-                        // Bearish: O→H→L → SL(high) first, then TP(low)
-                        if (isBullish) { exitPrice = pos.tp; exitReason = 0; }
-                        else           { exitPrice = pos.sl; exitReason = 1; }
-                    } else if (canHitSL) { exitPrice = pos.sl; exitReason = 1; }
-                    else if (canHitTP) { exitPrice = pos.tp; exitReason = 0; }
-                }
-            }
-
-            // Time exit
-            int held = i - pos.entryBar;
-            if (exitReason < 0 && held >= p.maxHoldBars) {
-                exitPrice = m5[i].close;
-                exitReason = 2;
-            }
-
-            if (exitReason >= 0) {
-                double pnlPerOz = (pos.direction == 1) ? exitPrice - pos.entryPrice
-                                                        : pos.entryPrice - exitPrice;
-                double gross = pnlPerOz * pos.lotSize * 100.0;
-                double comm = 0.06 * (pos.lotSize / 0.01) * 2;
-                // Spread is now modeled in entry price (buy at ask) and exit checks (short at ask)
-                double net = gross - comm;
-
-                equity += net;
-                if (equity > res.peakEquity) res.peakEquity = equity;
-                double dd = (res.peakEquity - equity) / res.peakEquity;
-                if (dd > res.maxDD) res.maxDD = dd;
-
-                pos.exitBar = i;
-                pos.exitPrice = exitPrice;
-                pos.exitReason = exitReason;
-                pos.pnl = gross;
-                pos.commission = comm;
-                pos.netPnl = net;
-                res.trades.push_back(pos);
-                res.totalTrades++;
-                res.totalCommission += comm;
-
-                // Score tracking
-                int sc = std::min(pos.indepScore, 7);
-                res.scoreTradesArr[sc]++;
-
-                if (net > 0) {
-                    res.wins++;
-                    res.avgWin += net;
-                    if (exitReason == 0) res.tpExits++;
-                    res.scoreWinsArr[sc]++;
-                } else {
-                    res.losses++;
-                    res.avgLoss += net;
-                    if (exitReason == 1) res.slExits++;
-                }
-                if (exitReason == 2) res.timeExits++;
-
-                if (p.verbose)
-                    fprintf(stderr, "%d,%s,%.2f,%.2f,%.2f,%d,%d,%d,%d,%.2f,%.2f\n",
-                            pos.entryBar, pos.angleDir, pos.entryPrice, pos.sl, pos.tp,
-                            pos.convergence, pos.indepScore, pos.limitsAligned,
-                            exitReason, exitPrice, net);
-
-                lastExitBar = i;
-                hasPos = false;
-            }
-            continue;
-        }
-
-        // ============ ENTRY LOGIC (NEXT-BAR) ============
-        if (dailyTrades >= p.maxDailyTrades) continue;
-        if (i <= lastExitBar) continue;
-        if (i < 2) continue;
-
-        int curH1 = i / 12;
-
-        // Update levels periodically (needed for both modes)
-        cacheCounter++;
-        if (cacheCounter >= 12 || levelCount == 0) {
-            cacheCounter = 0;
-            int validSw = 0;
-            for (int s = 0; s < h1SwCount; s++)
-                if (h1Swings[s].confirmBar <= curH1) validSw = s + 1;
-            if (validSw >= 3) {
-                int fromSw = validSw > p.maxSwings ? validSw - p.maxSwings : 0;
-                levelCount = calculateLevels(h1Swings.data(), validSw, fromSw,
-                    m5[i].close, p.swingQuantum, levels, 500);
-            }
-        }
-
-        // Count valid H1 swings
-        int validH1Sw = 0;
-        for (int s = 0; s < h1SwCount; s++)
-            if (h1Swings[s].confirmBar <= curH1) validH1Sw = s + 1;
-        if (validH1Sw < 3) continue;
-
-        // ============ TRIANGLE ENTRY MODE ============
-        if (p.useTriangles) {
-            if (p.triM5) {
-                // M5 SCALPING MODE: use M5 swings for angle construction
-                // Count confirmed M5 swings (confirmBar <= current M5 bar)
-                int validM5Sw = 0;
-                for (int s = 0; s < m5SwCount; s++)
-                    if (m5Swings[s].confirmBar <= i) validM5Sw = s + 1;
-
-                // Recompute when swing set changes
-                if (validM5Sw != lastTriSwCount && validM5Sw >= 3) {
-                    lastTriSwCount = validM5Sw;
-                    int fromSw = validM5Sw > p.triMaxSwings ? validM5Sw - p.triMaxSwings : 0;
-                    triLineCount = buildAngleLines(m5Swings.data(), fromSw, validM5Sw,
-                                                   p.triScale, triLines, 400);
-                    triCrossCount = findTriCrossings(triLines, triLineCount,
-                        i - 200, i + 500,
-                        m5[i].close - 200, m5[i].close + 200,
-                        triCross, 10000);
-                }
-            } else {
-                // H1 MODE: use H1 swings (original)
-                if (validH1Sw != lastTriSwCount) {
-                    lastTriSwCount = validH1Sw;
-                    int fromSw = validH1Sw > p.triMaxSwings ? validH1Sw - p.triMaxSwings : 0;
-                    triLineCount = buildAngleLines(h1Swings.data(), fromSw, validH1Sw,
-                                                   p.triScale, triLines, 400);
-                    triCrossCount = findTriCrossings(triLines, triLineCount,
-                        curH1 - 20, curH1 + 100,
-                        m5[i].close - 300, m5[i].close + 300,
-                        triCross, 10000);
-                }
-            }
-
-            // Current bar index in the swing's timeframe
-            int curBar = p.triM5 ? i : curH1;
-
-            // Find best crossing near current price+time
-            int bestCross = -1;
-            int bestImp = 0;
-
-            for (int c = 0; c < triCrossCount; c++) {
-                if (triCross[c].latestConfirmH1 >= curBar) continue;
-
-                double barDist = fabs(triCross[c].h1Bar - (double)curBar);
-                if (barDist > p.triBarTolH1) continue;
-
-                double priceDist = fabs(triCross[c].price - m5[i-1].close);
-                if (priceDist > p.triPriceTol) continue;
-
-                if (triCross[c].importance < p.triMinImportance) continue;
-
-                // Optional: require convergence level nearby
-                if (p.triConvGate && levelCount > 0) {
-                    bool hasConv = false;
-                    for (int lv = 0; lv < levelCount; lv++) {
-                        if (levels[lv].convergence >= p.minConvergence &&
-                            fabs(levels[lv].price - triCross[c].price) <= 5.0) {
-                            hasConv = true; break;
-                        }
-                    }
-                    if (!hasConv) continue;
-                }
-
-                if (triCross[c].importance > bestImp) {
-                    bestImp = triCross[c].importance;
-                    bestCross = c;
-                }
-            }
-
-            if (bestCross < 0) continue; // No triangle signal
-
-            double crossPrice = triCross[bestCross].price;
-            int direction;
-            double entry;
-
-            if (p.entryMode == 1) {
-                // TRIANGLE LIMIT MODE — MT5-honest:
-                // BuyLimit triggers on ASK, not Bid. Bar OHLC = Bid.
-                // So BuyLimit fills when Ask <= crossPrice, i.e. Bid <= crossPrice - spread
-                // SellLimit triggers on Bid >= crossPrice.
-                // Also require PENETRATION past the level (not just touch) to model
-                // that fills at exact level are adversely selected.
-                double penetration = p.penetration;
-                if (m5[i-1].close > crossPrice)
-                    direction = 1;   // approaching from above → buy limit below
-                else
-                    direction = -1;  // approaching from below → sell limit above
-
-                if (direction == 1) {
-                    // BuyLimit: Ask must reach crossPrice → Bid must reach crossPrice - spread
-                    // Plus penetration to model adverse selection filter
-                    if (m5[i].low > crossPrice - p.spread - penetration) continue;
-                    entry = crossPrice + p.spread; // fill at Ask = crossPrice
-                } else {
-                    // SellLimit: Bid must reach crossPrice
-                    // Plus penetration
-                    if (m5[i].high < crossPrice + penetration) continue;
-                    entry = crossPrice; // fill at Bid = crossPrice
-                }
-            } else {
-                // MARKET MODE: detect touch on bar[i-1], enter at bar[i].open
-                bool touchedLevel = m5[i-1].low <= crossPrice + p.touchTol &&
-                                    m5[i-1].high >= crossPrice - p.touchTol;
-                if (!touchedLevel) continue;
-
-                if (m5[i-1].close > crossPrice)
-                    direction = 1;
-                else
-                    direction = -1;
-
-                entry = (direction == 1) ? m5[i].open + p.spread : m5[i].open;
-
-                if (fabs(entry - crossPrice) > p.maxSlippage + 2.0) continue;
-            }
-
-            // SL/TP
-            double sl, tp;
-            if (p.geoSLTP) {
-                // Geometric SL: opposing angle slope × time buffer + lost motion
-                // After the crossing, angles diverge. SL = where the opposing angle goes.
-                // Use 1 H1 bar (12 M5 bars) of divergence as baseline
-                if (direction == 1) {
-                    // Long: SL below descending angle trajectory
-                    double descAt = crossPrice - triCross[bestCross].descSlopePerH1 * 0.5;
-                    sl = descAt - p.lostMotion;
-                } else {
-                    double ascAt = crossPrice + triCross[bestCross].ascSlopePerH1 * 0.5;
-                    sl = ascAt + p.lostMotion;
-                }
-                // Ensure SL is at least $2 from entry
-                double slDist = fabs(entry - sl);
-                if (slDist < 2.0) sl = entry - direction * 2.0;
-            } else {
-                sl = entry - direction * p.slDollars;
-            }
-
-            // TP: pick best target based on triTPMode
-            if (p.fixedTP) {
-                tp = entry + direction * p.tpDollars;
-            } else {
-                double tpLevel = findTP(direction, entry, levels, levelCount, p.maxTPDist, p.tpDollars);
-                double tpCross = findTriTP(direction, entry, curBar, triCross, triCrossCount,
-                                            p.triMinTPDist, p.maxTPDist);
-
-                if (p.triTPMode == 0) {
-                    tp = tpLevel;  // Level-based TP (convergence levels)
-                } else if (p.triTPMode == 1) {
-                    tp = (tpCross != 0) ? tpCross : tpLevel;  // Next crossing, fallback to level
-                } else {
-                    // Mode 2: closest of crossing or level
-                    if (tpCross != 0 && (fabs(tpCross - entry) < fabs(tpLevel - entry)))
-                        tp = tpCross;
-                    else
-                        tp = tpLevel;
-                }
-            }
-
-            double tpDist = fabs(tp - entry);
-            double slDist = fabs(entry - sl);
-
-            // Cap TP distance
-            if (tpDist > p.maxTPDist) tp = entry + direction * p.maxTPDist;
-            tpDist = fabs(tp - entry);
-
-            if (slDist < 1.0 || tpDist < p.triMinTPDist) continue;
-            if (tpDist / slDist < p.minRR) continue;
-
-            // Filters
-            if (p.filterFold && !filterFoldAtThird(m5, i-1)) continue;
-            if (p.filterSpeed && !filterSpeedAccel(m5, i-1)) continue;
-            if (p.filterMom && !filterMomentum(m5, i, direction, p.momLookback)) continue;
-            if (p.filterBounce && !filterBounceQuality(m5, i, direction, crossPrice)) continue;
-
-            // Position sizing
-            double risk = equity * p.riskPct;
-            double lot = risk / (slDist * 100.0);
-            if (lot < 0.01) lot = 0.01;
-            lot = floor(lot * 100) / 100.0;
-
-            // Open position
-            pos.entryBar = i + 1;  // SL/TP checks from next bar
-            pos.entryPrice = entry;
-            pos.direction = direction;
-            pos.lotSize = lot;
-            pos.sl = sl;
-            pos.tp = tp;
-            pos.convergence = bestImp;
-            pos.indepScore = triCross[bestCross].importance;
-            pos.limitsAligned = 0;
-            pos.angleStrength = 0;
-            strncpy(pos.angleDir, "tri", 7);
-            pos.angleDir[7] = '\0';
-
-            // ENTRY-BAR CHECK — semi-honest:
-            // Keep entry-bar TP only on favorable bars (high comes AFTER fill):
-            //   BuyLimit on bullish bar: O→L(fill)→H→C → TP at H is valid
-            //   SellLimit on bearish bar: O→H(fill)→L→C → TP at L is valid
-            // Skip entry-bar TP on unfavorable bars (high/low before fill).
-            // When noEntryBarTP=1, skip ALL entry-bar TP (most pessimistic).
-            if (p.entryMode == 1) {
-                bool isBullish = m5[i].close >= m5[i].open;
-                bool entryBarSL = false, entryBarTP = false;
-                if (direction == 1) {
-                    entryBarSL = m5[i].low <= sl;
-                    if (!p.noEntryBarTP && isBullish && !entryBarSL)
-                        entryBarTP = m5[i].high >= tp;  // bullish+buy: H after fill at L
-                } else {
-                    entryBarSL = (m5[i].high + p.spread) >= sl;
-                    if (!p.noEntryBarTP && !isBullish && !entryBarSL)
-                        entryBarTP = (m5[i].low + p.spread) <= tp;  // bearish+sell: L after fill at H
-                }
-                // On unfavorable bars (buy on bearish, sell on bullish):
-                // High/low happened before fill → neither SL nor TP achievable on entry bar.
-                if (entryBarSL) {
-                    // Pessimistic: SL hit on entry bar
-                    double pnlPerOz = (direction == 1) ? sl - entry : entry - sl;
-                    double gross = pnlPerOz * lot * 100.0;
-                    double comm = 0.06 * (lot / 0.01) * 2;
-                    double net = gross - comm;
-                    equity += net;
-                    if (equity > res.peakEquity) res.peakEquity = equity;
-                    double dd = (res.peakEquity - equity) / res.peakEquity;
-                    if (dd > res.maxDD) res.maxDD = dd;
-                    pos.exitBar = i; pos.exitPrice = sl; pos.exitReason = 1;
-                    pos.pnl = gross; pos.commission = comm; pos.netPnl = net;
-                    res.trades.push_back(pos);
-                    res.totalTrades++; res.losses++; res.slExits++;
-                    res.avgLoss += net; res.totalCommission += comm;
-                    int sc = std::min(pos.indepScore, 7);
-                    res.scoreTradesArr[sc]++;
-                    lastExitBar = i;
-                    continue; // Already exited
-                }
-                if (entryBarTP && !entryBarSL) {
-                    // TP hit on entry bar (only if no SL conflict)
-                    double pnlPerOz = (direction == 1) ? tp - entry : entry - tp;
-                    double gross = pnlPerOz * lot * 100.0;
-                    double comm = 0.06 * (lot / 0.01) * 2;
-                    double net = gross - comm;
-                    equity += net;
-                    if (equity > res.peakEquity) res.peakEquity = equity;
-                    double dd = (res.peakEquity - equity) / res.peakEquity;
-                    if (dd > res.maxDD) res.maxDD = dd;
-                    pos.exitBar = i; pos.exitPrice = tp; pos.exitReason = 0;
-                    pos.pnl = gross; pos.commission = comm; pos.netPnl = net;
-                    res.trades.push_back(pos);
-                    res.totalTrades++; res.wins++; res.tpExits++;
-                    res.avgWin += net; res.totalCommission += comm;
-                    int sc = std::min(pos.indepScore, 7);
-                    res.scoreTradesArr[sc]++; res.scoreWinsArr[sc]++;
-                    lastExitBar = i;
-                    continue;
-                }
-            }
-
-            hasPos = true;
-            dailyTrades++;
-            continue; // Skip level-based entry
-        }
-
-        // ============ ORIGINAL LEVEL-BASED ENTRY ============
-        if (levelCount == 0) continue;
-
-        int touchBar = (p.entryMode == 1) ? i : i - 1;
-
-        DirResult h1Dir = {0, 0};
-        if (p.useAngles && validH1Sw >= 2)
-            h1Dir = angleDirection(m5[i].close, curH1, h1Swings.data(), validH1Sw,
-                                   p.h1Scale, p.lostMotion);
-
-        // D1 direction filter: skip if D1 trend disagrees
-        DirResult d1Dir = {0, 0};
-        if (p.useD1 && d1SwCount >= 2) {
-            int curD1 = curH1 / 24;
-            int validD1Sw = 0;
-            for (int s = 0; s < d1SwCount; s++)
-                if (d1Swings[s].confirmBar <= curD1) validD1Sw = s + 1;
-            if (validD1Sw >= 2)
-                d1Dir = angleDirection(m5[i].close, curD1, d1Swings.data(), validD1Sw,
-                                       p.d1Scale, p.lostMotion);
-        }
-
-        int lastSwIdx = validH1Sw - 1;
-        double refPrice = h1Swings[lastSwIdx].price;
-        int barsFromRef = std::max(1, curH1 - h1Swings[lastSwIdx].barIndex);
-
-        // Scan levels for touch on bar[i-1]
-        for (int lv = 0; lv < levelCount; lv++) {
-            double level = levels[lv].price;
-            if (levels[lv].convergence < p.minConvergence) continue;
-
-            // Touch check on completed bar (bar[i-1])
-            if (!(m5[touchBar].low <= level + p.touchTol &&
-                  m5[touchBar].high >= level - p.touchTol))
-                continue;
-
-            // Direction: bounce from approach side, confirmed by H1 angles
-            int direction = 0;
-            int strength = 0;
-            const char* dirStr = "fade";
-            int dirBar = (p.entryMode == 1) ? i - 1 : i - 2;
-            if (dirBar < 0) continue;
-
-            // Step 1: determine bounce direction from approach side
-            // Price above level = approaching support = bounce UP (long)
-            // Price below level = approaching resistance = bounce DOWN (short)
-            int fadeDir = (m5[dirBar].close > level) ? 1 : -1;
-
-            // Step 2: H1 angles must AGREE with bounce direction
-            if (p.useAngles && h1Dir.direction != 0) {
-                if (h1Dir.direction != fadeDir) continue;  // conflict → skip
-                direction = fadeDir;
-                strength = h1Dir.strength;
-                dirStr = (direction == 1) ? "long" : "short";
-            } else if (p.useAngles && h1Dir.direction == 0) {
-                continue;  // neutral angle → skip (no clear trend)
-            } else {
-                direction = fadeDir;
-                dirStr = "fade";
-            }
-
-            // Step 3: D1 direction must AGREE (if enabled)
-            if (p.useD1 && d1Dir.direction != 0 && d1Dir.direction != direction) continue;
-
-            // Step 4: Wave counting direction (if enabled)
-            if (p.useWaves && validH1Sw >= 4) {
-                WaveResult wave = countWaves(h1Swings.data(), h1SwCount, curH1);
-                if (wave.direction != 0 && wave.confidence >= 0.5 &&
-                    wave.direction != direction) continue;
-            }
-
-            // Entry price — always market entry at next bar open (matches MT5)
-            double entry;
-            if (p.entryMode == 1) {
-                entry = level; // limit order (idealized)
-            } else {
-                // MARKET: BUY at ask (open + spread), SELL at bid (open)
-                entry = (direction == 1) ? m5[i].open + p.spread : m5[i].open;
-            }
-
-            // Slippage guard
-            if (p.entryMode == 0 && fabs(entry - level) > p.maxSlippage) continue;
-
-            // BOUNCE CONFIRMATION: touch bar must close on the fade side
-            // For LONG: bar touched level from above, close must be ABOVE level (bounced up)
-            // For SHORT: bar touched level from below, close must be BELOW level (bounced down)
-            if (p.entryMode == 0) {
-                bool bounced = (direction == 1 && m5[touchBar].close > level) ||
-                               (direction == -1 && m5[touchBar].close < level);
-                if (!bounced) continue;
-            }
-
-            // ---- INDEPENDENT CONVERGENCE SCORING ----
-            IndepScore iscore = computeIndependentScore(
-                entry, h1Swings.data(), validH1Sw, barsFromRef,
-                h1Dir.direction, direction, p);
-
-            if (iscore.total() < p.minIndepScore) continue;
-
-            // ---- 3-LIMIT ALIGNMENT ----
-            LimitCheck limits = checkThreeLimits(
-                entry, h1Swings.data(), validH1Sw, barsFromRef, p.vibration, p);
-
-            if (limits.count() < p.minLimits) continue;
-
-            // ---- FILTERS ----
-            if (p.filterFold && !filterFoldAtThird(m5, touchBar)) continue;
-            if (p.filterSpeed && !filterSpeedAccel(m5, touchBar)) continue;
-            if (p.filter4thTouch && !filter4thTouch(m5, touchBar, level, direction, p.touchTol))
-                continue;
-            if (p.filterBounce && !filterBounceQuality(m5, touchBar, direction, level)) continue;
-
-            // ---- TIME GATE (Phase 2) ----
-            if (p.timeGate >= 1 && !checkNaturalSquareTiming(barsFromRef, p.natSqTol)) continue;
-            if (p.timeGate >= 2 && !checkPTSquaring(entry, refPrice, barsFromRef, p.ptTol)) continue;
-
-            // ---- SL / TP ----
-            double slDist_calc, tpDist_calc;
-            if (p.slAtrMult > 0 && atr[i] > 0.1) {
-                // ATR-based SL/TP — auto-adapts to volatility
-                slDist_calc = p.slAtrMult * atr[i];
-                tpDist_calc = (p.tpRatio > 0) ? p.tpRatio * slDist_calc : p.tpDollars;
-            } else {
-                slDist_calc = p.slDollars;
-                tpDist_calc = p.tpDollars;
-            }
-            double sl = entry - direction * slDist_calc;
-            double tp;
-            if (p.fixedTP || p.slAtrMult > 0) {
-                tp = entry + direction * tpDist_calc;
-            } else {
-                tp = findTP(direction, entry, levels, levelCount, p.maxTPDist, tpDist_calc);
-            }
-
-            double slDist = fabs(entry - sl);
-            double tpDist = fabs(tp - entry);
-            if (slDist < 1.0 || tpDist < 2.0) continue;
-            if (tpDist / slDist < p.minRR) continue;
-
-            // ---- POSITION SIZING ----
-            double risk = equity * p.riskPct;
-            double lot = risk / (slDist * 100.0);
-            if (lot < 0.01) lot = 0.01;
-            lot = floor(lot * 100) / 100.0;
-
-            // ---- OPEN POSITION ----
-            // Exit checking starts from NEXT bar (i+1) for both modes
-            // This matches MT5: entry happens at bar open, then next tick/bar checks SL/TP
-            pos.entryBar = i + 1;
-            pos.entryPrice = entry;
-            pos.direction = direction;
-            pos.lotSize = lot;
-            pos.sl = sl;
-            pos.tp = tp;
-            pos.convergence = levels[lv].convergence;
-            pos.indepScore = iscore.total();
-            pos.limitsAligned = limits.count();
-            pos.angleStrength = strength;
-            strncpy(pos.angleDir, dirStr, 7);
-            pos.angleDir[7] = '\0';
-            hasPos = true;
-            dailyTrades++;
+    // LIMIT 3: Time-by-Time (bars elapsed matches natural square)
+    int bars_elapsed = current_m5_bar - last.m5_bar_index;
+    for (int i = 0; i < NUM_NATURAL_SQ; i++) {
+        if (abs(bars_elapsed - NATURAL_SQ[i]) <= 1) {
+            r.limit3 = true;
             break;
         }
     }
 
-    res.finalEquity = equity;
-    if (res.wins > 0) res.avgWin /= res.wins;
-    if (res.losses > 0) res.avgLoss /= res.losses;
-
-    delete[] atr;
-    delete[] h1;
-    delete[] h1Atr;
-    delete[] d1;
-    if (d1Atr) delete[] d1Atr;
-    return res;
+    r.count = (int)r.limit1 + (int)r.limit2 + (int)r.limit3;
+    return r;
 }
 
 // ============================================================
-// Parameter parsing
+// TRIANGLE ENGINE (from triangle_engine.py)
 // ============================================================
 
-static void parseParam(Params& p, const char* arg) {
-    char key[64]; double val;
-    if (sscanf(arg, "%63[^=]=%lf", key, &val) == 2) {
-        if (!strcmp(key, "vibration")) p.vibration = val;
-        else if (!strcmp(key, "quantum")) p.swingQuantum = val;
-        else if (!strcmp(key, "minconv")) p.minConvergence = (int)val;
-        else if (!strcmp(key, "m5scale")) p.h1Scale = val; // legacy alias
-        else if (!strcmp(key, "h1scale")) p.h1Scale = val;
-        else if (!strcmp(key, "d1scale")) p.d1Scale = val;
-        else if (!strcmp(key, "angles")) p.useAngles = val > 0;
-        else if (!strcmp(key, "sl")) p.slDollars = val;
-        else if (!strcmp(key, "tp")) p.tpDollars = val;
-        else if (!strcmp(key, "maxtp")) p.maxTPDist = val;
-        else if (!strcmp(key, "risk")) p.riskPct = val / 100.0;
-        else if (!strcmp(key, "maxdaily")) p.maxDailyTrades = (int)val;
-        else if (!strcmp(key, "maxhold")) p.maxHoldBars = (int)val;
-        else if (!strcmp(key, "minrr")) p.minRR = val;
-        else if (!strcmp(key, "fold")) p.filterFold = val > 0;
-        else if (!strcmp(key, "speed")) p.filterSpeed = val > 0;
-        else if (!strcmp(key, "touch4th")) p.filter4thTouch = val > 0;
-        else if (!strcmp(key, "capital")) p.startCapital = val;
-        else if (!strcmp(key, "leverage")) p.leverage = (int)val;
-        else if (!strcmp(key, "spread")) p.spread = val;
-        else if (!strcmp(key, "maxslip")) p.maxSlippage = val;
-        else if (!strcmp(key, "from")) p.fromDate = (int64_t)val;
-        else if (!strcmp(key, "to")) p.toDate = (int64_t)val;
-        else if (!strcmp(key, "minscore")) p.minIndepScore = (int)val;
-        else if (!strcmp(key, "minlimits")) p.minLimits = (int)val;
-        else if (!strcmp(key, "pttol")) p.ptTol = val;
-        else if (!strcmp(key, "nattol")) p.natSqTol = (int)val;
-        else if (!strcmp(key, "scoretol")) p.scoreTol = val;
-        else if (!strcmp(key, "verbose")) p.verbose = val > 0;
-        else if (!strcmp(key, "entrymode")) p.entryMode = (int)val;
-        else if (!strcmp(key, "pessimistic")) p.pessimistic = (int)val;
-        // Triangle system
-        else if (!strcmp(key, "triangle")) p.useTriangles = val > 0;
-        else if (!strcmp(key, "tripricetol")) p.triPriceTol = val;
-        else if (!strcmp(key, "tribartol")) p.triBarTolH1 = (int)val;
-        else if (!strcmp(key, "triminimp")) p.triMinImportance = (int)val;
-        else if (!strcmp(key, "triconvgate")) p.triConvGate = val > 0;
-        else if (!strcmp(key, "geosltp")) p.geoSLTP = val > 0;
-        else if (!strcmp(key, "triscale")) p.triScale = val;
-        else if (!strcmp(key, "trimaxsw")) p.triMaxSwings = (int)val;
-        else if (!strcmp(key, "m5tri")) p.triM5 = val > 0;
-        else if (!strcmp(key, "m5triatr")) p.triM5AtrMult = val;
-        else if (!strcmp(key, "tritpmode")) p.triTPMode = (int)val;
-        else if (!strcmp(key, "trimintpdist")) p.triMinTPDist = val;
-        else if (!strcmp(key, "fixedtp")) p.fixedTP = val > 0;
-        else if (!strcmp(key, "filtermom")) p.filterMom = val > 0;
-        else if (!strcmp(key, "momlb")) p.momLookback = (int)val;
-        else if (!strcmp(key, "filterbounce")) p.filterBounce = val > 0;
-        else if (!strcmp(key, "penetration")) p.penetration = val;
-        else if (!strcmp(key, "noentrybartp")) p.noEntryBarTP = val > 0;
-        // Gann time gating (Phase 2)
-        else if (!strcmp(key, "timegate")) p.timeGate = (int)val;
-        else if (!strcmp(key, "d1")) p.useD1 = val > 0;
-        else if (!strcmp(key, "waves")) p.useWaves = val > 0;
-        // ATR-based SL/TP
-        else if (!strcmp(key, "slatr")) p.slAtrMult = val;
-        else if (!strcmp(key, "tpratio")) p.tpRatio = val;
+// 2D line segment intersection
+static bool line_intersect(Point2D p1, Point2D p2, Point2D p3, Point2D p4,
+                           double& out_x, double& out_y) {
+    double denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+    if (fabs(denom) < 1e-10) return false;
+
+    double t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom;
+    double u = -((p1.x - p2.x) * (p1.y - p3.y) - (p1.y - p2.y) * (p1.x - p3.x)) / denom;
+
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+        out_x = p1.x + t * (p2.x - p1.x);
+        out_y = p1.y + t * (p2.y - p1.y);
+        return true;
+    }
+    return false;
+}
+
+// Find upper and lower diagonal bounds at a specific bar
+static void get_diagonal_bounds(const std::vector<Diagonal>& diags,
+                                int bar_idx, double box_top, double box_bottom,
+                                double& upper, double& lower) {
+    upper = box_top;
+    lower = box_bottom;
+    double mid = (upper + lower) / 2.0;
+
+    for (const auto& d : diags) {
+        double dx = d.end.x - d.start.x;
+        if (fabs(dx) < 0.001) continue;
+
+        double t = ((double)bar_idx - d.start.x) / dx;
+        if (t < 0 || t > 1) continue;
+
+        double price_at_bar = d.start.y + t * (d.end.y - d.start.y);
+
+        if (price_at_bar > mid && price_at_bar < upper) {
+            upper = price_at_bar;
+        } else if (price_at_bar < mid && price_at_bar > lower) {
+            lower = price_at_bar;
+        }
+    }
+}
+
+// Cluster raw intersections
+static void cluster_intersections(
+    std::vector<std::pair<double,double>>& raw,   // (bar, price) pairs
+    double price_tol, int bar_tol,
+    std::vector<Intersection>& out)
+{
+    out.clear();
+    int n = (int)raw.size();
+    std::vector<bool> used(n, false);
+
+    for (int i = 0; i < n; i++) {
+        if (used[i]) continue;
+        double sum_bar = raw[i].first;
+        double sum_price = raw[i].second;
+        int count = 1;
+        used[i] = true;
+
+        for (int j = i + 1; j < n; j++) {
+            if (used[j]) continue;
+            if (fabs(raw[i].first - raw[j].first) <= bar_tol &&
+                fabs(raw[i].second - raw[j].second) <= price_tol) {
+                sum_bar += raw[j].first;
+                sum_price += raw[j].second;
+                count++;
+                used[j] = true;
+            }
+        }
+
+        Intersection ix;
+        ix.bar = (int)round(sum_bar / count);
+        ix.price = sum_price / count;
+        ix.count = count;
+        out.push_back(ix);
+    }
+
+    // Sort by count descending
+    std::sort(out.begin(), out.end(),
+              [](const Intersection& a, const Intersection& b) {
+                  return a.count > b.count;
+              });
+}
+
+// 1. Measure quant
+static QuantMeasurement measure_quant(const std::vector<Bar>& m5_bars,
+                                      int convergence_bar) {
+    QuantMeasurement q = {};
+    q.valid = false;
+
+    int n = (int)m5_bars.size();
+    if (convergence_bar >= n - 2) return q;
+
+    double touch_price = m5_bars[convergence_bar].close;
+    double extreme_price = touch_price;
+    int extreme_bar = convergence_bar;
+    int direction = 0;  // 0=none, 1=up, -1=down
+
+    int scan_limit = std::min(convergence_bar + 50, n);
+    for (int i = convergence_bar + 1; i < scan_limit; i++) {
+        if (direction == 0 || direction == 1) {
+            if (m5_bars[i].high > extreme_price) {
+                extreme_price = m5_bars[i].high;
+                extreme_bar = i;
+                direction = 1;
+            }
+        }
+        if (direction == 0 || direction == -1) {
+            if (m5_bars[i].low < extreme_price) {
+                extreme_price = m5_bars[i].low;
+                extreme_bar = i;
+                direction = -1;
+            }
+        }
+
+        // Quant complete when price reverses by 1/3 of the move
+        double move = fabs(extreme_price - touch_price);
+        if (move < SWING_QUANTUM * 0.5) continue;
+
+        if (direction == 1 && m5_bars[i].low < extreme_price - move / 3.0) break;
+        if (direction == -1 && m5_bars[i].high > extreme_price + move / 3.0) break;
+    }
+
+    double quant_pips = fabs(extreme_price - touch_price);
+    int quant_bars = extreme_bar - convergence_bar;
+
+    if (quant_pips < SWING_QUANTUM * 0.5 || quant_bars < 1) return q;
+
+    // Round to vibration quantum
+    double box_height = round(quant_pips / SWING_QUANTUM) * SWING_QUANTUM;
+    if (box_height < SWING_QUANTUM) box_height = SWING_QUANTUM;
+
+    // Round bars to nearest natural square
+    int box_width_base = NATURAL_SQ[0];
+    int min_diff = abs(quant_bars - NATURAL_SQ[0]);
+    for (int i = 1; i < NUM_NATURAL_SQ; i++) {
+        int diff = abs(quant_bars - NATURAL_SQ[i]);
+        if (diff < min_diff) {
+            min_diff = diff;
+            box_width_base = NATURAL_SQ[i];
+        }
+    }
+
+    // Egyptian 3-4-5 proportion
+    int box_width = std::max((int)(box_width_base * (4.0 / 3.0)), 4);
+
+    q.quant_pips = quant_pips;
+    q.quant_bars = quant_bars;
+    q.box_height = box_height;
+    q.box_width = box_width;
+    q.scale = box_height / (double)box_width;
+    q.triangle_apex_bar = convergence_bar + (int)(box_width * 0.75);
+    q.direction = direction;
+    q.touch_price = touch_price;
+    q.extreme_price = extreme_price;
+    q.convergence_bar = convergence_bar;
+    q.valid = true;
+
+    return q;
+}
+
+// 2. Construct Gann Box
+static GannBox construct_gann_box(const QuantMeasurement& quant) {
+    GannBox box = {};
+    box.valid = false;
+    if (!quant.valid) return box;
+
+    double touch_price = quant.touch_price;
+    double extreme_price = quant.extreme_price;
+    int box_start = quant.convergence_bar;
+
+    // Step 1: Box boundaries
+    double box_top = std::max(touch_price, extreme_price) + LOST_MOTION;
+    double box_bottom = std::min(touch_price, extreme_price) - LOST_MOTION;
+    double box_height = box_top - box_bottom;
+
+    // Extend to vibration-aligned dimensions
+    double box_height_ext = std::max(box_height, SWING_QUANTUM * 2.0);
+    box_height_ext = (((int)box_height_ext / (int)SWING_QUANTUM) + 1) * SWING_QUANTUM;
+
+    // Recenter
+    double center_price = (box_top + box_bottom) / 2.0;
+    box_top = center_price + box_height_ext / 2.0;
+    box_bottom = center_price - box_height_ext / 2.0;
+
+    int box_width = quant.box_width;
+    int box_end = box_start + box_width;
+    double scale = box_width > 0 ? box_height_ext / (double)box_width : 1.0;
+
+    box.top = box_top;
+    box.bottom = box_bottom;
+    box.height = box_height_ext;
+    box.start_bar = box_start;
+    box.end_bar = box_end;
+    box.width = box_width;
+    box.scale = scale;
+    box.mid_price = center_price;
+    box.mid_bar = box_start + box_width / 2;
+    box.quant = quant;
+
+    // Zones
+    box.red_end = box_start + (int)(box_width * 1.0 / 3.0);
+    box.yellow_end = box_start + (int)(box_width * 2.0 / 3.0);
+    box.green_end = box_end;
+
+    // Step 2: Grid divisions
+    double price_fracs[] = {0, 1.0/8, 1.0/4, 1.0/3, 3.0/8, 1.0/2,
+                            5.0/8, 2.0/3, 3.0/4, 7.0/8, 1.0};
+    int num_fracs = 11;
+
+    double price_levels[11];
+    for (int i = 0; i < num_fracs; i++) {
+        price_levels[i] = box_bottom + box_height_ext * price_fracs[i];
+    }
+
+    // Step 3: Generate all diagonals
+    Point2D corners[4] = {
+        {(double)box_start, box_bottom},   // BL
+        {(double)box_start, box_top},      // TL
+        {(double)box_end,   box_bottom},   // BR
+        {(double)box_end,   box_top},      // TR
+    };
+
+    // Main diagonals from corners (6 pairs)
+    for (int i = 0; i < 4; i++) {
+        for (int j = i + 1; j < 4; j++) {
+            box.diagonals.push_back({corners[i], corners[j], 0});
+        }
+    }
+
+    // Gann angles from each corner
+    for (int ci = 0; ci < 4; ci++) {
+        for (int ai = 0; ai < NUM_ANGLE_RATIOS; ai++) {
+            double slope = scale * GANN_ANGLE_RATIOS[ai];
+            for (int dir = -1; dir <= 1; dir += 2) {
+                double end_x = (corners[ci].x == (double)box_start)
+                               ? (double)box_end : (double)box_start;
+                double end_y = corners[ci].y + dir * slope * fabs(end_x - corners[ci].x);
+                if (end_y >= box_bottom && end_y <= box_top) {
+                    box.diagonals.push_back({corners[ci], {end_x, end_y}, 1});
+                }
+            }
+        }
+    }
+
+    // Inner square diagonals (midpoints to corners)
+    Point2D midpoints[4] = {
+        {(double)box.mid_bar, box_bottom},
+        {(double)box.mid_bar, box_top},
+        {(double)box_start,   center_price},
+        {(double)box_end,     center_price},
+    };
+    for (int mi = 0; mi < 4; mi++) {
+        for (int ci = 0; ci < 4; ci++) {
+            box.diagonals.push_back({midpoints[mi], corners[ci], 2});
+        }
+    }
+
+    // Corner-to-grid diagonals (the "green lines")
+    for (int ci = 0; ci < 4; ci++) {
+        for (int pi = 0; pi < num_fracs; pi++) {
+            double end_x = (corners[ci].x == (double)box_start)
+                           ? (double)box_end : (double)box_start;
+            box.diagonals.push_back({corners[ci], {end_x, price_levels[pi]}, 3});
+        }
+    }
+
+    // Step 4: Find all intersections
+    std::vector<std::pair<double,double>> raw_crossings;
+    int nd = (int)box.diagonals.size();
+    for (int i = 0; i < nd; i++) {
+        for (int j = i + 1; j < nd; j++) {
+            double ix, iy;
+            if (line_intersect(box.diagonals[i].start, box.diagonals[i].end,
+                               box.diagonals[j].start, box.diagonals[j].end,
+                               ix, iy)) {
+                raw_crossings.push_back({ix, iy});
+            }
+        }
+    }
+
+    std::vector<Intersection> all_intersections;
+    cluster_intersections(raw_crossings, LOST_MOTION, 2, all_intersections);
+
+    // Power points (count >= 3) and green zone points
+    for (const auto& ix : all_intersections) {
+        if (ix.count >= 3) {
+            box.power_points.push_back(ix);
+        }
+        if (ix.bar >= box.yellow_end && ix.bar <= box.end_bar) {
+            box.green_zone_points.push_back(ix);
+        }
+    }
+    std::sort(box.green_zone_points.begin(), box.green_zone_points.end(),
+              [](const Intersection& a, const Intersection& b) {
+                  return a.count > b.count;
+              });
+
+    box.valid = true;
+    return box;
+}
+
+// ============================================================
+// GREEN ZONE ENTRY (from triangle_engine.py)
+// ============================================================
+
+struct EntrySignal {
+    double entry_price;
+    double sl, tp;
+    double sl_distance, tp_distance;
+    double rr_ratio;
+    int direction;          // 1=long, -1=short
+    double confidence;
+    double triangle_gap;
+    bool valid;
+};
+
+static EntrySignal find_green_zone_entry(
+    const GannBox& box,
+    const std::vector<Bar>& m5_bars,
+    int current_bar_idx,
+    int d1_direction,       // 1=up, -1=down, 0=flat
+    int h1_wave_direction,  // 1=up, -1=down, 0=flat
+    int wave_multiplier = WAVE_MULTIPLIER)
+{
+    EntrySignal sig = {};
+    sig.valid = false;
+
+    // Must be in Green Zone
+    if (current_bar_idx < box.yellow_end || current_bar_idx > box.green_end)
+        return sig;
+    if (current_bar_idx >= (int)m5_bars.size())
+        return sig;
+
+    // Midpoint resolution
+    double current_price = m5_bars[current_bar_idx].close;
+    int midpoint_dir = (current_price > box.mid_price) ? 1 : -1;
+
+    // D1 must not be flat
+    if (d1_direction == 0) return sig;
+
+    // All directions must agree
+    if (midpoint_dir != d1_direction || midpoint_dir != h1_wave_direction)
+        return sig;
+
+    int direction = midpoint_dir;
+
+    // Get diagonal bounds at current bar
+    double upper_bound, lower_bound;
+    get_diagonal_bounds(box.diagonals, current_bar_idx,
+                        box.top, box.bottom, upper_bound, lower_bound);
+
+    double triangle_gap = upper_bound - lower_bound;
+    if (triangle_gap <= 0) return sig;
+
+    // Gap should be small (converging) — max 4 quanta ($48)
+    if (triangle_gap > SWING_QUANTUM * 4.0) return sig;
+
+    double quant_pips = box.quant.quant_pips;
+
+    // Entry and SL/TP from diagonal geometry
+    double entry_price, sl, tp;
+    if (direction == 1) {  // long
+        entry_price = lower_bound + LOST_MOTION;
+        sl = lower_bound - LOST_MOTION;
+        tp = entry_price + quant_pips * wave_multiplier;
+    } else {               // short
+        entry_price = upper_bound - LOST_MOTION;
+        sl = upper_bound + LOST_MOTION;
+        tp = entry_price - quant_pips * wave_multiplier;
+    }
+
+    double sl_distance = fabs(entry_price - sl);
+    double tp_distance = fabs(tp - entry_price);
+    double rr = (sl_distance > 0) ? tp_distance / sl_distance : 0;
+
+    if (rr < MIN_RR_RATIO) return sig;
+
+    // Confidence from nearby power points
+    double confidence = 0.70;
+    int max_count = 0;
+    for (const auto& pp : box.green_zone_points) {
+        if (abs(pp.bar - current_bar_idx) <= 2 &&
+            fabs(pp.price - current_price) <= LOST_MOTION * 2) {
+            if (pp.count > max_count) max_count = pp.count;
+        }
+    }
+    if (max_count > 0) {
+        confidence += std::min(0.25, max_count * 0.05);
+    }
+
+    sig.entry_price = entry_price;
+    sig.sl = sl;
+    sig.tp = tp;
+    sig.sl_distance = sl_distance;
+    sig.tp_distance = tp_distance;
+    sig.rr_ratio = rr;
+    sig.direction = direction;
+    sig.confidence = confidence;
+    sig.triangle_gap = triangle_gap;
+    sig.valid = true;
+
+    return sig;
+}
+
+// Check explosion potential
+static bool check_explosion(const GannBox& box, int current_bar_idx,
+                            int& energy_multiplier) {
+    int explosion_start = box.start_bar + (int)(box.width * 5.0 / 6.0);
+    if (current_bar_idx < explosion_start) return false;
+
+    double upper, lower;
+    get_diagonal_bounds(box.diagonals, current_bar_idx,
+                        box.top, box.bottom, upper, lower);
+    double gap = upper - lower;
+    if (gap > SWING_QUANTUM) return false;
+
+    int quant_bars = std::max(box.quant.quant_bars, 1);
+    int bars_in_tri = current_bar_idx - box.start_bar;
+    int oscillations = bars_in_tri / quant_bars;
+    energy_multiplier = std::min(10, std::max(2, oscillations));
+    return true;
+}
+
+// ============================================================
+// M5 → HIGHER TF RESAMPLING
+// ============================================================
+
+static void resample_m5(const std::vector<Bar>& m5_bars, int period,
+                        std::vector<Bar>& out, int start_from = 0) {
+    out.clear();
+    int n = (int)m5_bars.size();
+    for (int s = start_from; s < n; s += period) {
+        int end = std::min(s + period, n);
+        if (s >= end) break;
+
+        Bar b;
+        b.timestamp = m5_bars[s].timestamp;
+        b.open = m5_bars[s].open;
+        b.high = m5_bars[s].high;
+        b.low = m5_bars[s].low;
+        b.close = m5_bars[end - 1].close;
+        b.bar_index = s;  // M5 index for cross-TF mapping
+
+        for (int j = s + 1; j < end; j++) {
+            if (m5_bars[j].high > b.high) b.high = m5_bars[j].high;
+            if (m5_bars[j].low < b.low)   b.low = m5_bars[j].low;
+        }
+        out.push_back(b);
     }
 }
 
 // ============================================================
-// Main
+// 4-STATE MACHINE (from strategy.py)
 // ============================================================
+
+enum Phase {
+    SCANNING = 0,
+    QUANT_FORMING = 1,
+    BOX_ACTIVE = 2,
+    IN_TRADE = 3,
+};
+
+struct StrategyState {
+    Phase phase;
+    GannBox active_box;
+    OpenTrade open_trade;
+    int daily_trades;
+    int last_trade_day;    // day-of-year * 10000 + year for reset
+
+    // Multi-timeframe
+    int d1_direction;      // 1=up, -1=down, 0=flat
+    WaveState h1_wave;
+    std::vector<Swing> swings_h1;
+    std::vector<Swing> swings_h4;
+    std::vector<Swing> swings_d1;
+
+    // Convergence tracking
+    int convergence_bar;
+    double convergence_price;
+
+    // Trade log
+    std::vector<TradeRecord> closed_trades;
+
+    // Higher TF bar buffers
+    std::vector<Bar> h1_bars;
+    std::vector<Bar> h4_bars;
+    std::vector<Bar> d1_bars;
+
+    StrategyState() {
+        phase = SCANNING;
+        open_trade.active = false;
+        daily_trades = 0;
+        last_trade_day = -1;
+        d1_direction = 0;
+        h1_wave.valid = false;
+        convergence_bar = 0;
+        convergence_price = 0;
+    }
+};
+
+// Extract day key from timestamp
+static int day_from_timestamp(int64_t ts) {
+    // Simple: divide by 86400 to get day number
+    return (int)(ts / 86400);
+}
+
+// Update multi-timeframe data
+static void update_mtf(const std::vector<Bar>& m5_bars, int current_idx,
+                       StrategyState& st) {
+    int n = current_idx + 1;
+
+    // Only update every 12 M5 bars (= 1 H1 bar) for efficiency, or early on
+    if (n % M5_PER_H1 != 0 && n > 50) return;
+
+    // Sliding window — last 24000 M5 bars = 2000 H1 bars
+    int window_size = std::min(n, 24000);
+    int window_start = n - window_size;
+
+    // Resample M5 → H1
+    if (n >= 24) {
+        resample_m5(m5_bars, M5_PER_H1, st.h1_bars, window_start);
+        if ((int)st.h1_bars.size() >= 20) {
+            detect_swings_atr(st.h1_bars, st.swings_h1);
+        }
+    }
+
+    // Resample M5 → H4
+    if (n >= 200) {
+        resample_m5(m5_bars, M5_PER_H4, st.h4_bars, window_start);
+        if ((int)st.h4_bars.size() >= 20) {
+            detect_swings_atr(st.h4_bars, st.swings_h4);
+        }
+    }
+
+    // Resample M5 → D1
+    if (n >= 1000) {
+        resample_m5(m5_bars, M5_PER_D1, st.d1_bars, window_start);
+        if ((int)st.d1_bars.size() >= 20) {
+            detect_swings_atr(st.d1_bars, st.swings_d1);
+        }
+    }
+
+    // Wave counting on H1 swings
+    if ((int)st.swings_h1.size() >= 4) {
+        st.h1_wave = count_waves(st.swings_h1);
+    }
+
+    // D1 direction from swings
+    if ((int)st.swings_d1.size() >= 3) {
+        int n3 = (int)st.swings_d1.size();
+        double p1 = st.swings_d1[n3 - 3].price;
+        double p3 = st.swings_d1[n3 - 1].price;
+        if (p3 > p1) st.d1_direction = 1;
+        else if (p3 < p1) st.d1_direction = -1;
+        else st.d1_direction = 0;
+    } else if ((int)st.swings_h1.size() >= 3) {
+        int n3 = (int)st.swings_h1.size();
+        double p1 = st.swings_h1[n3 - 3].price;
+        double p3 = st.swings_h1[n3 - 1].price;
+        if (p3 > p1) st.d1_direction = 1;
+        else if (p3 < p1) st.d1_direction = -1;
+        else st.d1_direction = 0;
+    }
+}
+
+// Close an open trade
+static void close_trade(StrategyState& st, const Bar& bar) {
+    OpenTrade& ot = st.open_trade;
+    if (!ot.active) return;
+
+    TradeRecord tr;
+    tr.entry_bar = ot.entry_bar;
+    tr.exit_bar = bar.bar_index;
+    tr.entry_price = ot.entry_price;
+    tr.direction = ot.direction;
+    tr.sl = ot.sl;
+    tr.tp = ot.tp;
+    tr.sl_distance = ot.sl_distance;
+    tr.tp_distance = ot.tp_distance;
+    tr.rr_ratio = ot.rr_ratio;
+    tr.bars_held = bar.bar_index - ot.entry_bar;
+    tr.convergence_score = 0;
+
+    // Determine exit price and reason
+    if (ot.direction == 1) {  // long
+        if (bar.low <= ot.sl) {
+            tr.exit_price = ot.sl;
+            tr.exit_reason = 1;  // SL
+        } else if (bar.high >= ot.tp) {
+            tr.exit_price = ot.tp;
+            tr.exit_reason = 0;  // TP
+        } else {
+            tr.exit_price = bar.close;
+            tr.exit_reason = 2;  // timeout / close
+        }
+        tr.pnl = tr.exit_price - ot.entry_price;
+    } else {  // short
+        if (bar.high >= ot.sl) {
+            tr.exit_price = ot.sl;
+            tr.exit_reason = 1;  // SL
+        } else if (bar.low <= ot.tp) {
+            tr.exit_price = ot.tp;
+            tr.exit_reason = 0;  // TP
+        } else {
+            tr.exit_price = bar.close;
+            tr.exit_reason = 2;  // timeout / close
+        }
+        tr.pnl = ot.entry_price - tr.exit_price;
+    }
+
+    // Pessimistic: when both SL & TP possible in same bar, SL wins
+    if (ot.direction == 1) {
+        if (bar.low <= ot.sl && bar.high >= ot.tp) {
+            tr.exit_price = ot.sl;
+            tr.exit_reason = 1;
+            tr.pnl = ot.sl - ot.entry_price;
+        }
+    } else {
+        if (bar.high >= ot.sl && bar.low <= ot.tp) {
+            tr.exit_price = ot.sl;
+            tr.exit_reason = 1;
+            tr.pnl = ot.entry_price - ot.sl;
+        }
+    }
+
+    tr.won = (tr.pnl > 0);
+    st.closed_trades.push_back(tr);
+    ot.active = false;
+}
+
+// Manage open trade (from risk.py)
+static bool should_close_trade(const OpenTrade& ot, const Bar& bar) {
+    int bars_held = bar.bar_index - ot.entry_bar;
+
+    // Max hold: 288 M5 bars (24h)
+    if (bars_held >= MAX_HOLD_BARS) return true;
+
+    // SL hit
+    if (ot.direction == 1 && bar.low <= ot.sl) return true;
+    if (ot.direction == -1 && bar.high >= ot.sl) return true;
+
+    // TP hit
+    if (ot.direction == 1 && bar.high >= ot.tp) return true;
+    if (ot.direction == -1 && bar.low <= ot.tp) return true;
+
+    // Vibration override ($288 move)
+    double move = fabs(bar.close - ot.entry_price);
+    if (check_vibration_override(move)) return true;
+
+    return false;
+}
+
+// Process a single M5 bar (main loop — from strategy.py)
+static void process_bar(const std::vector<Bar>& m5_bars, int idx,
+                        StrategyState& st) {
+    const Bar& bar = m5_bars[idx];
+
+    // Reset daily trades at day boundary
+    int bar_day = day_from_timestamp(bar.timestamp);
+    if (bar_day != st.last_trade_day) {
+        st.daily_trades = 0;
+        st.last_trade_day = bar_day;
+    }
+
+    // Update multi-timeframe data
+    update_mtf(m5_bars, idx, st);
+
+    // === STATE: IN_TRADE ===
+    if (st.phase == IN_TRADE) {
+        if (st.open_trade.active) {
+            if (should_close_trade(st.open_trade, bar)) {
+                close_trade(st, bar);
+                st.phase = SCANNING;
+            }
+        } else {
+            st.phase = SCANNING;
+        }
+        return;
+    }
+
+    // === STATE: SCANNING ===
+    if (st.phase == SCANNING) {
+        if ((int)st.swings_h1.size() < 4) return;
+
+        ConvergenceResult conv = score_convergence(
+            bar.close, bar.bar_index,
+            st.swings_h1, st.swings_h4,
+            st.h1_wave, nullptr
+        );
+
+        if (conv.is_tradeable) {
+            // Also check limits
+            LimitsResult lim = check_three_limits(
+                bar.close, bar.bar_index, st.swings_h1
+            );
+            if (lim.count >= MIN_LIMITS) {
+                st.phase = QUANT_FORMING;
+                st.convergence_bar = bar.bar_index;
+                st.convergence_price = bar.close;
+            }
+        }
+        return;
+    }
+
+    // === STATE: QUANT_FORMING ===
+    if (st.phase == QUANT_FORMING) {
+        int bars_since = bar.bar_index - st.convergence_bar;
+
+        // Timeout: 20 bars to form quant
+        if (bars_since > 20) {
+            st.phase = SCANNING;
+            return;
+        }
+
+        QuantMeasurement quant = measure_quant(m5_bars, st.convergence_bar);
+        if (quant.valid) {
+            GannBox gbox = construct_gann_box(quant);
+            if (gbox.valid) {
+                st.active_box = gbox;
+                st.phase = BOX_ACTIVE;
+            } else {
+                st.phase = SCANNING;
+            }
+        }
+        return;
+    }
+
+    // === STATE: BOX_ACTIVE ===
+    if (st.phase == BOX_ACTIVE) {
+        if (!st.active_box.valid) {
+            st.phase = SCANNING;
+            return;
+        }
+
+        // Box expired?
+        if (bar.bar_index > st.active_box.end_bar) {
+            st.phase = SCANNING;
+            st.active_box.valid = false;
+            return;
+        }
+
+        // RED ZONE — wait
+        if (bar.bar_index < st.active_box.red_end) return;
+
+        // YELLOW ZONE — watch
+        if (bar.bar_index < st.active_box.yellow_end) return;
+
+        // GREEN ZONE — look for entry
+        if (st.daily_trades >= MAX_DAILY_TRADES) return;
+
+        // Get wave direction
+        int h1_dir = 0;
+        if (st.h1_wave.valid) {
+            h1_dir = st.h1_wave.direction;
+        }
+
+        EntrySignal entry = find_green_zone_entry(
+            st.active_box, m5_bars, bar.bar_index,
+            st.d1_direction, h1_dir, WAVE_MULTIPLIER
+        );
+
+        if (entry.valid) {
+            // Check explosion bonus
+            int energy_mult = 0;
+            if (check_explosion(st.active_box, bar.bar_index, energy_mult)) {
+                if (entry.direction == 1) {
+                    entry.tp = entry.entry_price + entry.tp_distance * energy_mult / 4.0;
+                } else {
+                    entry.tp = entry.entry_price - entry.tp_distance * energy_mult / 4.0;
+                }
+                entry.tp_distance = fabs(entry.tp - entry.entry_price);
+                entry.rr_ratio = (entry.sl_distance > 0)
+                    ? entry.tp_distance / entry.sl_distance : 0;
+            }
+
+            // Apply spread
+            double actual_entry = entry.entry_price;
+            if (entry.direction == 1) {
+                actual_entry += SPREAD;  // buy at ask
+            }
+            // (for short, entry_price already represents ask-spread scenario)
+
+            // Execute trade — NEXT BAR entry (honest)
+            // We detect the signal on bar[idx], but since we use bar close
+            // for evaluation and the entry_price comes from diagonal geometry,
+            // we enter at the computed price on the current bar.
+            // The spread simulation handles execution cost.
+            st.open_trade.entry_price = actual_entry;
+            st.open_trade.sl = entry.sl;
+            st.open_trade.tp = entry.tp;
+            st.open_trade.direction = entry.direction;
+            st.open_trade.entry_bar = bar.bar_index;
+            st.open_trade.sl_distance = fabs(actual_entry - entry.sl);
+            st.open_trade.tp_distance = fabs(entry.tp - actual_entry);
+            st.open_trade.rr_ratio = entry.rr_ratio;
+            st.open_trade.active = true;
+
+            st.phase = IN_TRADE;
+            st.daily_trades++;
+        }
+        return;
+    }
+}
+
+// ============================================================
+// DATA LOADING (from backtester.py)
+// ============================================================
+
+static bool load_m5_binary(const char* filepath, std::vector<Bar>& bars) {
+    FILE* f = fopen(filepath, "rb");
+    if (!f) {
+        fprintf(stderr, "ERROR: Cannot open %s\n", filepath);
+        return false;
+    }
+
+    // 8-byte header: int64 record count
+    int64_t n_records = 0;
+    if (fread(&n_records, 8, 1, f) != 1) {
+        fprintf(stderr, "ERROR: Cannot read header\n");
+        fclose(f);
+        return false;
+    }
+
+    printf("Loading %lld records from %s...\n", (long long)n_records, filepath);
+    bars.resize(n_records);
+
+    // Records: int32 ts + int32 pad + 4 doubles (OHLC) = 40 bytes each
+    for (int64_t i = 0; i < n_records; i++) {
+        int32_t ts, pad;
+        double ohlc[4];
+        if (fread(&ts, 4, 1, f) != 1) break;
+        if (fread(&pad, 4, 1, f) != 1) break;
+        if (fread(ohlc, 8, 4, f) != 4) break;
+
+        bars[i].timestamp = (int64_t)ts;
+        bars[i].open = ohlc[0];
+        bars[i].high = ohlc[1];
+        bars[i].low = ohlc[2];
+        bars[i].close = ohlc[3];
+        bars[i].bar_index = (int)i;
+    }
+
+    fclose(f);
+    printf("Loaded %d bars.\n", (int)bars.size());
+
+    // Validate
+    if (!bars.empty()) {
+        printf("First bar: ts=%lld O=%.2f H=%.2f L=%.2f C=%.2f\n",
+               (long long)bars[0].timestamp,
+               bars[0].open, bars[0].high, bars[0].low, bars[0].close);
+        printf("Last bar:  ts=%lld O=%.2f H=%.2f L=%.2f C=%.2f\n",
+               (long long)bars.back().timestamp,
+               bars.back().open, bars.back().high, bars.back().low, bars.back().close);
+    }
+
+    return true;
+}
+
+// ============================================================
+// METRICS COMPUTATION (from backtester.py)
+// ============================================================
+
+struct Metrics {
+    int total_trades;
+    double win_rate;
+    double avg_win;
+    double avg_loss;
+    double rr_ratio;
+    double ev_per_trade;
+    double max_drawdown;
+    double trades_per_day;
+    double final_equity;
+    double total_pnl;
+};
+
+static Metrics compute_metrics(const std::vector<TradeRecord>& trades,
+                               int total_bars, double start_equity) {
+    Metrics m = {};
+    m.total_trades = (int)trades.size();
+    m.final_equity = start_equity;
+
+    if (trades.empty()) return m;
+
+    int wins = 0;
+    double sum_win = 0, sum_loss = 0;
+    int loss_count = 0;
+    double equity = start_equity;
+    double peak = equity;
+    double max_dd = 0;
+
+    for (const auto& t : trades) {
+        equity += t.pnl;
+        if (equity > peak) peak = equity;
+        double dd = (peak > 0) ? (peak - equity) / peak : 0;
+        if (dd > max_dd) max_dd = dd;
+
+        if (t.pnl > 0) {
+            wins++;
+            sum_win += t.pnl;
+        } else {
+            loss_count++;
+            sum_loss += fabs(t.pnl);
+        }
+    }
+
+    m.win_rate = (double)wins / m.total_trades;
+    m.avg_win = (wins > 0) ? sum_win / wins : 0;
+    m.avg_loss = (loss_count > 0) ? sum_loss / loss_count : 1.0;
+    m.rr_ratio = (m.avg_loss > 0) ? m.avg_win / m.avg_loss : 0;
+    m.ev_per_trade = m.win_rate * m.avg_win - (1.0 - m.win_rate) * m.avg_loss;
+    m.max_drawdown = max_dd;
+    m.final_equity = equity;
+    m.total_pnl = equity - start_equity;
+
+    // Trades per day (288 M5 bars = 1 trading day)
+    double total_days = (total_bars > 0) ? (double)total_bars / 288.0 : 1.0;
+    m.trades_per_day = m.total_trades / total_days;
+
+    return m;
+}
+
+// ============================================================
+// MAIN
+// ============================================================
+
+static void print_usage(const char* prog) {
+    printf("Usage: %s <data.bin> [options]\n", prog);
+    printf("Options:\n");
+    printf("  --verbose       Print each trade\n");
+    printf("  --from <ts>     Start timestamp (unix)\n");
+    printf("  --to <ts>       End timestamp (unix)\n");
+    printf("  --equity <$>    Starting equity (default 10000)\n");
+}
 
 int main(int argc, char* argv[]) {
-    const char* dataFile = "data/clean/XAUUSD_M5.bin";
-    Params p;
-
-    for (int i = 1; i < argc; i++) {
-        if (argv[i][0] != '-' && strchr(argv[i], '=') == nullptr)
-            dataFile = argv[i];
-        else
-            parseParam(p, argv[i]);
+    if (argc < 2) {
+        print_usage(argv[0]);
+        return 1;
     }
 
-    // Load binary data
-    FILE* f = fopen(dataFile, "rb");
-    if (!f) { fprintf(stderr, "Cannot open %s\n", dataFile); return 1; }
+    const char* data_file = argv[1];
+    bool verbose = false;
+    int64_t from_ts = 0;
+    int64_t to_ts = INT64_MAX;
+    double start_equity = 10000.0;
 
-    int64_t barCount;
-    fread(&barCount, sizeof(int64_t), 1, f);
-    fprintf(stderr, "Loading %lld M5 bars...\n", (long long)barCount);
-
-    Bar* bars = new Bar[barCount];
-    for (int64_t i = 0; i < barCount; i++) {
-        fread(&bars[i].timestamp, sizeof(int64_t), 1, f);
-        fread(&bars[i].open, sizeof(double), 1, f);
-        fread(&bars[i].high, sizeof(double), 1, f);
-        fread(&bars[i].low, sizeof(double), 1, f);
-        fread(&bars[i].close, sizeof(double), 1, f);
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--verbose") == 0) verbose = true;
+        else if (strcmp(argv[i], "--from") == 0 && i + 1 < argc)
+            from_ts = atoll(argv[++i]);
+        else if (strcmp(argv[i], "--to") == 0 && i + 1 < argc)
+            to_ts = atoll(argv[++i]);
+        else if (strcmp(argv[i], "--equity") == 0 && i + 1 < argc)
+            start_equity = atof(argv[++i]);
     }
-    fclose(f);
-    fprintf(stderr, "Loaded. Range: %lld to %lld\n",
-            (long long)bars[0].timestamp, (long long)bars[barCount - 1].timestamp);
+
+    // Load data
+    std::vector<Bar> all_bars;
+    if (!load_m5_binary(data_file, all_bars)) return 1;
+
+    // Filter date range
+    std::vector<Bar> bars;
+    bars.reserve(all_bars.size());
+    for (auto& b : all_bars) {
+        if (b.timestamp >= from_ts && b.timestamp <= to_ts) {
+            b.bar_index = (int)bars.size();
+            bars.push_back(b);
+        }
+    }
+    printf("Using %d bars after date filter.\n\n", (int)bars.size());
+
+    if (bars.empty()) {
+        printf("No data in range.\n");
+        return 1;
+    }
+
+    // Print configuration
+    printf("=== Gann Backtester v9.1 — Triangle-First Architecture ===\n");
+    printf("Constants: V=%.0f, SwingQ=%.0f, LostMotion=$%.0f\n",
+           BASE_VIBRATION, SWING_QUANTUM, LOST_MOTION);
+    printf("ATR: period=%d, mult=%.1f\n", ATR_PERIOD, ATR_MULTIPLIER);
+    printf("Convergence: min=%d, Limits: min=%d, R:R: min=%.1f\n",
+           MIN_CONVERGENCE, MIN_LIMITS, MIN_RR_RATIO);
+    printf("MaxDailyTrades=%d, MaxHold=%d bars, WaveMultiplier=%d\n",
+           MAX_DAILY_TRADES, MAX_HOLD_BARS, WAVE_MULTIPLIER);
+    printf("Spread=$%.2f\n\n", SPREAD);
 
     // Run backtest
-    Results res = runBacktest(bars, (int)barCount, p);
+    StrategyState state;
 
-    // Output JSON
-    double winRate = res.totalTrades > 0 ? (double)res.wins / res.totalTrades : 0;
-    double rr = res.avgLoss != 0 ? fabs(res.avgWin / res.avgLoss) : 0;
+    printf("Running backtest on %d M5 bars...\n", (int)bars.size());
 
-    int64_t firstDay = 0, lastDay = 0;
-    if (!res.trades.empty()) {
-        firstDay = bars[res.trades.front().entryBar].timestamp / 86400;
-        lastDay = bars[res.trades.back().entryBar].timestamp / 86400;
-    }
-    int tradingDays = std::max(1, (int)(lastDay - firstDay));
-    double tradesPerDay = (double)res.totalTrades / tradingDays;
+    for (int i = 0; i < (int)bars.size(); i++) {
+        process_bar(bars, i, state);
 
-    // EV calculation
-    double evPerTrade = 0;
-    if (res.totalTrades > 0) {
-        double totalNet = 0;
-        for (auto& t : res.trades) totalNet += t.netPnl;
-        evPerTrade = totalNet / res.totalTrades;
-    }
-
-    printf("{\n");
-    printf("  \"version\": \"2.0-honest\",\n");
-    printf("  \"total_trades\": %d,\n", res.totalTrades);
-    printf("  \"wins\": %d,\n", res.wins);
-    printf("  \"losses\": %d,\n", res.losses);
-    printf("  \"win_rate\": %.4f,\n", winRate);
-    printf("  \"rr_ratio\": %.2f,\n", rr);
-    printf("  \"ev_per_trade\": %.4f,\n", evPerTrade);
-    printf("  \"trades_per_day\": %.2f,\n", tradesPerDay);
-    printf("  \"start_capital\": %.2f,\n", p.startCapital);
-    printf("  \"final_equity\": %.2f,\n", res.finalEquity);
-    printf("  \"max_drawdown\": %.4f,\n", res.maxDD);
-    printf("  \"peak_equity\": %.2f,\n", res.peakEquity);
-    printf("  \"tp_exits\": %d,\n", res.tpExits);
-    printf("  \"sl_exits\": %d,\n", res.slExits);
-    printf("  \"time_exits\": %d,\n", res.timeExits);
-    printf("  \"total_commission\": %.2f,\n", res.totalCommission);
-    printf("  \"avg_win\": %.4f,\n", res.avgWin);
-    printf("  \"avg_loss\": %.4f,\n", res.avgLoss);
-
-    // Direction breakdown
-    int angleLong = 0, angleShort = 0, fadeTrades = 0;
-    int angleLongWin = 0, angleShortWin = 0, fadeWin = 0;
-    for (auto& t : res.trades) {
-        if (!strcmp(t.angleDir, "long")) { angleLong++; if (t.netPnl > 0) angleLongWin++; }
-        else if (!strcmp(t.angleDir, "short")) { angleShort++; if (t.netPnl > 0) angleShortWin++; }
-        else { fadeTrades++; if (t.netPnl > 0) fadeWin++; }
-    }
-    printf("  \"angle_long\": %d, \"angle_long_wr\": %.4f,\n",
-           angleLong, angleLong > 0 ? (double)angleLongWin / angleLong : 0);
-    printf("  \"angle_short\": %d, \"angle_short_wr\": %.4f,\n",
-           angleShort, angleShort > 0 ? (double)angleShortWin / angleShort : 0);
-    printf("  \"fade_trades\": %d, \"fade_wr\": %.4f,\n",
-           fadeTrades, fadeTrades > 0 ? (double)fadeWin / fadeTrades : 0);
-
-    // Score breakdown
-    printf("  \"score_breakdown\": {\n");
-    for (int s = 0; s <= 7; s++) {
-        if (res.scoreTradesArr[s] > 0) {
-            double swr = (double)res.scoreWinsArr[s] / res.scoreTradesArr[s];
-            printf("    \"%d\": {\"trades\": %d, \"wins\": %d, \"wr\": %.4f}%s\n",
-                   s, res.scoreTradesArr[s], res.scoreWinsArr[s], swr,
-                   s < 7 && res.scoreTradesArr[s + 1] > 0 ? "," : "");
+        // Progress
+        if (i > 0 && i % 100000 == 0) {
+            printf("  [%d/%d bars, %d trades so far]\n",
+                   i, (int)bars.size(), (int)state.closed_trades.size());
         }
     }
-    printf("  },\n");
 
-    // Limits breakdown
-    int limTrades[4] = {}, limWins[4] = {};
-    for (auto& t : res.trades) {
-        int lc = std::min(t.limitsAligned, 3);
-        limTrades[lc]++;
-        if (t.netPnl > 0) limWins[lc]++;
+    // Close any remaining open trade
+    if (state.open_trade.active && !bars.empty()) {
+        close_trade(state, bars.back());
     }
-    printf("  \"limits_breakdown\": {\n");
-    for (int l = 0; l <= 3; l++) {
-        if (limTrades[l] > 0) {
-            printf("    \"%d\": {\"trades\": %d, \"wins\": %d, \"wr\": %.4f}%s\n",
-                   l, limTrades[l], limWins[l],
-                   (double)limWins[l] / limTrades[l],
-                   l < 3 && limTrades[l + 1] > 0 ? "," : "");
+
+    // Compute metrics
+    Metrics m = compute_metrics(state.closed_trades, (int)bars.size(), start_equity);
+
+    // Print trade details
+    if (verbose) {
+        printf("\n=== TRADE LOG ===\n");
+        printf("%-5s %-5s %-10s %-10s %-10s %-8s %-8s %-6s %-6s\n",
+               "#", "Dir", "Entry$", "Exit$", "PnL$", "SL$", "TP$",
+               "Bars", "Result");
+        printf("--------------------------------------------------------------"
+               "------------\n");
+        for (int i = 0; i < (int)state.closed_trades.size(); i++) {
+            const TradeRecord& t = state.closed_trades[i];
+            const char* dir = (t.direction == 1) ? "LONG" : "SHORT";
+            const char* result;
+            switch (t.exit_reason) {
+                case 0: result = "TP"; break;
+                case 1: result = "SL"; break;
+                case 2: result = "TIME"; break;
+                default: result = "CLO"; break;
+            }
+            printf("%-5d %-5s %-10.2f %-10.2f %-+10.2f %-8.2f %-8.2f %-6d %-6s\n",
+                   i + 1, dir, t.entry_price, t.exit_price, t.pnl,
+                   t.sl, t.tp, t.bars_held, result);
         }
     }
-    printf("  },\n");
 
-    // Params echo
-    printf("  \"params\": {\n");
-    printf("    \"angles\": %s, \"minconv\": %d, \"h1scale\": %.1f,\n",
-           p.useAngles ? "true" : "false", p.minConvergence, p.h1Scale);
-    printf("    \"sl\": %.1f, \"tp\": %.1f, \"maxtp\": %.1f, \"minrr\": %.1f,\n",
-           p.slDollars, p.tpDollars, p.maxTPDist, p.minRR);
-    printf("    \"minscore\": %d, \"minlimits\": %d, \"pttol\": %.1f, \"nattol\": %d,\n",
-           p.minIndepScore, p.minLimits, p.ptTol, p.natSqTol);
-    printf("    \"spread\": %.2f, \"maxslip\": %.1f,\n", p.spread, p.maxSlippage);
-    printf("    \"fold\": %s, \"speed\": %s, \"touch4th\": %s,\n",
-           p.filterFold ? "true" : "false", p.filterSpeed ? "true" : "false",
-           p.filter4thTouch ? "true" : "false");
-    printf("    \"entrymode\": %d, \"pessimistic\": %d,\n", p.entryMode, p.pessimistic);
-    printf("    \"triangle\": %s, \"triscale\": %.1f, \"tripricetol\": %.1f, \"tribartol\": %d, \"triminimp\": %d, \"geosltp\": %s\n",
-           p.useTriangles ? "true" : "false", p.triScale, p.triPriceTol, p.triBarTolH1, p.triMinImportance,
-           p.geoSLTP ? "true" : "false");
-    printf("  }\n");
-    printf("}\n");
+    // Print summary
+    printf("\n");
+    printf("============================================================\n");
+    printf("  BACKTEST REPORT — v9.1 Triangle-First\n");
+    printf("============================================================\n");
+    printf("  Total trades:     %d\n", m.total_trades);
+    printf("  Win rate:         %.1f%%\n", m.win_rate * 100.0);
+    printf("  Avg win:          $%.2f\n", m.avg_win);
+    printf("  Avg loss:         $%.2f\n", m.avg_loss);
+    printf("  R:R ratio:        %.2f\n", m.rr_ratio);
+    printf("  EV per trade:     $%.2f\n", m.ev_per_trade);
+    printf("  Max drawdown:     %.1f%%\n", m.max_drawdown * 100.0);
+    printf("  Trades per day:   %.2f\n", m.trades_per_day);
+    printf("  Total P&L:        $%.2f\n", m.total_pnl);
+    printf("  Final equity:     $%.2f\n", m.final_equity);
+    printf("============================================================\n");
 
-    delete[] bars;
+    // Exit reason breakdown
+    int tp_count = 0, sl_count = 0, time_count = 0;
+    for (const auto& t : state.closed_trades) {
+        if (t.exit_reason == 0) tp_count++;
+        else if (t.exit_reason == 1) sl_count++;
+        else time_count++;
+    }
+    printf("\n  Exit reasons:\n");
+    printf("    TP hit:   %d (%.1f%%)\n",
+           tp_count, m.total_trades > 0 ? tp_count * 100.0 / m.total_trades : 0);
+    printf("    SL hit:   %d (%.1f%%)\n",
+           sl_count, m.total_trades > 0 ? sl_count * 100.0 / m.total_trades : 0);
+    printf("    Timeout:  %d (%.1f%%)\n",
+           time_count, m.total_trades > 0 ? time_count * 100.0 / m.total_trades : 0);
+
+    // State machine statistics
+    printf("\n  State machine:\n");
+    printf("    H1 swings detected: %d\n", (int)state.swings_h1.size());
+    printf("    H4 swings detected: %d\n", (int)state.swings_h4.size());
+    printf("    D1 swings detected: %d\n", (int)state.swings_d1.size());
+    printf("    Final D1 direction: %s\n",
+           state.d1_direction == 1 ? "UP" :
+           state.d1_direction == -1 ? "DOWN" : "FLAT");
+    if (state.h1_wave.valid) {
+        printf("    H1 wave: #%d, dir=%s, w0_size=$%.1f\n",
+               state.h1_wave.wave_number,
+               state.h1_wave.direction == 1 ? "up" : "down",
+               state.h1_wave.wave_0_size);
+    }
+
+    printf("\n");
     return 0;
 }
