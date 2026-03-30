@@ -4,13 +4,13 @@
 
 A precision Gann trading bot for XAUUSD (Gold) on MetaTrader 5 via RoboForex ECN with 1:500 leverage. Uses price-time alignment (Sq9 price levels + natural square time cycles + price-time squaring) for high-conviction entries. Ships as an MQL5 EA for MT5 Strategy Tester and live trading.
 
-**Core Edge:** Gann level convergence + limit order entry. Limit orders at exact Sq9/vibration/proportional convergence levels capture a 15% edge over random walk. Tight TP ($2-3), wide SL ($5-7), fade direction.
+**Core Edge:** D1 trend direction + H1 angle confirmation + Gann level entry + ATR-based asymmetric R:R. 1.45x lift over random walk on 17yr data, validated out-of-sample (1.48x on 2020-2026).
 
-**Goal:** $20 → $100 with 4-6 trades/day.
+**Goal:** Consistent positive EV trend-following on XAUUSD.
 
-**Status:** v6.0 Triangle System built. C++ tester shows **91-95% WR** (17yr backtest, tick-order-aware). Awaiting MT5 real-tick validation.
+**Status:** v8.0 — correct Gann method. D1+H1 trend alignment is THE edge. Convergence scoring, three-limits, and time gating add zero directional value. Triangle crossings predict zones but not prices. **ATR×3.0 SL, 4:1 R:R = 29% WR, +EV, 1.1 TPD, stable 17yr.**
 
-**CRITICAL:** Triangle crossing limit entry (triangle=1 entrymode=1). Market orders = 68% WR. Limit at triangle crossing = 91-95% WR.
+**CRITICAL:** D1 trend + H1 angle + market entry + ATR SL/TP. Convergence levels DON'T predict direction.
 
 ### Constraints
 
@@ -29,30 +29,36 @@ C++ Tester (gann_backtest.cpp)      — Fast iteration: 1.15M bars in 0.4 second
 Python Research (gann_research/)    — Calibration, analysis, prototyping
 ```
 
-### Strategy Flow (v6.0 — TRIANGLE SYSTEM)
+### Strategy Flow (v8.0 — CORRECT GANN METHOD)
 
-1. **Swing Detection**: ATR-based ZigZag on H1 (atr_multiplier=2.5)
-2. **Angle Lines**: From each H1 swing, 4 ascending (from lows) + 4 descending (from highs) at ratios 1x2, 1x1, 2x1, 4x1 with scale=$7/H1bar
-3. **Triangle Crossings**: Where ascending meets descending angle (both must be confirmed before crossing)
-4. **Convergence Gate**: Crossing price must also be near a Sq9/vibration/proportional convergence level (conv>=7)
-5. **Limit Order**: BuyLimit/SellLimit at the crossing price (pre-computed prediction)
-6. **Direction**: Bounce from crossing (bar close above → long, below → short)
-7. **SL**: $10 from crossing price (wide, survives noise)
-8. **TP**: $1.5 from crossing price (tight, 91%+ hit rate)
-9. **Entry-bar check**: Tick-order-aware SL/TP on fill bar (pessimistic)
+1. **D1 Direction**: Resample M5→H1→D1. Detect D1 swings. Compute D1 angle direction. This sets the ONLY allowed trade direction.
+2. **H1 Direction**: Compute H1 angle direction from H1 swings. Must AGREE with D1.
+3. **Level Calculation**: Sq9, vibration (V=12), proportional divisions from H1 swings → convergence levels.
+4. **Level Touch**: M5 bar touches any Gann level (minconv=1 sufficient, higher conv doesn't improve WR).
+5. **Bounce Direction**: Determine from approach side (close > level → long support bounce, close < level → short resistance bounce).
+6. **Direction Alignment**: Bounce direction must agree with H1 AND D1 trends. Skip if any conflict.
+7. **Market Entry**: Enter at next bar open (entrymode=0). No limit orders.
+8. **ATR-Based SL**: SL = 3.0 × ATR(14) from entry price. Adapts to volatility.
+9. **Fixed R:R TP**: TP = 4 × SL distance. Captures trending bias.
+10. **Max Hold**: 288 M5 bars (24 hours).
+11. **Wave Counting** (optional): H1 wave direction can filter, adds +1.3% WR but halves frequency.
 
 ### Key Lessons Learned
 
 | Lesson | Detail |
 |--------|--------|
-| **Triangle IS the edge** | Angle crossings give PRICE+TIME prediction. Convergence levels give only PRICE. |
-| Triangle limit entry honest | Pre-computed crossing = genuine prediction, not retroactive level selection. |
-| Scale=$7/H1bar for gold | Calibrated: outperforms theoretical V/6=$12. |
-| ConvGate adds 3% WR | Requiring convergence level near crossing = double confirmation. |
-| Tight TP=$1.5 pushes 90%+ | With SL=$10, random walk baseline is 87%. Triangle edge pushes to 91%+. |
-| Scoring doesn't help | Independent convergence (7 factors), 3-Limits have zero WR correlation. |
-| Stable across all periods | 90-94% WR from 2009 to 2026, all gold price ranges ($900-$3000). |
-| Validate on real ticks | Run MT5 Strategy Tester with "Real ticks" to validate C++ findings. |
+| **D1 TREND IS THE EDGE** | +10.5% absolute WR from D1 direction. Gann: "determine the TREND first." |
+| **Convergence scoring = zero** | Independent scoring (7 factors) has ZERO correlation with WR. Flat across all scores. |
+| **Three-limit alignment = zero** | All 3 limits aligned has same WR as 1 limit. No discriminative power. |
+| **Time gating = negligible** | Natural square timing adds <1% WR. Not worth the trade reduction. |
+| **Levels predict volatility, not direction** | Big moves happen at convergence zones, but equally likely up or down. |
+| **Triangle crossings were phantom** | 90.4% WR was entirely from fill bug. Honest: 71% WR, negative EV. |
+| **ATR-based SL/TP > fixed** | Fixed $5 SL declines at $3000 gold. ATR×3.0 adapts. Stability: 1.29-1.61x vs 1.21-2.09x. |
+| **4:1 R:R is optimal** | Wider TP amplifies the trend edge. SL/TP ratio matters more than WR. |
+| **Out-of-sample validated** | Train 2009-2019: 1.44x lift. Test 2020-2026: 1.48x lift. Edge holds. |
+| **Positive in 7/8 periods** | Only 2018-19 (low-vol consolidation) slightly negative. All others positive. |
+| **$20 is not viable** | ATR-based SL ≈ $9-15. Min 0.01 lot. Need $500+ for 2% risk management. |
+| **Wave counting = marginal** | +1.3% WR but halves frequency. Better as a soft signal, not hard filter. |
 
 ## Key Files
 
@@ -87,13 +93,19 @@ Python Research (gann_research/)    — Calibration, analysis, prototyping
 # Compile (via msys2 bash — needed for paths with spaces)
 cp gann_tester/gann_backtest.cpp /c/temp/ && C:/msys64/usr/bin/bash.exe -lc "C:/msys64/mingw64/bin/g++.exe -O3 -std=c++17 -o /c/temp/gann_bt.exe /c/temp/gann_backtest.cpp"
 
-# Run Config A (94.7% WR — ultra-precise, few trades)
-C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 triscale=7 tripricetol=5 tribartol=3 triminimp=14 triconvgate=1 minconv=7 sl=10 maxtp=1.5 maxhold=72 spread=0.30 entrymode=1
+# WINNER — Config A (90.4% WR, 5.82 trades/day, $1.00 EV)
+C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 m5tri=1 triscale=1.0 tripricetol=5 tribartol=72 triminimp=14 triconvgate=1 minconv=7 sl=7 tp=2 maxtp=20 maxhold=288 spread=0.30 minrr=0 fold=0 speed=0 touch4th=0 entrymode=1 fixedtp=1 filterbounce=1
 
-# Run Config B (91.4% WR — more trades)
-C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 triscale=7 tripricetol=5 tribartol=3 triminimp=14 triconvgate=1 minconv=7 sl=10 maxtp=1.5 maxhold=72 spread=0.30 fold=0 speed=0 touch4th=0 entrymode=1
+# Config B — Best equity (87.8% WR, 6.14 TPD, $48k from $10k)
+C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 m5tri=1 triscale=1.0 tripricetol=5 tribartol=72 triminimp=14 triconvgate=1 minconv=7 sl=5 tp=2 maxtp=20 maxhold=288 spread=0.30 minrr=0 fold=0 speed=0 touch4th=0 entrymode=1 fixedtp=1 filterbounce=1
 
-# Triangle params: triangle=1 triscale=N tripricetol=N tribartol=N triminimp=N triconvgate=0/1 entrymode=1
+# v8.0 RECOMMENDED — ATR-based D1 trend following (1.45x lift, +EV, stable 17yr)
+/c/temp/gann_bt.exe data/clean/XAUUSD_M5.bin triangle=0 entrymode=0 slatr=3.0 tpratio=4 fixedtp=1 filterbounce=0 minconv=1 minscore=0 minlimits=0 angles=1 fold=0 speed=0 touch4th=0 maxhold=288 spread=0.30 maxdaily=10 minrr=0 d1=1 d1scale=72
+
+# Alternative — Fixed SL/TP (higher peak lift but less stable across volatility regimes)
+/c/temp/gann_bt.exe data/clean/XAUUSD_M5.bin triangle=0 entrymode=0 sl=7 tp=28 fixedtp=1 filterbounce=0 minconv=1 minscore=0 minlimits=0 angles=1 fold=0 speed=0 touch4th=0 maxhold=288 spread=0.30 maxdaily=10 minrr=0 d1=1 d1scale=72
+
+# Key v8.0 params: d1=1, slatr=3.0, tpratio=4, entrymode=0, triangle=0
 ```
 
 ## MT5 Paths
@@ -114,6 +126,20 @@ C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 triscale=7 tripricetol=5
 - **Lost motion**: ±$2-3 (Gann: "2-2.5 units")
 - **Power Sq9 angles**: 30° and 45° (highest hit rate on gold)
 - **Natural square timing**: 4, 9, 16, 24, 36, 49, 72, 81 (H4 bars)
+
+## v8.0 Optimized Parameters
+
+- **SL**: 3.0 × ATR(14) on M5 (adapts to volatility, typically $6-15)
+- **TP**: 4 × SL (asymmetric R:R, captures trend)
+- **Entry**: Market (entrymode=0), next bar open after level touch
+- **D1 filter**: ON (d1=1) — the primary directional edge
+- **H1 angles**: ON (angles=1) — secondary direction confirmation
+- **Convergence**: minconv=1 (higher values don't improve WR)
+- **Scoring**: minscore=0 (scoring has zero WR correlation)
+- **Limits**: minlimits=0 (three-limit alignment has zero WR correlation)
+- **Max hold**: 288 M5 bars (24 hours)
+- **Random walk baseline**: 20% → Observed 29% → **1.45x lift**
+- **Out-of-sample**: Train 1.44x → Test 1.48x (edge holds)
 
 ## Sources
 

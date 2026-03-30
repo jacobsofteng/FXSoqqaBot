@@ -1,153 +1,120 @@
-# Session State — Gann Strategy v6.1
-## Saved: 2026-03-30 (Session 10 — Triangle System + MT5 Validation)
+# Session State — Gann Strategy v8.0 (CORRECT METHOD)
+## Saved: 2026-03-30 (Session 12 — Correct Gann Approach)
 
 ---
 
-## CRITICAL CORRECTION: SL/TP Was Inverted
+## KEY DISCOVERY: What Gann's Method Actually Predicts
 
-### The Mistake
-We used TP=$1.5 (small) with SL=$10 (big) to chase high WR. This is WRONG:
-- Random walk with TP=$1.5, SL=$10 already gives 87% WR — no edge needed
-- A 92% WR looks impressive but is mostly random walk baseline
-- At 82% WR (MT5 real ticks), the EV is NEGATIVE: 0.82×$1.5 - 0.18×$10 = -$0.57/trade
-- This is NOT how Gann traders work
+### Convergence Levels Predict VOLATILITY, Not Direction
+The Sq9, vibration, proportional, and convergence scoring systems predict where BIG moves happen — but NOT which direction. WR is flat (~random) across all convergence scores (3 through 7) and all three-limit alignments (1 through 3).
 
-### What Gann/Ferro/Hellcat Actually Say
+### The Edge Comes From TREND Direction
+Gann's #1 rule: "Determine the TREND on weekly and monthly charts first."
 
-**Gann Ch 5A**: "You can buy every time it rests on the 45-degree angle with a stop loss order 1, 2, or 3 cents UNDER the 45-degree angle."
-→ SL = TIGHT, just below the supporting angle + lost motion ($2-3)
+| Component | WR Contribution | Notes |
+|-----------|----------------|-------|
+| **D1 trend direction** | **+10.5%** absolute | The dominant factor |
+| H1 angle confirmation | +1.4% | Requires agreement with D1 |
+| Level touch (any level) | +3.6% | Entry timing, not directional |
+| Convergence scoring | 0% | No WR correlation at all |
+| Three-limit alignment | 0% | No WR correlation |
+| Time gating (nat sq) | ~0% | Minimal WR improvement |
+| Wave counting | +1.3% | But halves trade frequency |
 
-**Hellcat**: "Exit from triangle is always a MULTIPLE of the entry"
-→ TP = MULTIPLE of entry distance, i.e., TP > SL
-
-**Ferro**: Lost motion = ±$2-3. Price-time squaring accuracy = ±2 units.
-→ SL = $2-3 (lost motion), TP = next crossing/level ($5-15)
-
-**The Quant Mechanism**: "roughly the same as the initial impulse for building a Gann box"
-→ TP = impulse size = much larger than lost motion
-
-### The Correct Approach
-- **SL = TIGHT**: $2-3 from the triangle crossing (lost motion = Gann's "2-2.5 units")
-  - For LONG: SL = crossing_price - lost_motion ($2-3)
-  - For SHORT: SL = crossing_price + lost_motion ($2-3)
-- **TP = WIDE**: Next triangle crossing, next angle level, or box edge ($5-15)
-  - "Exit from triangle is always a MULTIPLE of the entry"
-  - TP at next convergence level in direction
-  - Or TP at proportional level (1/3, 1/2, 2/3 of swing range)
-- **R:R = 2:1 to 5:1** (favorable, not inverted)
-- **Expected WR = 50-65%** but with favorable R:R → POSITIVE EV
-
-### Why This Makes Sense
-At the triangle crossing point, Gann angles predict the exact reversal. If the prediction is correct:
-- Price bounces and reaches the TP ($5-15 away) — WIN with large profit
-- If wrong, price passes through the crossing by more than lost motion — LOSE with small loss ($2-3)
-- Even at 50% WR: EV = 0.5×$10 - 0.5×$3 = +$3.50/trade
+### Bugs Fixed in v8.0
+1. `fixedTP` now works for level-based entries (was triangle-only)
+2. Bounce filter applied to level entries (was triangle-only)
+3. Direction logic: bounce direction first, H1 angles confirm (was: H1 overrides)
+4. `findTP` filters by convergence (was: picked noise levels)
+5. Added D1 direction filter, wave counting, ATR-based SL/TP, time gate
 
 ---
 
-## What Was Proven (Still Valid)
+## Current Best: D1 Trend + ATR-Based SL/TP
 
-### Triangle System Works
-1. **Triangle crossings detect real price+time reversal points** — confirmed
-2. **M5 swings for scalping frequency** — 7+ trades/day in C++
-3. **ConvGate improves quality** — double confirmation (triangle + convergence)
-4. **Scale=$1.0/M5bar (=$12/H1bar)** for gold — optimal
-5. **importance >= 14** — 1x1+1x1 crossings are strongest
-6. **MT5 real ticks validation**: 1,185 trades, 82.2% WR (with inverted R:R)
-7. **MAX_SWINGS bug fixed** — swing detection now works after array fills
+### Strategy Summary
+1. **D1 direction**: Only trade WITH the daily trend
+2. **H1 angle confirmation**: H1 trend must agree with D1
+3. **Level touch**: Enter at market when price touches any Gann level
+4. **Bounce direction**: Fade from approach side, confirmed by H1+D1
+5. **ATR-based SL/TP**: SL = 3.0 × ATR(14), TP = 4 × SL
 
-### MT5 vs C++ Gap Analysis
-| Metric | C++ | MT5 Real Ticks |
-|--------|-----|----------------|
-| Trades (3yr) | ~10,800 | 1,185 |
-| WR (TP=$1.5, SL=$10) | 92.6% | 82.2% |
-| Gap | — | -10.4% |
+### 17-Year Results (2009-2026)
 
-Gap sources:
-- C++ checks all bars simultaneously; EA has one pending limit at a time
-- MT5 real ticks have slippage on limit fills
-- EA filters (fold/speed) ON by default, C++ had them OFF
-- MT5 may cancel/reject orders during market close
+| Config | WR | Random | Lift | EV/trade | TPD | Trades |
+|--------|-----|--------|------|----------|-----|--------|
+| **ATR×3.0 ratio=4 (recommended)** | 29.1% | 20.0% | **1.45x** | +$158.6 | 1.12 | 6982 |
+| Fixed SL=5 TP=20 | 30.5% | 20.0% | 1.53x | +$179.4 | 1.15 | 7130 |
+| Fixed SL=10 TP=40 | 42.3% | 20.0% | 2.11x | +$197.5 | 0.70 | 4332 |
+| Fixed SL=7 TP=28 | 35.7% | 20.0% | 1.78x | +$202.4 | 0.88 | 5477 |
 
----
+### Train/Test Validation (ATR×3.0 ratio=4)
+| Period | WR | Lift | EV | TPD |
+|--------|------|------|-----|------|
+| **Train (2009-2019)** | 28.8% | 1.44x | +$93.2 | 1.13 |
+| **Test (2020-2026)** | 29.5% | **1.48x** | +$194.1 | 1.11 |
 
-## Architecture (Still Valid)
+### Yearly Stability (ATR-based — narrowest variance)
+| Period | WR | Lift | EV |
+|--------|------|------|-----|
+| 2010-11 | 29.3% | 1.47x | +$130 |
+| 2012-13 | 29.0% | 1.45x | +$89 |
+| 2014-15 | 30.1% | 1.50x | +$99 |
+| 2016-17 | 29.2% | 1.46x | +$89 |
+| 2018-19 | 25.7% | 1.29x | -$25 |
+| 2020-21 | 32.2% | 1.61x | +$318 |
+| 2022-23 | 28.1% | 1.40x | +$68 |
+| 2024-25 | 27.8% | 1.39x | +$102 |
 
-### Triangle System Flow
-1. **M5 Swing Detection**: ATR-based ZigZag on M5 (atr_mult=1.5)
-2. **Angle Lines**: 4 ascending + 4 descending from each swing (1x2, 1x1, 2x1, 4x1)
-3. **Crossings**: Where ascending meets descending (both confirmed before crossing time)
-4. **ConvGate**: Crossing price near a Sq9/vibration/proportional convergence level
-5. **Limit Entry**: At the crossing price (pre-computed prediction)
-
-### What Needs to Change (SL/TP)
-6. **SL = lost motion ($2-3) from crossing price** ← CHANGE
-7. **TP = next Gann level or crossing in direction ($5-15)** ← CHANGE
-8. **Direction**: bounce from crossing (bar close above → long, below → short)
+**Positive in 7 of 8 periods.** Only 2018-19 (low-vol consolidation) is slightly negative.
 
 ---
 
-## Next Session — Pick Up Here
+## What Doesn't Work (Confirmed)
 
-### Priority 1: Implement Correct SL/TP (Gann-style)
-In C++ tester (`gann_backtest.cpp`):
-1. Change SL from fixed $10 to lost_motion $2-3 from crossing price
-2. Change TP from fixed $1.5 to:
-   - Next convergence level in trade direction (findTP function exists)
-   - OR next triangle crossing in direction
-   - OR proportional of last swing ($5-15 typical)
-3. Set minRR=1.5 (require R:R >= 1.5:1)
-4. Test: expect 50-65% WR but POSITIVE EV
-
-### Priority 2: Geometric SL/TP from Triangle Structure
-Use the `geoSLTP=1` parameter (already implemented but untested with correct values):
-- SL from opposing angle trajectory + lost motion
-- TP from next crossing or angle projection
-- This is Gann Ch 5A: "stop loss 1-3 cents under the 45-degree angle"
-
-### Priority 3: Increase MT5 Trade Frequency
-Current: EA places ONE limit at a time → misses most crossings.
-Options:
-- Allow multiple simultaneous pending orders
-- Or: check all crossings on each bar and enter at market when price touches one
-- Match C++ behavior more closely
-
-### Priority 4: Remove Filters for M5 Triangle Mode
-The fold/speed/4thtouch filters were designed for H1 convergence levels.
-For M5 triangle scalping, they reduce trade count without improving quality.
-Set InpFilterFold=false, InpFilterSpeed=false, InpFilter4thTouch=false.
+| Component | Finding |
+|-----------|---------|
+| Convergence scoring (7 factors) | Zero WR correlation across all scores |
+| Three-limit alignment | Zero WR correlation across all limit counts |
+| Time gating (natural squares) | <1% WR improvement |
+| Triangle angle crossings | 71% WR but negative EV (levels predict zones, not prices) |
+| Bounce quality filter | No WR improvement on level entries |
+| SL=$3 (Gann's lost motion) | Too tight — below random at all TP |
+| Fixed SL in volatile markets | Edge declines as gold price rises |
 
 ---
 
-## Compile & Run
+## Practical Constraints
+
+### $20 Starting Capital
+- ATR on M5 ≈ $3-5 → SL = 3×ATR ≈ $9-15
+- Minimum 0.01 lot → SL cost = $9-15 per trade
+- **$20 cannot survive even 2 consecutive losses**
+- **Minimum capital for 2% risk: ~$500-750**
+
+### Trade Frequency
+- ATR-based config: **1.0-1.2 trades/day** (below 4-6 target)
+- Can increase to ~2 TPD with lower convergence but no WR improvement
+
+---
+
+## Compile & Run (v8.0)
 
 ```bash
-# Compile C++ tester
+# Compile
 cp gann_tester/gann_backtest.cpp /c/temp/ && C:/msys64/usr/bin/bash.exe -lc "C:/msys64/mingw64/bin/g++.exe -O3 -std=c++17 -o /c/temp/gann_bt.exe /c/temp/gann_backtest.cpp"
 
-# CORRECT R:R: tight SL=$3, wide TP, Gann-style
-/c/temp/gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 m5tri=1 triscale=1.0 tripricetol=5 tribartol=24 triminimp=14 triconvgate=1 minconv=7 sl=3 tp=10 maxtp=15 maxhold=72 spread=0.30 minrr=1.5 fold=0 speed=0 touch4th=0 entrymode=1
+# RECOMMENDED: ATR-based, D1 trend following
+/c/temp/gann_bt.exe data/clean/XAUUSD_M5.bin triangle=0 entrymode=0 slatr=3.0 tpratio=4 fixedtp=1 filterbounce=0 minconv=1 minscore=0 minlimits=0 angles=1 fold=0 speed=0 touch4th=0 maxhold=288 spread=0.30 maxdaily=10 minrr=0 d1=1 d1scale=72
 
-# WRONG (what we tested before — DO NOT USE):
-# sl=10 maxtp=1.5 → inverted R:R, fake high WR from random walk baseline
+# Alternative: Fixed SL/TP (simpler, works well on stable-vol periods)
+/c/temp/gann_bt.exe data/clean/XAUUSD_M5.bin triangle=0 entrymode=0 sl=7 tp=28 fixedtp=1 filterbounce=0 minconv=1 minscore=0 minlimits=0 angles=1 fold=0 speed=0 touch4th=0 maxhold=288 spread=0.30 maxdaily=10 minrr=0 d1=1 d1scale=72
+
+# New params: d1=0/1, d1scale=N, timegate=0/1/2, waves=0/1, slatr=N, tpratio=N
 ```
 
----
-
 ## Key Files
-
 | File | Purpose |
 |------|---------|
-| `gann_tester/gann_backtest.cpp` | C++ tester with triangle system (M5+H1) |
-| `MQL5/Experts/GannScalper.mq5` | EA v6.1 with M5 triangle scalping, debug logging |
-| `gann_research/gann_angles.py` | angle_based_sl/tp functions — THE CORRECT APPROACH |
-| `GANN_METHOD_ANALYSIS.md` | Ferro/Hellcat decoded methods |
-| `GANN_ESOTERIC_RESEARCH.md` | Planetary, Maya, Bible numerology for future timing |
-
-## Constants
-
-- **Triangle scale**: $1.0/M5bar = $12/H1bar (V/6 for gold)
-- **Angle ratios**: 1x2 (0.5), 1x1 (1.0), 2x1 (2.0), 4x1 (4.0)
-- **Lost motion**: $2-3 (Gann: "2-2.5 units") = THE SL
-- **Convergence gate**: min 7
-- **M5 ATR multiplier**: 1.5 for swing detection
+| `gann_tester/gann_backtest.cpp` | C++ tester v8.0 — D1 direction, wave counting, ATR SL/TP |
+| `SESSION_STATE.md` | This file |

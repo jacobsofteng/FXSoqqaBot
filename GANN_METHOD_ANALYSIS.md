@@ -541,10 +541,10 @@ All multiples of 72, all in A=432Hz series: [144, 216, 288, 432]
 1. **Exact triangle construction formulas** — Hellcat: "I mathematically calculate, I don't make pictures"
 2. **The 5 states of uncertainty** — mentioned once, never elaborated
 3. **Even/odd degree CONVERSION formula** — rays at 135/315 proven, but Ferro's arbitrary-price formula unknown
-4. **Biblical/Mayan calendar formula** — Ferro: "keys transmitted orally, always"
+4. **Biblical/Mayan calendar formula** — Ferro: "keys transmitted orally, always" — See GANN_ESOTERIC_RESEARCH.md sections 3-4 for decoded connections (52-year Calendar Round = Master Time Number, Shmita 7-year cycle, 144 = Jupiter in months, 1260-day Daniel prophecy = 3.5yr half-cycle)
 5. **14 of 16 regularities** — only 2 known (triangle rule, proportions rule)
 6. **Green zone trigger math** — conceptually understood, not formalized
-7. **Planet-price calibration for Gold** — needs research on known power points
+7. **Planet-price calibration for Gold** — needs research on known power points — See GANN_ESOTERIC_RESEARCH.md section 2 for conversion formulas (Price_Level = Longitude x Price_Unit) and section 10 for calibration procedure
 
 ---
 

@@ -83,6 +83,98 @@ struct Trade {
 };
 
 // ============================================================
+// ============================================================
+// Wave Counting (Hellcat/FFM protocol)
+// "wave(0) × (N+1) = wave(2N+1)" — Hellcat
+// ============================================================
+
+struct WaveResult {
+    int waveNumber;        // Current wave in sequence (1-based)
+    int direction;         // 1=long, -1=short, 0=neutral
+    double confidence;     // 0.0 to 1.0
+    int phase;             // 0=scenario, 1=transition, 2=legend
+    double wave0Size;      // Size of dominant wave (sets targets)
+    double expectedTarget; // wave_0_size * (N+1)
+};
+
+static WaveResult countWaves(const Swing* swings, int swingCount, int currentBar) {
+    WaveResult r = {0, 0, 0.0, 0, 0.0, 0.0};
+    if (swingCount < 4) return r;
+
+    // Only use confirmed swings up to current bar
+    int active = 0;
+    for (int s = 0; s < swingCount; s++)
+        if (swings[s].confirmBar <= currentBar) active = s + 1;
+    if (active < 4) return r;
+
+    // Get last 10 swings
+    int start = active > 10 ? active - 10 : 0;
+    int count = active - start;
+
+    // Compute swing moves and find the largest (wave 0)
+    double moves[20];
+    double absMax = 0;
+    int maxIdx = 0;
+    for (int i = 0; i < count - 1; i++) {
+        moves[i] = swings[start + i + 1].price - swings[start + i].price;
+        if (fabs(moves[i]) > absMax) {
+            absMax = fabs(moves[i]);
+            maxIdx = i;
+        }
+    }
+    if (absMax < 1.0) return r;
+
+    r.wave0Size = absMax;
+    int impulseDir = (moves[maxIdx] > 0) ? 1 : -1;  // impulse direction
+
+    // Count waves AFTER wave 0
+    int nAfter = (count - 1) - maxIdx - 1;
+    if (nAfter < 0) nAfter = 0;
+
+    // Count even waves exceeding wave 0 (for target formula)
+    int nEvenExceeding = 0;
+    for (int i = maxIdx + 1; i < count - 1; i++) {
+        int waveNum = i - maxIdx;
+        if (waveNum % 2 == 0 && fabs(moves[i]) > absMax)
+            nEvenExceeding++;
+    }
+    r.expectedTarget = absMax * (nEvenExceeding + 1);
+
+    // Current wave = next to form
+    int currentWave = nAfter + 1;
+    r.waveNumber = currentWave;
+
+    // Phase and direction determination
+    if (currentWave <= 5) {
+        r.phase = 0;  // scenario
+        if (currentWave % 2 == 1) {
+            // Odd wave = impulse direction
+            r.direction = impulseDir;
+            r.confidence = 0.7 - (currentWave - 1) * 0.05;
+        } else {
+            // Even wave = correction (opposite)
+            r.direction = -impulseDir;
+            r.confidence = 0.5;
+        }
+    } else if (currentWave == 6) {
+        r.phase = 1;  // transition — expect reversal
+        r.direction = -impulseDir;
+        r.confidence = 0.75;
+    } else {
+        r.phase = 2;  // legend — ABC correction
+        int abcWave = currentWave - 6;
+        if (abcWave % 2 == 1) {
+            r.direction = -impulseDir;  // A or C
+            r.confidence = 0.6;
+        } else {
+            r.direction = impulseDir;   // B
+            r.confidence = 0.4;
+        }
+    }
+    return r;
+}
+
+// ============================================================
 // Triangle System — Angle line crossings (Hellcat/Ferro)
 // "The main meaning of Gann's System is in that FIGURE which
 //  nobody uses." — Hellcat
@@ -143,6 +235,8 @@ struct Params {
     double tpDollars = 10.0;  // Fallback TP
     double maxTPDist = 20.0;  // Cap TP distance
     double minRR = 1.0;       // Minimum reward:risk
+    double slAtrMult = 0.0;   // If >0, SL = slAtrMult * ATR (overrides slDollars)
+    double tpRatio = 0.0;     // If >0, TP = tpRatio * SL (overrides tpDollars)
     double riskPct = 0.02;
     double startCapital = 10000.0;
     int leverage = 500;
@@ -168,6 +262,19 @@ struct Params {
     int triMaxSwings = 20;        // Swings for triangle construction
     bool triM5 = false;           // Use M5 swings (scalping mode)
     double triM5AtrMult = 1.5;    // ATR multiplier for M5 swing detection
+    int triTPMode = 0;            // 0=level TP, 1=next crossing TP, 2=best of both
+    double triMinTPDist = 1.5;    // Min TP distance from entry
+    bool fixedTP = false;         // Force TP to exactly tpDollars (ignore levels)
+    bool filterMom = false;        // Momentum confirmation filter
+    int momLookback = 6;           // Momentum lookback bars
+    bool filterBounce = false;     // Bounce quality filter (wick confirmation)
+    double penetration = 0.5;      // $ past level required for fill (adverse selection filter)
+    bool noEntryBarTP = true;      // Skip entry-bar TP (honest for limit orders)
+
+    // Gann time gating (Phase 2)
+    int timeGate = 0;             // 0=off, 1=natural sq required, 2=natSq+PT required
+    bool useD1 = false;           // D1 direction filter
+    bool useWaves = false;        // Wave counting direction filter
 
     // Date range
     int64_t fromDate = 0;
@@ -599,21 +706,74 @@ static bool filter4thTouch(const Bar* m5, int idx, double level, int dir, double
     return true;
 }
 
+// Momentum confirmation: last N bars show movement in trade direction
+static bool filterMomentum(const Bar* m5, int idx, int dir, int lookback) {
+    if (idx < lookback + 1) return true;
+    int bullBars = 0, bearBars = 0;
+    for (int i = idx - lookback; i < idx; i++) {
+        if (m5[i].close > m5[i].open) bullBars++;
+        else if (m5[i].close < m5[i].open) bearBars++;
+    }
+    // For long: need some bearish bars approaching from above (dipping to crossing)
+    // For short: need some bullish bars approaching from below (rising to crossing)
+    if (dir == 1) return bearBars >= lookback / 3;  // price was falling to crossing
+    else return bullBars >= lookback / 3;            // price was rising to crossing
+}
+
+// Bounce quality: the fill bar should show rejection (wick in trade direction)
+static bool filterBounceQuality(const Bar* m5, int idx, int dir, double crossPrice) {
+    double body = fabs(m5[idx].close - m5[idx].open);
+    double range = m5[idx].high - m5[idx].low;
+    if (range < 0.1) return false;  // doji = skip
+
+    if (dir == 1) {
+        // Long: want lower wick (dipped to crossing, bounced up)
+        double lowerWick = fmin(m5[idx].open, m5[idx].close) - m5[idx].low;
+        return lowerWick >= range * 0.3;  // at least 30% of bar is lower wick
+    } else {
+        // Short: want upper wick (rose to crossing, bounced down)
+        double upperWick = m5[idx].high - fmax(m5[idx].open, m5[idx].close);
+        return upperWick >= range * 0.3;
+    }
+}
+
 // ============================================================
 // TP calculation
 // ============================================================
 
 static double findTP(int dir, double entry, const GannLevel* levels, int levelCount,
-                     double maxDist, double fallbackTP) {
+                     double maxDist, double fallbackTP, int minConvForTP = 2) {
     double best = 0;
     for (int j = 0; j < levelCount; j++) {
         double lp = levels[j].price;
         double dist = fabs(lp - entry);
         if (dist < 3.0 || dist > maxDist) continue;
+        if (levels[j].convergence < minConvForTP) continue;  // skip noise levels
         if (dir == 1 && lp > entry && (best == 0 || lp < best)) best = lp;
         if (dir == -1 && lp < entry && (best == 0 || lp > best)) best = lp;
     }
     return (best != 0) ? best : entry + dir * fmin(fallbackTP, maxDist);
+}
+
+// Find TP from next triangle crossing in trade direction
+// Hellcat: "Exit from triangle is always a MULTIPLE of the entry"
+static double findTriTP(int dir, double entry, int curBar,
+                        const TriCrossing* crossings, int crossCount,
+                        double minDist, double maxDist) {
+    double best = 0;
+    double bestDist = 1e18;
+    for (int c = 0; c < crossCount; c++) {
+        double cp = crossings[c].price;
+        double dist = (dir == 1) ? cp - entry : entry - cp;
+        if (dist < minDist || dist > maxDist) continue;
+        // Must be a future crossing (after current bar)
+        if (crossings[c].h1Bar <= (double)curBar) continue;
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = cp;
+        }
+    }
+    return best;
 }
 
 // ============================================================
@@ -728,6 +888,33 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
     std::vector<Swing> h1Swings;
     int h1SwCount = detectSwings(h1, h1N, h1Atr, p.atrMultiplier, h1Swings);
     fprintf(stderr, "  H1 swings: %d\n", h1SwCount);
+
+    // D1 resampling (24 H1 bars = 288 M5 bars per D1 bar)
+    int d1Max = h1N / 24 + 10;
+    Bar* d1 = new Bar[d1Max];
+    int d1N = 0;
+    double* d1Atr = nullptr;
+    std::vector<Swing> d1Swings;
+    int d1SwCount = 0;
+    if (p.useD1) {
+        for (int j = 0; j < h1N && d1N < d1Max; j += 24) {
+            int end = std::min(j + 24, h1N);
+            d1[d1N].timestamp = h1[j].timestamp;
+            d1[d1N].open = h1[j].open;
+            d1[d1N].high = h1[j].high;
+            d1[d1N].low = h1[j].low;
+            d1[d1N].close = h1[end - 1].close;
+            for (int k = j + 1; k < end; k++) {
+                if (h1[k].high > d1[d1N].high) d1[d1N].high = h1[k].high;
+                if (h1[k].low < d1[d1N].low) d1[d1N].low = h1[k].low;
+            }
+            d1N++;
+        }
+        d1Atr = new double[d1N];
+        computeATR(d1, d1N, p.atrPeriod, d1Atr);
+        d1SwCount = detectSwings(d1, d1N, d1Atr, p.atrMultiplier, d1Swings);
+        fprintf(stderr, "  D1 bars: %d, D1 swings: %d\n", d1N, d1SwCount);
+    }
 
     // Level cache
     GannLevel levels[500];
@@ -976,23 +1163,28 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
             double entry;
 
             if (p.entryMode == 1) {
-                // TRIANGLE LIMIT MODE: enter at crossing price on bar[i]
-                // The crossing was pre-computed from confirmed swings.
-                // Check if bar[i] reaches the crossing price.
-                // Determine direction from bar[i-1] close relative to crossing.
+                // TRIANGLE LIMIT MODE — MT5-honest:
+                // BuyLimit triggers on ASK, not Bid. Bar OHLC = Bid.
+                // So BuyLimit fills when Ask <= crossPrice, i.e. Bid <= crossPrice - spread
+                // SellLimit triggers on Bid >= crossPrice.
+                // Also require PENETRATION past the level (not just touch) to model
+                // that fills at exact level are adversely selected.
+                double penetration = p.penetration;
                 if (m5[i-1].close > crossPrice)
                     direction = 1;   // approaching from above → buy limit below
                 else
                     direction = -1;  // approaching from below → sell limit above
 
                 if (direction == 1) {
-                    // Buy limit: bar must dip to crossing price
-                    if (m5[i].low > crossPrice + p.touchTol) continue;
-                    entry = crossPrice + p.spread;
+                    // BuyLimit: Ask must reach crossPrice → Bid must reach crossPrice - spread
+                    // Plus penetration to model adverse selection filter
+                    if (m5[i].low > crossPrice - p.spread - penetration) continue;
+                    entry = crossPrice + p.spread; // fill at Ask = crossPrice
                 } else {
-                    // Sell limit: bar must reach up to crossing price
-                    if (m5[i].high < crossPrice - p.touchTol) continue;
-                    entry = crossPrice;
+                    // SellLimit: Bid must reach crossPrice
+                    // Plus penetration
+                    if (m5[i].high < crossPrice + penetration) continue;
+                    entry = crossPrice; // fill at Bid = crossPrice
                 }
             } else {
                 // MARKET MODE: detect touch on bar[i-1], enter at bar[i].open
@@ -1031,8 +1223,27 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
                 sl = entry - direction * p.slDollars;
             }
 
-            // TP: tight or from next level
-            tp = findTP(direction, entry, levels, levelCount, p.maxTPDist, p.tpDollars);
+            // TP: pick best target based on triTPMode
+            if (p.fixedTP) {
+                tp = entry + direction * p.tpDollars;
+            } else {
+                double tpLevel = findTP(direction, entry, levels, levelCount, p.maxTPDist, p.tpDollars);
+                double tpCross = findTriTP(direction, entry, curBar, triCross, triCrossCount,
+                                            p.triMinTPDist, p.maxTPDist);
+
+                if (p.triTPMode == 0) {
+                    tp = tpLevel;  // Level-based TP (convergence levels)
+                } else if (p.triTPMode == 1) {
+                    tp = (tpCross != 0) ? tpCross : tpLevel;  // Next crossing, fallback to level
+                } else {
+                    // Mode 2: closest of crossing or level
+                    if (tpCross != 0 && (fabs(tpCross - entry) < fabs(tpLevel - entry)))
+                        tp = tpCross;
+                    else
+                        tp = tpLevel;
+                }
+            }
+
             double tpDist = fabs(tp - entry);
             double slDist = fabs(entry - sl);
 
@@ -1040,12 +1251,14 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
             if (tpDist > p.maxTPDist) tp = entry + direction * p.maxTPDist;
             tpDist = fabs(tp - entry);
 
-            if (slDist < 1.0 || tpDist < 1.0) continue;
+            if (slDist < 1.0 || tpDist < p.triMinTPDist) continue;
             if (tpDist / slDist < p.minRR) continue;
 
             // Filters
             if (p.filterFold && !filterFoldAtThird(m5, i-1)) continue;
             if (p.filterSpeed && !filterSpeedAccel(m5, i-1)) continue;
+            if (p.filterMom && !filterMomentum(m5, i, direction, p.momLookback)) continue;
+            if (p.filterBounce && !filterBounceQuality(m5, i, direction, crossPrice)) continue;
 
             // Position sizing
             double risk = equity * p.riskPct;
@@ -1067,22 +1280,23 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
             strncpy(pos.angleDir, "tri", 7);
             pos.angleDir[7] = '\0';
 
-            // ENTRY-BAR CHECK — tick-order-aware for limit fills.
-            // Buy limit fills when price drops to crossPrice (during O→L on bullish bars).
-            // After fill: price goes L→H→C. SL checked at L (first), TP at H (second).
-            // On bearish bars: fill happens near end of O→H→L→C sequence,
-            // high already happened → TP at H NOT achievable. Only close remains.
+            // ENTRY-BAR CHECK — semi-honest:
+            // Keep entry-bar TP only on favorable bars (high comes AFTER fill):
+            //   BuyLimit on bullish bar: O→L(fill)→H→C → TP at H is valid
+            //   SellLimit on bearish bar: O→H(fill)→L→C → TP at L is valid
+            // Skip entry-bar TP on unfavorable bars (high/low before fill).
+            // When noEntryBarTP=1, skip ALL entry-bar TP (most pessimistic).
             if (p.entryMode == 1) {
                 bool isBullish = m5[i].close >= m5[i].open;
                 bool entryBarSL = false, entryBarTP = false;
-                if (direction == 1 && isBullish) {
-                    // Buy limit on bullish bar: fill during O→L, then L→H→C
-                    entryBarSL = m5[i].low <= sl;  // SL at L (tested first)
-                    entryBarTP = !entryBarSL && (m5[i].high >= tp);  // TP at H (only if no SL)
-                } else if (direction == -1 && !isBullish) {
-                    // Sell limit on bearish bar: fill during O→H, then H→L→C
+                if (direction == 1) {
+                    entryBarSL = m5[i].low <= sl;
+                    if (!p.noEntryBarTP && isBullish && !entryBarSL)
+                        entryBarTP = m5[i].high >= tp;  // bullish+buy: H after fill at L
+                } else {
                     entryBarSL = (m5[i].high + p.spread) >= sl;
-                    entryBarTP = !entryBarSL && ((m5[i].low + p.spread) <= tp);
+                    if (!p.noEntryBarTP && !isBullish && !entryBarSL)
+                        entryBarTP = (m5[i].low + p.spread) <= tp;  // bearish+sell: L after fill at H
                 }
                 // On unfavorable bars (buy on bearish, sell on bullish):
                 // High/low happened before fill → neither SL nor TP achievable on entry bar.
@@ -1143,6 +1357,18 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
             h1Dir = angleDirection(m5[i].close, curH1, h1Swings.data(), validH1Sw,
                                    p.h1Scale, p.lostMotion);
 
+        // D1 direction filter: skip if D1 trend disagrees
+        DirResult d1Dir = {0, 0};
+        if (p.useD1 && d1SwCount >= 2) {
+            int curD1 = curH1 / 24;
+            int validD1Sw = 0;
+            for (int s = 0; s < d1SwCount; s++)
+                if (d1Swings[s].confirmBar <= curD1) validD1Sw = s + 1;
+            if (validD1Sw >= 2)
+                d1Dir = angleDirection(m5[i].close, curD1, d1Swings.data(), validD1Sw,
+                                       p.d1Scale, p.lostMotion);
+        }
+
         int lastSwIdx = validH1Sw - 1;
         double refPrice = h1Swings[lastSwIdx].price;
         int barsFromRef = std::max(1, curH1 - h1Swings[lastSwIdx].barIndex);
@@ -1157,21 +1383,39 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
                   m5[touchBar].high >= level - p.touchTol))
                 continue;
 
-            // Direction: fade from bar before touch
+            // Direction: bounce from approach side, confirmed by H1 angles
             int direction = 0;
             int strength = 0;
             const char* dirStr = "fade";
-            // Use bar before touch for fade direction
             int dirBar = (p.entryMode == 1) ? i - 1 : i - 2;
             if (dirBar < 0) continue;
 
+            // Step 1: determine bounce direction from approach side
+            // Price above level = approaching support = bounce UP (long)
+            // Price below level = approaching resistance = bounce DOWN (short)
+            int fadeDir = (m5[dirBar].close > level) ? 1 : -1;
+
+            // Step 2: H1 angles must AGREE with bounce direction
             if (p.useAngles && h1Dir.direction != 0) {
-                direction = h1Dir.direction;
+                if (h1Dir.direction != fadeDir) continue;  // conflict → skip
+                direction = fadeDir;
                 strength = h1Dir.strength;
                 dirStr = (direction == 1) ? "long" : "short";
+            } else if (p.useAngles && h1Dir.direction == 0) {
+                continue;  // neutral angle → skip (no clear trend)
             } else {
-                direction = (m5[dirBar].close < level) ? -1 : 1;
+                direction = fadeDir;
                 dirStr = "fade";
+            }
+
+            // Step 3: D1 direction must AGREE (if enabled)
+            if (p.useD1 && d1Dir.direction != 0 && d1Dir.direction != direction) continue;
+
+            // Step 4: Wave counting direction (if enabled)
+            if (p.useWaves && validH1Sw >= 4) {
+                WaveResult wave = countWaves(h1Swings.data(), h1SwCount, curH1);
+                if (wave.direction != 0 && wave.confidence >= 0.5 &&
+                    wave.direction != direction) continue;
             }
 
             // Entry price — always market entry at next bar open (matches MT5)
@@ -1213,12 +1457,29 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
             if (p.filterSpeed && !filterSpeedAccel(m5, touchBar)) continue;
             if (p.filter4thTouch && !filter4thTouch(m5, touchBar, level, direction, p.touchTol))
                 continue;
+            if (p.filterBounce && !filterBounceQuality(m5, touchBar, direction, level)) continue;
+
+            // ---- TIME GATE (Phase 2) ----
+            if (p.timeGate >= 1 && !checkNaturalSquareTiming(barsFromRef, p.natSqTol)) continue;
+            if (p.timeGate >= 2 && !checkPTSquaring(entry, refPrice, barsFromRef, p.ptTol)) continue;
 
             // ---- SL / TP ----
-            // SL from ENTRY price (symmetric with TP)
-            double sl = entry - direction * p.slDollars;
-            // TP at next Gann level, or fixed fallback
-            double tp = findTP(direction, entry, levels, levelCount, p.maxTPDist, p.tpDollars);
+            double slDist_calc, tpDist_calc;
+            if (p.slAtrMult > 0 && atr[i] > 0.1) {
+                // ATR-based SL/TP — auto-adapts to volatility
+                slDist_calc = p.slAtrMult * atr[i];
+                tpDist_calc = (p.tpRatio > 0) ? p.tpRatio * slDist_calc : p.tpDollars;
+            } else {
+                slDist_calc = p.slDollars;
+                tpDist_calc = p.tpDollars;
+            }
+            double sl = entry - direction * slDist_calc;
+            double tp;
+            if (p.fixedTP || p.slAtrMult > 0) {
+                tp = entry + direction * tpDist_calc;
+            } else {
+                tp = findTP(direction, entry, levels, levelCount, p.maxTPDist, tpDist_calc);
+            }
 
             double slDist = fabs(entry - sl);
             double tpDist = fabs(tp - entry);
@@ -1259,6 +1520,8 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
     delete[] atr;
     delete[] h1;
     delete[] h1Atr;
+    delete[] d1;
+    if (d1Atr) delete[] d1Atr;
     return res;
 }
 
@@ -1311,6 +1574,21 @@ static void parseParam(Params& p, const char* arg) {
         else if (!strcmp(key, "trimaxsw")) p.triMaxSwings = (int)val;
         else if (!strcmp(key, "m5tri")) p.triM5 = val > 0;
         else if (!strcmp(key, "m5triatr")) p.triM5AtrMult = val;
+        else if (!strcmp(key, "tritpmode")) p.triTPMode = (int)val;
+        else if (!strcmp(key, "trimintpdist")) p.triMinTPDist = val;
+        else if (!strcmp(key, "fixedtp")) p.fixedTP = val > 0;
+        else if (!strcmp(key, "filtermom")) p.filterMom = val > 0;
+        else if (!strcmp(key, "momlb")) p.momLookback = (int)val;
+        else if (!strcmp(key, "filterbounce")) p.filterBounce = val > 0;
+        else if (!strcmp(key, "penetration")) p.penetration = val;
+        else if (!strcmp(key, "noentrybartp")) p.noEntryBarTP = val > 0;
+        // Gann time gating (Phase 2)
+        else if (!strcmp(key, "timegate")) p.timeGate = (int)val;
+        else if (!strcmp(key, "d1")) p.useD1 = val > 0;
+        else if (!strcmp(key, "waves")) p.useWaves = val > 0;
+        // ATR-based SL/TP
+        else if (!strcmp(key, "slatr")) p.slAtrMult = val;
+        else if (!strcmp(key, "tpratio")) p.tpRatio = val;
     }
 }
 
