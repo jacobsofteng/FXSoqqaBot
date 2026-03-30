@@ -2,11 +2,15 @@
 
 **FXSoqqaBot**
 
-A pure Gann trading bot for XAUUSD (Gold) on MetaTrader 5 via RoboForex ECN with 1:500 leverage. Uses W.D. Gann's geometric angles for direction, Square of 9 for price levels, and convergence scoring for entry quality. Ships as an MQL5 EA for MT5 Strategy Tester and live trading.
+A precision Gann trading bot for XAUUSD (Gold) on MetaTrader 5 via RoboForex ECN with 1:500 leverage. Uses price-time alignment (Sq9 price levels + natural square time cycles + price-time squaring) for high-conviction entries. Ships as an MQL5 EA for MT5 Strategy Tester and live trading.
 
-**Core Edge:** Gann angle direction from H1 swing structure replaces random fade logic. Price above ascending 1x1 from last swing low = LONG. Below descending 1x1 from last swing high = SHORT. Combined with Sq9/vibration/proportional level convergence and Gann filters (fold at 1/3, 4th-time-through, speed/acceleration).
+**Core Edge:** Gann level convergence + limit order entry. Limit orders at exact Sq9/vibration/proportional convergence levels capture a 15% edge over random walk. Tight TP ($2-3), wide SL ($5-7), fade direction.
 
-**Current Best:** 75.3% win rate, 2.2 trades/day, 8.4% max drawdown (2020-2022 test, validated on 2015-2019 train at 71%).
+**Goal:** $20 → $100 with 4-6 trades/day.
+
+**Status:** v6.0 Triangle System built. C++ tester shows **91-95% WR** (17yr backtest, tick-order-aware). Awaiting MT5 real-tick validation.
+
+**CRITICAL:** Triangle crossing limit entry (triangle=1 entrymode=1). Market orders = 68% WR. Limit at triangle crossing = 91-95% WR.
 
 ### Constraints
 
@@ -14,7 +18,7 @@ A pure Gann trading bot for XAUUSD (Gold) on MetaTrader 5 via RoboForex ECN with
 - **Broker**: RoboForex ECN, 1:500 leverage
 - **Capital**: Starting at $20, position sizing based on 2% risk per trade
 - **Instrument**: XAUUSD (Gold) only
-- **Timeframe**: M5 entries, H1/D1 for angle direction
+- **Timeframe**: M5 entries, H1 for swing-based level calculation
 - **Vibration**: V=72 base (Hellcat formula N=3 → 73.18≈72, confirmed on charts), swing quantum V=12 (72/6)
 
 ## Architecture
@@ -25,28 +29,30 @@ C++ Tester (gann_backtest.cpp)      — Fast iteration: 1.15M bars in 0.4 second
 Python Research (gann_research/)    — Calibration, analysis, prototyping
 ```
 
-### Strategy Flow
+### Strategy Flow (v6.0 — TRIANGLE SYSTEM)
 
 1. **Swing Detection**: ATR-based ZigZag on H1 (atr_multiplier=2.5)
-2. **Gann Levels**: Sq9 (30/45/60/90/120/180°) + vibration multiples (V=12) + proportional (1/8-7/8) from last 10 H1 swings, clustered at $3 tolerance
-3. **Direction**: H1 Gann angle (1x1 at $7/bar scale from most recent swing), D1 confirmation
-4. **Entry**: M5 bar touches Gann level with convergence >= 10, direction agrees with H1 angle
-5. **Filters**: Fold at 1/3, speed/acceleration, time expiry, 4th-time-through (CRITICAL)
-6. **SL**: $5 (angle-based with fallback), **TP**: Next Gann level, **Max hold**: 36 M5 bars (3h)
+2. **Angle Lines**: From each H1 swing, 4 ascending (from lows) + 4 descending (from highs) at ratios 1x2, 1x1, 2x1, 4x1 with scale=$7/H1bar
+3. **Triangle Crossings**: Where ascending meets descending angle (both must be confirmed before crossing)
+4. **Convergence Gate**: Crossing price must also be near a Sq9/vibration/proportional convergence level (conv>=7)
+5. **Limit Order**: BuyLimit/SellLimit at the crossing price (pre-computed prediction)
+6. **Direction**: Bounce from crossing (bar close above → long, below → short)
+7. **SL**: $10 from crossing price (wide, survives noise)
+8. **TP**: $1.5 from crossing price (tight, 91%+ hit rate)
+9. **Entry-bar check**: Tick-order-aware SL/TP on fill bar (pessimistic)
 
-### Optimal Parameters
+### Key Lessons Learned
 
-| Parameter | Value | Rationale |
-|-----------|-------|-----------|
-| h1scale | 7.0 | $/bar for H1 1x1 angle (calibrated empirically) |
-| minconv | 10 | Minimum Gann level convergence |
-| sl | 5.0 | Stop loss dollars |
-| minrr | 0.5 | Minimum risk:reward ratio |
-| maxhold | 36 | Max M5 bars to hold (3 hours) |
-| fold | ON | Fold at 1/3 filter |
-| speed | ON | Speed/acceleration filter |
-| touch4th | ON | 4th-time-through filter (removes it = WR drops 70%→54%) |
-| ptsquare | OFF | Price-time squaring (too restrictive, kills 80% of trades) |
+| Lesson | Detail |
+|--------|--------|
+| **Triangle IS the edge** | Angle crossings give PRICE+TIME prediction. Convergence levels give only PRICE. |
+| Triangle limit entry honest | Pre-computed crossing = genuine prediction, not retroactive level selection. |
+| Scale=$7/H1bar for gold | Calibrated: outperforms theoretical V/6=$12. |
+| ConvGate adds 3% WR | Requiring convergence level near crossing = double confirmation. |
+| Tight TP=$1.5 pushes 90%+ | With SL=$10, random walk baseline is 87%. Triangle edge pushes to 91%+. |
+| Scoring doesn't help | Independent convergence (7 factors), 3-Limits have zero WR correlation. |
+| Stable across all periods | 90-94% WR from 2009 to 2026, all gold price ranges ($900-$3000). |
+| Validate on real ticks | Run MT5 Strategy Tester with "Real ticks" to validate C++ findings. |
 
 ## Key Files
 
@@ -79,12 +85,15 @@ Python Research (gann_research/)    — Calibration, analysis, prototyping
 
 ```bash
 # Compile (via msys2 bash — needed for paths with spaces)
-C:/msys64/usr/bin/bash.exe -lc "C:/msys64/mingw64/bin/g++.exe -O3 -std=c++17 -o /c/temp/gann_bt.exe /c/temp/gann_backtest.cpp"
+cp gann_tester/gann_backtest.cpp /c/temp/ && C:/msys64/usr/bin/bash.exe -lc "C:/msys64/mingw64/bin/g++.exe -O3 -std=c++17 -o /c/temp/gann_bt.exe /c/temp/gann_backtest.cpp"
 
-# Run (outputs JSON)
-C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin from=1577836800 to=1672531200 angles=1 minconv=10 sl=5 h1scale=7
+# Run Config A (94.7% WR — ultra-precise, few trades)
+C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 triscale=7 tripricetol=5 tribartol=3 triminimp=14 triconvgate=1 minconv=7 sl=10 maxtp=1.5 maxhold=72 spread=0.30 entrymode=1
 
-# Key parameters: angles=0/1 minconv=N h1scale=N sl=N tp=N minrr=N maxhold=N fold=0/1 speed=0/1 ptsquare=0/1 touch4th=0/1
+# Run Config B (91.4% WR — more trades)
+C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 triscale=7 tripricetol=5 tribartol=3 triminimp=14 triconvgate=1 minconv=7 sl=10 maxtp=1.5 maxhold=72 spread=0.30 fold=0 speed=0 touch4th=0 entrymode=1
+
+# Triangle params: triangle=1 triscale=N tripricetol=N tribartol=N triminimp=N triconvgate=0/1 entrymode=1
 ```
 
 ## MT5 Paths
