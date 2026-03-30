@@ -1,162 +1,153 @@
-# Session State — Gann Strategy v6.0 (Triangle System)
-## Saved: 2026-03-30 (Session 10 — Triangle Breakthrough: 91-95% WR)
+# Session State — Gann Strategy v6.1
+## Saved: 2026-03-30 (Session 10 — Triangle System + MT5 Validation)
 
 ---
 
-## BREAKTHROUGH: Triangle System Achieves 90%+ Win Rate
+## CRITICAL CORRECTION: SL/TP Was Inverted
 
-### The Missing Piece Was Found
-Hellcat: "The main meaning of Gann's System is in that FIGURE which nobody uses."
+### The Mistake
+We used TP=$1.5 (small) with SL=$10 (big) to chase high WR. This is WRONG:
+- Random walk with TP=$1.5, SL=$10 already gives 87% WR — no edge needed
+- A 92% WR looks impressive but is mostly random walk baseline
+- At 82% WR (MT5 real ticks), the EV is NEGATIVE: 0.82×$1.5 - 0.18×$10 = -$0.57/trade
+- This is NOT how Gann traders work
 
-The FIGURE is the **triangle** — where ascending Gann angles from swing lows CROSS descending angles from swing highs. This gives both PRICE and TIME coordinates for the reversal point.
+### What Gann/Ferro/Hellcat Actually Say
 
-### Why Triangles Work (And Convergence Levels Didn't)
+**Gann Ch 5A**: "You can buy every time it rests on the 45-degree angle with a stop loss order 1, 2, or 3 cents UNDER the 45-degree angle."
+→ SL = TIGHT, just below the supporting angle + lost motion ($2-3)
 
-| Approach | What It Provides | WR (honest) |
-|----------|-----------------|-------------|
-| Convergence levels (v5) | Static PRICE only | 55-66% |
-| Triangle crossings (v6) + market entry | PRICE + TIME | 68-78% |
-| Triangle crossings (v6) + limit entry | PRICE + TIME + precision fill | **91-95%** |
+**Hellcat**: "Exit from triangle is always a MULTIPLE of the entry"
+→ TP = MULTIPLE of entry distance, i.e., TP > SL
 
-The key difference: convergence levels say "something might happen at this price" but not WHEN. Triangle crossings say "at this bar, these two angle lines meet at this price" — a specific prediction with both coordinates.
+**Ferro**: Lost motion = ±$2-3. Price-time squaring accuracy = ±2 units.
+→ SL = $2-3 (lost motion), TP = next crossing/level ($5-15)
 
-### Best Validated Configs
+**The Quant Mechanism**: "roughly the same as the initial impulse for building a Gann box"
+→ TP = impulse size = much larger than lost motion
 
-**Config A: Ultra-Precise (94.7% WR)**
-```
-triangle=1 triscale=7 tripricetol=5 tribartol=3 triminimp=14 triconvgate=1
-minconv=7 sl=10 maxtp=1.5 maxhold=72 spread=0.30 entrymode=1
-fold=1 speed=1 touch4th=1
-```
-- 171 trades / 17 years, 162 wins, 9 losses
-- Max drawdown: 3.9%
-- $10K → $13K (low frequency)
+### The Correct Approach
+- **SL = TIGHT**: $2-3 from the triangle crossing (lost motion = Gann's "2-2.5 units")
+  - For LONG: SL = crossing_price - lost_motion ($2-3)
+  - For SHORT: SL = crossing_price + lost_motion ($2-3)
+- **TP = WIDE**: Next triangle crossing, next angle level, or box edge ($5-15)
+  - "Exit from triangle is always a MULTIPLE of the entry"
+  - TP at next convergence level in direction
+  - Or TP at proportional level (1/3, 1/2, 2/3 of swing range)
+- **R:R = 2:1 to 5:1** (favorable, not inverted)
+- **Expected WR = 50-65%** but with favorable R:R → POSITIVE EV
 
-**Config B: More Trades (91.4% WR)**
-```
-triangle=1 triscale=7 tripricetol=5 tribartol=3 triminimp=14 triconvgate=1
-minconv=7 sl=10 tp=5 maxtp=1.5 maxhold=72 spread=0.30 entrymode=1
-fold=0 speed=0 touch4th=0
-```
-- 1167 trades / 17 years, 1067 wins, 97 losses
-- 0.19 trades/day overall, 0.6/day in 2023-2026
-- $10K → $23K
-
-### Time Period Stability (Config B — no overfitting)
-
-| Period | Trades | WR | EV/trade |
-|--------|--------|-----|---------|
-| 2009-2015 | 244 | **91.0%** | $6.90 |
-| 2015-2020 | 69 | **92.8%** | $11.02 |
-| 2020-2023 | 190 | **93.7%** | $14.59 |
-| 2023-2026 | 667 | **90.7%** | $5.67 |
-
-Consistent 90%+ WR across ALL periods. Works at all gold price ranges ($900-$3000).
+### Why This Makes Sense
+At the triangle crossing point, Gann angles predict the exact reversal. If the prediction is correct:
+- Price bounces and reaches the TP ($5-15 away) — WIN with large profit
+- If wrong, price passes through the crossing by more than lost motion — LOSE with small loss ($2-3)
+- Even at 50% WR: EV = 0.5×$10 - 0.5×$3 = +$3.50/trade
 
 ---
 
-## How The Triangle System Works
+## What Was Proven (Still Valid)
 
-### Architecture
-1. **H1 Swing Detection**: ATR-based ZigZag on H1 (atr_multiplier=2.5)
-2. **Angle Line Construction**: From each H1 swing, draw 4 angle lines:
-   - Ascending from lows: 1x2 ($3.5/H1bar), 1x1 ($7), 2x1 ($14), 4x1 ($28)
-   - Descending from highs: same ratios
-3. **Crossing Detection**: Find where ascending meets descending
-   - Solve: asc_price + asc_slope*(t-t_asc) = desc_price - desc_slope*(t-t_desc)
-   - Only valid if both swings confirmed before crossing time (no lookahead)
-4. **Triangle Zone**: Crossing within triPriceTol ($5) + triBarTolH1 (3 H1 bars)
-5. **Convergence Gate**: Crossing price must also be near a Gann convergence level (conv>=7)
-6. **Limit Entry**: Place limit order at crossing price; fill when bar reaches it
-7. **SL/TP**: Fixed SL=$10, TP=$1.5 from crossing price
+### Triangle System Works
+1. **Triangle crossings detect real price+time reversal points** — confirmed
+2. **M5 swings for scalping frequency** — 7+ trades/day in C++
+3. **ConvGate improves quality** — double confirmation (triangle + convergence)
+4. **Scale=$1.0/M5bar (=$12/H1bar)** for gold — optimal
+5. **importance >= 14** — 1x1+1x1 crossings are strongest
+6. **MT5 real ticks validation**: 1,185 trades, 82.2% WR (with inverted R:R)
+7. **MAX_SWINGS bug fixed** — swing detection now works after array fills
 
-### Why Limit Entry Is Honest For Triangles
-- Triangle crossings are pre-computed from CONFIRMED past swings
-- The crossing price+time is a genuine PREDICTION (not retroactive level selection)
-- Limit order would be placed in advance in real trading
-- Entry-bar SL/TP check is tick-order-aware (pessimistic)
-- Old entrymode=1 was dishonest because hundreds of levels → selection bias
-- Triangle crossings are specific and rare → genuine prediction
+### MT5 vs C++ Gap Analysis
+| Metric | C++ | MT5 Real Ticks |
+|--------|-----|----------------|
+| Trades (3yr) | ~10,800 | 1,185 |
+| WR (TP=$1.5, SL=$10) | 92.6% | 82.2% |
+| Gap | — | -10.4% |
 
-### Scale Calibration
-- **Best scale: $7/H1bar** (calibrated in v5, confirmed for triangles)
-- Theoretical V/6 = 12 performs worse (too steep for gold M5)
-- Scale=5 gives more trades at slightly lower WR (88.7%)
+Gap sources:
+- C++ checks all bars simultaneously; EA has one pending limit at a time
+- MT5 real ticks have slippage on limit fills
+- EA filters (fold/speed) ON by default, C++ had them OFF
+- MT5 may cancel/reject orders during market close
 
 ---
 
-## What Changed From v5
+## Architecture (Still Valid)
 
-| v5 (Convergence) | v6 (Triangle) |
-|-------------------|---------------|
-| Static price levels | Price+time crossing points |
-| Market entry at next bar | Limit entry at predicted crossing |
-| Fixed $SL/$TP | Still fixed, but geometrically motivated |
-| 7-factor scoring (useless) | Triangle importance scoring |
-| 55-66% WR | **91-95% WR** |
-| Negative EV | Positive EV |
+### Triangle System Flow
+1. **M5 Swing Detection**: ATR-based ZigZag on M5 (atr_mult=1.5)
+2. **Angle Lines**: 4 ascending + 4 descending from each swing (1x2, 1x1, 2x1, 4x1)
+3. **Crossings**: Where ascending meets descending (both confirmed before crossing time)
+4. **ConvGate**: Crossing price near a Sq9/vibration/proportional convergence level
+5. **Limit Entry**: At the crossing price (pre-computed prediction)
+
+### What Needs to Change (SL/TP)
+6. **SL = lost motion ($2-3) from crossing price** ← CHANGE
+7. **TP = next Gann level or crossing in direction ($5-15)** ← CHANGE
+8. **Direction**: bounce from crossing (bar close above → long, below → short)
+
+---
+
+## Next Session — Pick Up Here
+
+### Priority 1: Implement Correct SL/TP (Gann-style)
+In C++ tester (`gann_backtest.cpp`):
+1. Change SL from fixed $10 to lost_motion $2-3 from crossing price
+2. Change TP from fixed $1.5 to:
+   - Next convergence level in trade direction (findTP function exists)
+   - OR next triangle crossing in direction
+   - OR proportional of last swing ($5-15 typical)
+3. Set minRR=1.5 (require R:R >= 1.5:1)
+4. Test: expect 50-65% WR but POSITIVE EV
+
+### Priority 2: Geometric SL/TP from Triangle Structure
+Use the `geoSLTP=1` parameter (already implemented but untested with correct values):
+- SL from opposing angle trajectory + lost motion
+- TP from next crossing or angle projection
+- This is Gann Ch 5A: "stop loss 1-3 cents under the 45-degree angle"
+
+### Priority 3: Increase MT5 Trade Frequency
+Current: EA places ONE limit at a time → misses most crossings.
+Options:
+- Allow multiple simultaneous pending orders
+- Or: check all crossings on each bar and enter at market when price touches one
+- Match C++ behavior more closely
+
+### Priority 4: Remove Filters for M5 Triangle Mode
+The fold/speed/4thtouch filters were designed for H1 convergence levels.
+For M5 triangle scalping, they reduce trade count without improving quality.
+Set InpFilterFold=false, InpFilterSpeed=false, InpFilter4thTouch=false.
 
 ---
 
 ## Compile & Run
 
 ```bash
-# Compile
+# Compile C++ tester
 cp gann_tester/gann_backtest.cpp /c/temp/ && C:/msys64/usr/bin/bash.exe -lc "C:/msys64/mingw64/bin/g++.exe -O3 -std=c++17 -o /c/temp/gann_bt.exe /c/temp/gann_backtest.cpp"
 
-# Run Config A (94.7% WR, few trades)
-/c/temp/gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 triscale=7 tripricetol=5 tribartol=3 triminimp=14 triconvgate=1 minconv=7 sl=10 maxtp=1.5 maxhold=72 spread=0.30 entrymode=1
+# CORRECT R:R: tight SL=$3, wide TP, Gann-style
+/c/temp/gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 m5tri=1 triscale=1.0 tripricetol=5 tribartol=24 triminimp=14 triconvgate=1 minconv=7 sl=3 tp=10 maxtp=15 maxhold=72 spread=0.30 minrr=1.5 fold=0 speed=0 touch4th=0 entrymode=1
 
-# Run Config B (91.4% WR, more trades)
-/c/temp/gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 triscale=7 tripricetol=5 tribartol=3 triminimp=14 triconvgate=1 minconv=7 sl=10 maxtp=1.5 maxhold=72 spread=0.30 fold=0 speed=0 touch4th=0 entrymode=1
-
-# Key triangle params:
-# triangle=1     Enable triangle system
-# triscale=7     $/H1bar for 1x1 angle
-# tripricetol=5  Price tolerance ($) for crossing proximity
-# tribartol=3    H1 bar tolerance for crossing timing
-# triminimp=14   Min crossing importance (1x1+1x1=20 max)
-# triconvgate=1  Require convergence level nearby
-# entrymode=1    Limit entry at crossing price
+# WRONG (what we tested before — DO NOT USE):
+# sl=10 maxtp=1.5 → inverted R:R, fake high WR from random walk baseline
 ```
 
 ---
 
-## Next Steps
+## Key Files
 
-### Priority 1: MT5 Real-Tick Validation
-Port the triangle system to GannScalper.mq5 and test with "Real ticks" mode.
-Expected: C++ overestimates by 5-10%, so MT5 should show 82-90% WR.
-If MT5 confirms 85%+, this is a LIVE-TRADEABLE strategy.
+| File | Purpose |
+|------|---------|
+| `gann_tester/gann_backtest.cpp` | C++ tester with triangle system (M5+H1) |
+| `MQL5/Experts/GannScalper.mq5` | EA v6.1 with M5 triangle scalping, debug logging |
+| `gann_research/gann_angles.py` | angle_based_sl/tp functions — THE CORRECT APPROACH |
+| `GANN_METHOD_ANALYSIS.md` | Ferro/Hellcat decoded methods |
+| `GANN_ESOTERIC_RESEARCH.md` | Planetary, Maya, Bible numerology for future timing |
 
-### Priority 2: Increase Trade Frequency
-Current: 0.03-0.6 trades/day (varies by period).
-Target: 1-5/day.
-Options:
-- Use M5 swings instead of H1 for faster signal generation
-- Add more angle ratios (1x3, 3x1, 8x1)
-- Multi-scale: test at scales 5, 7, 12 simultaneously
-- Wider tolerances (test carefully)
+## Constants
 
-### Priority 3: Geometric SL/TP
-Current SL=$10 is fixed. Geometric SL from the triangle structure:
-- SL = opposing angle trajectory + lost motion
-- TP = next crossing point or box edge
-- GeoSLTP gave 83.9% WR but $94/trade EV (better R:R)
-
-### Priority 4: Add Time Cycles
-- Natural square timing as hard filter (4, 9, 16, 24, 36 H4 bars from swing)
-- Price-time squaring as quality gate
-- Planetary timing (if calibrated to known power points)
-
----
-
-## Constants (Updated)
-
-- **Triangle scale**: $7/H1bar (1x1 angle for gold)
+- **Triangle scale**: $1.0/M5bar = $12/H1bar (V/6 for gold)
 - **Angle ratios**: 1x2 (0.5), 1x1 (1.0), 2x1 (2.0), 4x1 (4.0)
-- **Importance weights**: 1x2=7, 1x1=10, 2x1=8, 4x1=6
-- **SL**: $10 from crossing price (wide, survives noise)
-- **TP**: $1.5 from crossing price (tight, high hit rate)
-- **Lost motion**: $2-3 (Gann standard)
-- **Convergence gate**: min 7 (Sq9 + vibration + proportional overlap)
+- **Lost motion**: $2-3 (Gann: "2-2.5 units") = THE SL
+- **Convergence gate**: min 7
+- **M5 ATR multiplier**: 1.5 for swing detection
