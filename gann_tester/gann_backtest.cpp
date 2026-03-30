@@ -164,8 +164,10 @@ struct Params {
     int triMinImportance = 10;    // Min importance (1x1+1x1=20, 1x1+2x1=18)
     bool triConvGate = false;     // Also require convergence level nearby?
     bool geoSLTP = false;         // Use geometric SL/TP from triangle angles
-    double triScale = 12.0;       // $/H1bar for 1x1 angle (V/6=12 for gold)
+    double triScale = 12.0;       // $/bar for 1x1 angle (H1: $7, M5: $0.58)
     int triMaxSwings = 20;        // Swings for triangle construction
+    bool triM5 = false;           // Use M5 swings (scalping mode)
+    double triM5AtrMult = 1.5;    // ATR multiplier for M5 swing detection
 
     // Date range
     int64_t fromDate = 0;
@@ -740,11 +742,19 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
     int lastExitBar = -2;  // No re-entry on same bar as exit
 
     // Triangle system state
-    AngleLine triLines[400];   // max 50 swings * 4 ratios * 2 dirs = covered
+    AngleLine triLines[400];
     int triLineCount = 0;
     TriCrossing triCross[10000];
     int triCrossCount = 0;
     int lastTriSwCount = -1;
+
+    // M5 swings for scalping triangles
+    std::vector<Swing> m5Swings;
+    int m5SwCount = 0;
+    if (p.useTriangles && p.triM5) {
+        m5SwCount = detectSwings(m5, n, atr, p.triM5AtrMult, m5Swings);
+        fprintf(stderr, "  M5 swings for triangles: %d\n", m5SwCount);
+    }
 
     // Verbose header
     if (p.verbose)
@@ -891,27 +901,49 @@ static Results runBacktest(const Bar* m5, int n, const Params& p) {
 
         // ============ TRIANGLE ENTRY MODE ============
         if (p.useTriangles) {
-            // Recompute triangle crossings when swing set changes
-            if (validH1Sw != lastTriSwCount) {
-                lastTriSwCount = validH1Sw;
-                int fromSw = validH1Sw > p.triMaxSwings ? validH1Sw - p.triMaxSwings : 0;
-                triLineCount = buildAngleLines(h1Swings.data(), fromSw, validH1Sw,
-                                               p.triScale, triLines, 400);
-                // Find crossings in a wide window around current time
-                triCrossCount = findTriCrossings(triLines, triLineCount,
-                    curH1 - 20, curH1 + 100,
-                    m5[i].close - 300, m5[i].close + 300,
-                    triCross, 10000);
+            if (p.triM5) {
+                // M5 SCALPING MODE: use M5 swings for angle construction
+                // Count confirmed M5 swings (confirmBar <= current M5 bar)
+                int validM5Sw = 0;
+                for (int s = 0; s < m5SwCount; s++)
+                    if (m5Swings[s].confirmBar <= i) validM5Sw = s + 1;
+
+                // Recompute when swing set changes
+                if (validM5Sw != lastTriSwCount && validM5Sw >= 3) {
+                    lastTriSwCount = validM5Sw;
+                    int fromSw = validM5Sw > p.triMaxSwings ? validM5Sw - p.triMaxSwings : 0;
+                    triLineCount = buildAngleLines(m5Swings.data(), fromSw, validM5Sw,
+                                                   p.triScale, triLines, 400);
+                    triCrossCount = findTriCrossings(triLines, triLineCount,
+                        i - 200, i + 500,
+                        m5[i].close - 200, m5[i].close + 200,
+                        triCross, 10000);
+                }
+            } else {
+                // H1 MODE: use H1 swings (original)
+                if (validH1Sw != lastTriSwCount) {
+                    lastTriSwCount = validH1Sw;
+                    int fromSw = validH1Sw > p.triMaxSwings ? validH1Sw - p.triMaxSwings : 0;
+                    triLineCount = buildAngleLines(h1Swings.data(), fromSw, validH1Sw,
+                                                   p.triScale, triLines, 400);
+                    triCrossCount = findTriCrossings(triLines, triLineCount,
+                        curH1 - 20, curH1 + 100,
+                        m5[i].close - 300, m5[i].close + 300,
+                        triCross, 10000);
+                }
             }
+
+            // Current bar index in the swing's timeframe
+            int curBar = p.triM5 ? i : curH1;
 
             // Find best crossing near current price+time
             int bestCross = -1;
             int bestImp = 0;
 
             for (int c = 0; c < triCrossCount; c++) {
-                if (triCross[c].latestConfirmH1 >= curH1) continue;
+                if (triCross[c].latestConfirmH1 >= curBar) continue;
 
-                double barDist = fabs(triCross[c].h1Bar - (double)curH1);
+                double barDist = fabs(triCross[c].h1Bar - (double)curBar);
                 if (barDist > p.triBarTolH1) continue;
 
                 double priceDist = fabs(triCross[c].price - m5[i-1].close);
@@ -1277,6 +1309,8 @@ static void parseParam(Params& p, const char* arg) {
         else if (!strcmp(key, "geosltp")) p.geoSLTP = val > 0;
         else if (!strcmp(key, "triscale")) p.triScale = val;
         else if (!strcmp(key, "trimaxsw")) p.triMaxSwings = (int)val;
+        else if (!strcmp(key, "m5tri")) p.triM5 = val > 0;
+        else if (!strcmp(key, "m5triatr")) p.triM5AtrMult = val;
     }
 }
 
