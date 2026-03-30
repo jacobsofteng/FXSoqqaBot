@@ -1,112 +1,80 @@
+# CLAUDE.md — FXSoqqaBot v9.1
+
 ## Project
 
-**FXSoqqaBot**
+**FXSoqqaBot** — A precision Gann trading bot for XAUUSD (Gold) on MetaTrader 5 via RoboForex ECN with 1:500 leverage. Uses a Triangle-First architecture where Gann math detects convergence zones, the quant mechanism defines the trading box, and entries happen only in the Green Zone with tiny SL and large TP.
 
-A precision Gann trading bot for XAUUSD (Gold) on MetaTrader 5 via RoboForex ECN with 1:500 leverage. Uses price-time alignment (Sq9 price levels + natural square time cycles + price-time squaring) for high-conviction entries. Ships as an MQL5 EA for MT5 Strategy Tester and live trading.
+**Target:** 50-70% WR with 6:1 to 20:1 R:R (not 29% WR with 4:1 like v8.0)
 
-**Core Edge:** D1 trend direction + H1 angle confirmation + Gann level entry + ATR-based asymmetric R:R. 1.45x lift over random walk on 17yr data, validated out-of-sample (1.48x on 2020-2026).
+---
 
-**Goal:** Consistent positive EV trend-following on XAUUSD.
+## Architecture Documents (READ IN THIS ORDER)
 
-**Status:** v8.0 — correct Gann method. D1+H1 trend alignment is THE edge. Convergence scoring, three-limits, and time gating add zero directional value. Triangle crossings predict zones but not prices. **ATR×3.0 SL, 4:1 R:R = 29% WR, +EV, 1.1 TPD, stable 17yr.**
+| File | What it is | When to read |
+|------|-----------|-------------|
+| `GANN_STRATEGY_V9_SPEC.md` | All math modules: Sq9, vibration, proportional divisions, time structure, swing detection, wave counting, convergence scoring, three-limit alignment. Every formula with Python code. Gold constants. | Read FIRST. This is the math library spec. |
+| `GANN_TRIANGLE_RECONSTRUCTION.md` | The Triangle system: quant measurement, Gann Box construction, diagonal intersection engine, Green Zone entry, explosion detection, precision SL/TP. The 4-state machine (Scanning→Quant→Box→Trade). | Read SECOND. This is the trading strategy spec. |
+| `MQL5_EA_DEVELOPMENT_GUIDE.md` | How to write the MT5 EA without breaking everything. Bar indexing, new-bar detection, order execution, spread handling, porting checklist. Complete EA skeleton. | Read THIRD. Follow this when writing any MQL5 code. |
 
-**CRITICAL:** D1 trend + H1 angle + market entry + ATR SL/TP. Convergence levels DON'T predict direction.
+**Do NOT read** `docs/reference/GANN_METHOD_ANALYSIS.md` unless explicitly asked. It's raw research notes that have been superseded by the three specs above.
 
-### Constraints
+---
+
+## Constraints
 
 - **Platform**: MetaTrader 5 on Windows — MQL5 EA for execution and backtesting
 - **Broker**: RoboForex ECN, 1:500 leverage
 - **Capital**: Starting at $20, position sizing based on 2% risk per trade
 - **Instrument**: XAUUSD (Gold) only
-- **Timeframe**: M5 entries, H1 for swing-based level calculation
-- **Vibration**: V=72 base (Hellcat formula N=3 → 73.18≈72, confirmed on charts), swing quantum V=12 (72/6)
+- **Execution timeframe**: M5 bars (entries), H1 for wave counting and levels, H4 for time structure, D1 for trend direction
+- **Language**: Python for research/backtesting, C++17 for fast backtesting, MQL5 for production EA
 
-## Architecture
+## Gold Constants (DO NOT CHANGE)
 
 ```
-MQL5 EA (GannScalper.mq5)          — Production: MT5 Strategy Tester + live trading
-C++ Tester (gann_backtest.cpp)      — Fast iteration: 1.15M bars in 0.4 seconds
-Python Research (gann_research/)    — Calibration, analysis, prototyping
+Base vibration V = 72
+Swing quantum V/6 = 12  (strongest H1 signal)
+Growth quantum V/4 = 18  (price grows by quarters)
+Correction quantum V/3 = 24  (price corrects by thirds)
+Cube root step = 52
+Master time number = 52
+Lost motion = ±$3
+Power Sq9 angles = 30° and 45° ONLY
+Natural square timing (H4 bars) = 4, 9, 16, 24, 36, 49, 72, 81
 ```
-
-### Strategy Flow (v8.0 — CORRECT GANN METHOD)
-
-1. **D1 Direction**: Resample M5→H1→D1. Detect D1 swings. Compute D1 angle direction. This sets the ONLY allowed trade direction.
-2. **H1 Direction**: Compute H1 angle direction from H1 swings. Must AGREE with D1.
-3. **Level Calculation**: Sq9, vibration (V=12), proportional divisions from H1 swings → convergence levels.
-4. **Level Touch**: M5 bar touches any Gann level (minconv=1 sufficient, higher conv doesn't improve WR).
-5. **Bounce Direction**: Determine from approach side (close > level → long support bounce, close < level → short resistance bounce).
-6. **Direction Alignment**: Bounce direction must agree with H1 AND D1 trends. Skip if any conflict.
-7. **Market Entry**: Enter at next bar open (entrymode=0). No limit orders.
-8. **ATR-Based SL**: SL = 3.0 × ATR(14) from entry price. Adapts to volatility.
-9. **Fixed R:R TP**: TP = 4 × SL distance. Captures trending bias.
-10. **Max Hold**: 288 M5 bars (24 hours).
-11. **Wave Counting** (optional): H1 wave direction can filter, adds +1.3% WR but halves frequency.
-
-### Key Lessons Learned
-
-| Lesson | Detail |
-|--------|--------|
-| **D1 TREND IS THE EDGE** | +10.5% absolute WR from D1 direction. Gann: "determine the TREND first." |
-| **Convergence scoring = zero** | Independent scoring (7 factors) has ZERO correlation with WR. Flat across all scores. |
-| **Three-limit alignment = zero** | All 3 limits aligned has same WR as 1 limit. No discriminative power. |
-| **Time gating = negligible** | Natural square timing adds <1% WR. Not worth the trade reduction. |
-| **Levels predict volatility, not direction** | Big moves happen at convergence zones, but equally likely up or down. |
-| **Triangle crossings were phantom** | 90.4% WR was entirely from fill bug. Honest: 71% WR, negative EV. |
-| **ATR-based SL/TP > fixed** | Fixed $5 SL declines at $3000 gold. ATR×3.0 adapts. Stability: 1.29-1.61x vs 1.21-2.09x. |
-| **4:1 R:R is optimal** | Wider TP amplifies the trend edge. SL/TP ratio matters more than WR. |
-| **Out-of-sample validated** | Train 2009-2019: 1.44x lift. Test 2020-2026: 1.48x lift. Edge holds. |
-| **Positive in 7/8 periods** | Only 2018-19 (low-vol consolidation) slightly negative. All others positive. |
-| **$20 is not viable** | ATR-based SL ≈ $9-15. Min 0.01 lot. Need $500+ for 2% risk management. |
-| **Wave counting = marginal** | +1.3% WR but halves frequency. Better as a soft signal, not hard filter. |
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `gann_tester/gann_backtest.cpp` | C++ fast backtester — compile via msys2 g++, runs full dataset in 0.4s |
-| `gann_research/math_core.py` | 29 Gann formulas (Sq9, vibration, proportional, impulse) |
-| `gann_research/gann_angles.py` | Angle direction engine (ascending/descending from swing points) |
-| `gann_research/triangle_engine.py` | Angle crossing detection for triangle setups |
-| `gann_research/gann_filters.py` | All Gann filters including 5 trend change rules |
-| `gann_research/swing_detector.py` | ATR-based ZigZag swing detection |
-| `gann_research/scalp_sim.py` | Python M5 scalping simulator |
-| `gann_research/calibrate.py` | Parameter calibration (vibration, Sq9 degrees, angle scales) |
-| `gann_research/data_loader.py` | Load M1 CSV/parquet, resample to any timeframe |
-| `data/clean/XAUUSD_M5.bin` | Binary M5 data (1.15M bars, 44MB, 2009-2026) |
+| `gann_research/constants.py` | All Gold constants |
+| `gann_research/sq9_engine.py` | Square of 9 conversions and level generation |
+| `gann_research/vibration.py` | Vibration levels, override detection |
+| `gann_research/proportional.py` | Proportional divisions, fold detection |
+| `gann_research/time_structure.py` | Natural squares, impulse timing, intraday windows |
+| `gann_research/swing_detector.py` | ATR ZigZag for H1, H4, D1 |
+| `gann_research/wave_counter.py` | Wave counting (vpM2F(t) protocol) |
+| `gann_research/triangle_engine.py` | Quant measurement + Gann Box + diagonal intersections |
+| `gann_research/convergence.py` | 7-category independent scoring |
+| `gann_research/three_limits.py` | 3-limit alignment with vibration-scaled Limit 1 |
+| `gann_research/execution.py` | Green Zone entry logic, SL/TP calculation |
+| `gann_research/risk.py` | Position sizing |
+| `gann_research/strategy.py` | 4-state machine: process_bar() main loop |
+| `gann_research/backtester.py` | Backtest framework with train/test split |
+| `gann_research/data_loader.py` | Load M1 CSV/parquet, resample |
+| `gann_tester/gann_backtest.cpp` | C++ fast backtester |
+| `mql5/GannScalper.mq5` | Production MT5 EA |
+| `data/clean/XAUUSD_M5.bin` | Binary M5 data (1.15M bars, 2009-2026) |
 | `data/clean/XAUUSD_M1_clean.parquet` | Full M1 parquet (5.7M bars) |
-| `GANN_METHOD_ANALYSIS.md` | Decoded Gann reference manual (book + forum masters) |
-| `SESSION_STATE.md` | Current iteration state, best config, next steps |
 
 ## Development Tools
 
 | Tool | Purpose |
 |------|---------|
+| **Python + uv** | Research, calibration, backtesting |
 | **g++ (msys2)** | Compile C++ tester: `C:/msys64/mingw64/bin/g++.exe -O3 -std=c++17` |
 | **MetaEditor** | Compile MQL5 EA (F7 in MT5) |
 | **MT5 Strategy Tester** | Production backtesting (Ctrl+R in MT5) |
-| **Python + uv** | Research, calibration, data processing |
-
-### Compile & Run C++ Tester
-
-```bash
-# Compile (via msys2 bash — needed for paths with spaces)
-cp gann_tester/gann_backtest.cpp /c/temp/ && C:/msys64/usr/bin/bash.exe -lc "C:/msys64/mingw64/bin/g++.exe -O3 -std=c++17 -o /c/temp/gann_bt.exe /c/temp/gann_backtest.cpp"
-
-# WINNER — Config A (90.4% WR, 5.82 trades/day, $1.00 EV)
-C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 m5tri=1 triscale=1.0 tripricetol=5 tribartol=72 triminimp=14 triconvgate=1 minconv=7 sl=7 tp=2 maxtp=20 maxhold=288 spread=0.30 minrr=0 fold=0 speed=0 touch4th=0 entrymode=1 fixedtp=1 filterbounce=1
-
-# Config B — Best equity (87.8% WR, 6.14 TPD, $48k from $10k)
-C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 m5tri=1 triscale=1.0 tripricetol=5 tribartol=72 triminimp=14 triconvgate=1 minconv=7 sl=5 tp=2 maxtp=20 maxhold=288 spread=0.30 minrr=0 fold=0 speed=0 touch4th=0 entrymode=1 fixedtp=1 filterbounce=1
-
-# v8.0 RECOMMENDED — ATR-based D1 trend following (1.45x lift, +EV, stable 17yr)
-/c/temp/gann_bt.exe data/clean/XAUUSD_M5.bin triangle=0 entrymode=0 slatr=3.0 tpratio=4 fixedtp=1 filterbounce=0 minconv=1 minscore=0 minlimits=0 angles=1 fold=0 speed=0 touch4th=0 maxhold=288 spread=0.30 maxdaily=10 minrr=0 d1=1 d1scale=72
-
-# Alternative — Fixed SL/TP (higher peak lift but less stable across volatility regimes)
-/c/temp/gann_bt.exe data/clean/XAUUSD_M5.bin triangle=0 entrymode=0 sl=7 tp=28 fixedtp=1 filterbounce=0 minconv=1 minscore=0 minlimits=0 angles=1 fold=0 speed=0 touch4th=0 maxhold=288 spread=0.30 maxdaily=10 minrr=0 d1=1 d1scale=72
-
-# Key v8.0 params: d1=1, slatr=3.0, tpratio=4, entrymode=0, triangle=0
-```
 
 ## MT5 Paths
 
@@ -115,35 +83,37 @@ C:\temp\gann_bt.exe data/clean/XAUUSD_M5.bin triangle=1 m5tri=1 triscale=1.0 tri
 - **MQL5 Data**: `C:\Users\Windows 11\AppData\Roaming\MetaQuotes\Terminal\5FFA568149E88FCD5B44D926DCFEAA79\MQL5\`
 - **EA Location**: `MQL5\Experts\GannScalper.mq5`
 
-## Gann Constants (Gold/XAUUSD)
+---
 
-- **Base vibration**: V=72 (Hellcat formula N=3, confirmed on charts)
-- **Swing quantum**: V=12 = 72/6 (strongest H1 signal)
-- **KU series**: 1, 2, 3, 5, 7, 11 (Ferro's indivisible units)
-- **Subdivisions**: 72/6=12, 72/4=18, 72/3=24, 72/2=36
-- **Cube root step**: 52 for all gold prices $900-$2900
-- **Master time number**: 52
-- **Lost motion**: ±$2-3 (Gann: "2-2.5 units")
-- **Power Sq9 angles**: 30° and 45° (highest hit rate on gold)
-- **Natural square timing**: 4, 9, 16, 24, 36, 49, 72, 81 (H4 bars)
+## CRITICAL RULES
 
-## v8.0 Optimized Parameters
+### Rule 1: Triangle-First Architecture
+The Triangle IS the trading framework. Convergence, Sq9, vibration — these are the DETECTION layer that tells you where a triangle will form. The actual trade happens ONLY inside the Green Zone of an active triangle. Never enter "at a Gann level" without a triangle.
 
-- **SL**: 3.0 × ATR(14) on M5 (adapts to volatility, typically $6-15)
-- **TP**: 4 × SL (asymmetric R:R, captures trend)
-- **Entry**: Market (entrymode=0), next bar open after level touch
-- **D1 filter**: ON (d1=1) — the primary directional edge
-- **H1 angles**: ON (angles=1) — secondary direction confirmation
-- **Convergence**: minconv=1 (higher values don't improve WR)
-- **Scoring**: minscore=0 (scoring has zero WR correlation)
-- **Limits**: minlimits=0 (three-limit alignment has zero WR correlation)
-- **Max hold**: 288 M5 bars (24 hours)
-- **Random walk baseline**: 20% → Observed 29% → **1.45x lift**
-- **Out-of-sample**: Train 1.44x → Test 1.48x (edge holds)
+### Rule 2: SL From Geometry, Not ATR
+SL = opposite diagonal boundary of the triangle at the entry bar + lost motion ($3). This gives $3-6 SL. TP = quant × multiplier (from wave counting). This gives $24-72+ TP. R:R should be 6:1 minimum, often 10:1 to 20:1. If your SL is larger than $10 on Gold H1, something is wrong.
 
-## Sources
+### Rule 3: Independent Convergence Categories
+Each of the 7 convergence categories scores MAX 1 point. Never count two Sq9 angles from the same swing as two separate confirmations. Score 0-7. Minimum 4 to start quant measurement.
 
-- W.D. Gann Master Commodities Course (385 pages, 21 chapters) — primary authority
-- Hellcat (385 forum posts) — triangle system, vibration formula, differential numerology
-- Ferro (362 forum posts) — 10 postulates of the Law, price-time squaring, planetary system
-- 17 years XAUUSD M1 data (2009-2026, 5.7M bars)
+### Rule 4: Time Is Greater Than Price
+The time structure (natural squares, impulse timing, intraday windows) determines WHEN things happen. Price levels determine WHERE. Both must align. If time says "not yet," do not trade regardless of how perfect the price level looks.
+
+### Rule 5: MQL5 Is Not C++
+Read `MQL5_EA_DEVELOPMENT_GUIDE.md` before writing ANY MQL5 code. The top 3 killers: (1) Missing IsNewBar() = 50 trades per bar instead of 1. (2) Using rates[0] = look-ahead bias on forming bar. (3) Missing fill policy / price normalization = silent order rejection.
+
+### Rule 6: Validate C++ vs MQL5 Output
+The EA must produce the SAME trade sequence as the C++ backtester on the same data. Export both trade lists and compare. Any mismatch = a porting bug. Use the 15-point porting checklist in the MQL5 guide.
+
+### Rule 7: Implementation Order
+Build modules in this order. Each must have unit tests before moving to the next:
+1. constants.py → sq9_engine.py → vibration.py → proportional.py → time_structure.py
+2. swing_detector.py → wave_counter.py
+3. triangle_engine.py (quant + box + intersections + zones)
+4. convergence.py → three_limits.py → execution.py → risk.py
+5. strategy.py (4-state machine) → backtester.py
+6. gann_backtest.cpp (C++ port for fast optimization)
+7. GannScalper.mq5 (MT5 EA, follow MQL5 guide strictly)
+
+### Rule 8: No Shortcuts on the EA
+The MQL5 EA must include: IsNewBar() detection, proper CopyRates with ArraySetAsSeries, error handling on every OrderSend, spread checking, SL/TP normalization, fill policy detection, daily trade counter reset, max hold management, and comprehensive logging. Use the complete EA skeleton from the MQL5 guide as the starting point.
