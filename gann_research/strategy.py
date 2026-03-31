@@ -9,7 +9,7 @@ process_bar() is the main loop, called once per M5 bar.
 from datetime import datetime
 from typing import Optional
 
-from .constants import MAX_DAILY_TRADES, SWING_QUANTUM
+from .constants import MAX_DAILY_TRADES, SWING_QUANTUM, LOST_MOTION
 from .swing_detector import Bar, detect_swings_atr, bars_from_dataframe
 from .wave_counter import count_waves
 from .triangle_engine import (
@@ -19,6 +19,8 @@ from .triangle_engine import (
 from .convergence import score_convergence
 from .three_limits import check_three_limits
 from .risk import manage_open_trade, position_size
+from .box_manager import ActiveBox, BoxManager, MultiScaleBoxManager
+from .scale_constants import get_scale, SCALES
 
 
 class TradingState:
@@ -592,4 +594,463 @@ def print_diagnostic_report(state: TradingState):
         print(f"  Fold exit:          {c['fold_exit']:,} ({c['fold_exit']/trades:.1%})")
         print(f"  Vibration override: {c['vibration_override_exit']:,} ({c['vibration_override_exit']/trades:.1%})")
 
+    print(f"{'='*70}")
+
+
+# ============================================================
+# v9.2 — PARALLEL BOX TRACKING (Change 1) + MULTI-SCALE (Change 2)
+# ============================================================
+
+class TradingStateV92:
+    """State machine for v9.2 parallel-box strategy."""
+
+    def __init__(self, multi_scale: bool = False):
+        self.multi_scale = multi_scale
+
+        # Box managers
+        if multi_scale:
+            self.box_manager = MultiScaleBoxManager()
+        else:
+            self.box_manager = BoxManager(max_parallel=3, max_open_trades=2)
+
+        self.daily_trades = 0
+        self.last_trade_day = None
+
+        # Multi-timeframe state
+        self.d1_direction = 'flat'
+        self.h1_wave = None
+        self.h1_wave_direction = 'flat'
+        self.m15_wave = None
+        self.m15_wave_direction = 'flat'
+        self.swings_h1: list[dict] = []
+        self.swings_h4: list[dict] = []
+        self.swings_d1: list[dict] = []
+        self.swings_m15: list[dict] = []
+
+        # Bar storage
+        self.all_m5_bars: list[Bar] = []
+
+        # Trade log
+        self.closed_trades: list[dict] = []
+
+        # Diagnostic counters
+        self.counters = {
+            'total_m5_bars': 0,
+            'convergence_checked_h1': 0,
+            'convergence_checked_m15': 0,
+            'quant_started_h1': 0,
+            'quant_completed_h1': 0,
+            'quant_timeout_h1': 0,
+            'quant_started_m15': 0,
+            'quant_completed_m15': 0,
+            'quant_timeout_m15': 0,
+            'box_constructed_h1': 0,
+            'box_constructed_m15': 0,
+            'box_expired_h1': 0,
+            'box_expired_m15': 0,
+            'reached_green_h1': 0,
+            'reached_green_m15': 0,
+            'trades_opened_h1': 0,
+            'trades_opened_m15': 0,
+            'tp_hit': 0,
+            'sl_hit': 0,
+            'max_hold_exit': 0,
+            'fold_exit': 0,
+            'vibration_override_exit': 0,
+            'green_direction_rejected_h1': 0,
+            'green_direction_rejected_m15': 0,
+            'green_gap_too_wide_h1': 0,
+            'green_gap_too_wide_m15': 0,
+            'green_rr_too_low_h1': 0,
+            'green_rr_too_low_m15': 0,
+            'green_daily_limit': 0,
+        }
+
+
+def process_bar_v92(bar: Bar, state: TradingStateV92) -> TradingStateV92:
+    """
+    Main loop for v9.2 parallel-box strategy. Called once per M5 bar.
+
+    Supports both single-scale (H1 parallel boxes) and multi-scale (H1 + M15).
+    """
+    state.all_m5_bars.append(bar)
+    state.counters['total_m5_bars'] += 1
+
+    # Reset daily trades at day boundary
+    bar_day = bar.time.date() if hasattr(bar.time, 'date') else None
+    if bar_day and bar_day != state.last_trade_day:
+        state.daily_trades = 0
+        state.last_trade_day = bar_day
+
+    # Update multi-timeframe data
+    _update_mtf_v92(bar, state)
+
+    mgr = state.box_manager
+
+    # 1. Manage open trades (always, even at daily limit)
+    _manage_open_trades_v92(bar, state)
+
+    # Daily trade limit — still process existing boxes but no new entries
+    at_daily_limit = state.daily_trades >= MAX_DAILY_TRADES
+
+    if state.multi_scale:
+        # Multi-scale: process H1 then M15
+        _process_scale_boxes(mgr.h1_boxes, bar, state, 'H1', at_daily_limit)
+        if state.h1_wave_direction != 'flat':
+            _process_scale_boxes(mgr.m15_boxes, bar, state, 'M15', at_daily_limit)
+
+        # Scan for new convergence (even at daily limit — boxes take time to mature)
+        if len(mgr.h1_boxes) < mgr.max_h1_boxes:
+            _scan_convergence_v92(bar, state, mgr.h1_boxes, 'H1')
+        if (state.h1_wave_direction != 'flat'
+                and len(mgr.m15_boxes) < mgr.max_m15_boxes):
+            _scan_convergence_v92(bar, state, mgr.m15_boxes, 'M15')
+
+        mgr.cleanup(bar.bar_index)
+    else:
+        # Single-scale (H1 only with parallel boxes)
+        _process_scale_boxes(mgr.active_boxes, bar, state, 'H1', at_daily_limit)
+
+        if len(mgr.active_boxes) < mgr.max_parallel:
+            _scan_convergence_v92(bar, state, mgr.active_boxes, 'H1')
+
+        mgr.cleanup(bar.bar_index)
+
+    return state
+
+
+def _manage_open_trades_v92(bar: Bar, state: TradingStateV92):
+    """Manage all open trades across scales."""
+    mgr = state.box_manager
+    trades = mgr.open_trades
+
+    for trade in trades[:]:
+        action = manage_open_trade(trade, bar, state.h1_wave)
+        if action == 'close':
+            _close_trade_v92(trade, bar, state)
+            trades.remove(trade)
+
+
+def _process_scale_boxes(boxes: list, bar: Bar,
+                         state: TradingStateV92, scale: str,
+                         at_daily_limit: bool = False):
+    """Process all active boxes for a given scale."""
+    sc = get_scale(scale)
+    mgr = state.box_manager
+    sfx = f'_{scale.lower()}'
+
+    # Determine max open trades
+    if isinstance(mgr, MultiScaleBoxManager):
+        max_open = mgr.max_total_open
+        open_count = mgr.total_open()
+    else:
+        max_open = mgr.max_open
+        open_count = len(mgr.open_trades)
+
+    for box_state in boxes[:]:
+        if box_state.is_expired(bar.bar_index):
+            state.counters[f'box_expired{sfx}'] += 1
+            box_state.state = 'DONE'
+            continue
+
+        if box_state.state == 'QUANT_FORMING':
+            quant = measure_quant(
+                state.all_m5_bars, box_state.convergence_bar,
+                vibration_quantum=sc['vibration_quantum'],
+            )
+            if quant:
+                box_state.quant = quant
+                box_state.box = construct_gann_box(quant, state.all_m5_bars)
+                box_state.state = 'BOX_ACTIVE'
+                state.counters[f'quant_completed{sfx}'] += 1
+                state.counters[f'box_constructed{sfx}'] += 1
+
+        elif box_state.state == 'BOX_ACTIVE':
+            if open_count >= max_open or at_daily_limit:
+                continue
+
+            box = box_state.box
+            if not box:
+                box_state.state = 'DONE'
+                continue
+
+            zones = box['zones']
+            if bar.bar_index < zones['green'][0]:
+                continue  # Not in green zone yet
+
+            state.counters[f'reached_green{sfx}'] += 1
+
+            # Direction hierarchy
+            h1_dir = state.h1_wave_direction
+            if scale == 'M15':
+                # M15 requires D1 clear AND H1 clear, both agree
+                if state.d1_direction == 'flat' or h1_dir == 'flat':
+                    continue
+
+            entry = find_green_zone_entry(
+                box=box,
+                bars=state.all_m5_bars,
+                current_bar_idx=bar.bar_index,
+                d1_direction=state.d1_direction,
+                h1_wave_direction=h1_dir,
+                wave_multiplier=sc['tp_multiplier'],
+            )
+
+            if entry:
+                # Explosion bonus
+                expl = check_explosion_potential(box, bar.bar_index, bar.close)
+                if expl['explosive']:
+                    mult = expl['energy_multiplier']
+                    if entry['direction'] == 'long':
+                        entry['tp'] = entry['entry_price'] + entry['tp_distance'] * mult / 4
+                    else:
+                        entry['tp'] = entry['entry_price'] - entry['tp_distance'] * mult / 4
+                    entry['tp_distance'] = abs(entry['tp'] - entry['entry_price'])
+                    entry['rr_ratio'] = round(
+                        entry['tp_distance'] / entry['sl_distance'], 1,
+                    )
+
+                # Execute trade
+                trade = {
+                    'entry_price': entry['entry_price'],
+                    'sl': entry['sl'],
+                    'tp': entry['tp'],
+                    'direction': entry['direction'],
+                    'entry_bar': bar.bar_index,
+                    'entry_time': bar.time,
+                    'sl_distance': entry['sl_distance'],
+                    'tp_distance': entry['tp_distance'],
+                    'rr_ratio': entry['rr_ratio'],
+                    'designed_rr': entry['rr_ratio'],
+                    'scale': scale,
+                }
+                mgr.open_trades.append(trade)
+                state.daily_trades += 1
+                state.counters[f'trades_opened{sfx}'] += 1
+                open_count += 1
+                box_state.state = 'DONE'
+
+
+def _scan_convergence_v92(bar: Bar, state: TradingStateV92,
+                          boxes: list, scale: str):
+    """Scan for new convergence zones and create boxes."""
+    sc = get_scale(scale)
+    sfx = f'_{scale.lower()}'
+
+    # Need sufficient swings
+    swings = state.swings_h1 if scale == 'H1' else state.swings_m15
+    if len(swings) < 4:
+        return
+
+    swings_h4 = state.swings_h4
+
+    convergence = score_convergence(
+        bar.close, bar.bar_index, bar.time,
+        swings, swings_h4,
+        state.h1_wave if scale == 'H1' else state.m15_wave,
+        None,  # No triangle in scanning
+        phase='scanning',
+    )
+
+    state.counters[f'convergence_checked{sfx}'] += 1
+
+    if convergence['is_tradeable']:
+        # Check spacing from existing boxes
+        vq = sc['vibration_quantum']
+        is_new_zone = all(
+            abs(bar.close - b.price_zone_center()) >= vq
+            for b in boxes
+        )
+        if is_new_zone:
+            new_box = ActiveBox(
+                bar.bar_index, bar.close,
+                convergence['score'], scale,
+            )
+            boxes.append(new_box)
+            state.counters[f'quant_started{sfx}'] += 1
+
+
+def _close_trade_v92(trade: dict, bar: Bar, state: TradingStateV92):
+    """Close a trade and record P&L."""
+    bars_held = bar.bar_index - trade['entry_bar']
+    exit_reason = 'unknown'
+
+    if trade['direction'] == 'long':
+        if bar.low <= trade['sl']:
+            exit_price = trade['sl']
+            exit_reason = 'SL_HIT'
+        elif bar.high >= trade['tp']:
+            exit_price = trade['tp']
+            exit_reason = 'TP_HIT'
+        elif bars_held >= 288:
+            exit_price = bar.close
+            exit_reason = 'MAX_HOLD'
+        else:
+            exit_price = bar.close
+            exit_reason = 'OTHER'
+        pnl = exit_price - trade['entry_price']
+    else:
+        if bar.high >= trade['sl']:
+            exit_price = trade['sl']
+            exit_reason = 'SL_HIT'
+        elif bar.low <= trade['tp']:
+            exit_price = trade['tp']
+            exit_reason = 'TP_HIT'
+        elif bars_held >= 288:
+            exit_price = bar.close
+            exit_reason = 'MAX_HOLD'
+        else:
+            exit_price = bar.close
+            exit_reason = 'OTHER'
+        pnl = trade['entry_price'] - exit_price
+
+    if exit_reason == 'OTHER':
+        move = abs(bar.close - trade['entry_price'])
+        if move >= 288:
+            exit_reason = 'VIBRATION_OVERRIDE'
+        else:
+            exit_reason = 'FOLD'
+
+    trade['exit_price'] = exit_price
+    trade['exit_bar'] = bar.bar_index
+    trade['exit_time'] = bar.time
+    trade['pnl'] = pnl
+    trade['won'] = pnl > 0
+    trade['bars_held'] = bars_held
+    trade['exit_reason'] = exit_reason
+
+    if trade['sl_distance'] > 0:
+        trade['actual_rr'] = round(
+            abs(pnl) / trade['sl_distance'], 2
+        ) if pnl > 0 else round(-abs(pnl) / trade['sl_distance'], 2)
+    else:
+        trade['actual_rr'] = 0
+
+    if exit_reason == 'TP_HIT':
+        state.counters['tp_hit'] += 1
+    elif exit_reason == 'SL_HIT':
+        state.counters['sl_hit'] += 1
+    elif exit_reason == 'MAX_HOLD':
+        state.counters['max_hold_exit'] += 1
+    elif exit_reason == 'FOLD':
+        state.counters['fold_exit'] += 1
+    elif exit_reason == 'VIBRATION_OVERRIDE':
+        state.counters['vibration_override_exit'] += 1
+
+    state.closed_trades.append(trade)
+
+
+def _update_mtf_v92(bar: Bar, state: TradingStateV92):
+    """Update multi-timeframe swings and wave counts for v9.2."""
+    n = len(state.all_m5_bars)
+
+    # All MTF updates happen every 12 M5 bars (= 1 H1 bar) for efficiency
+    if n % 12 != 0 and n > 50:
+        return
+
+    window = min(n, 24000)
+    m5_window = state.all_m5_bars[-window:]
+
+    # M15 swings (only in multi-scale mode)
+    if state.multi_scale and n >= 12:
+        m15_window = min(n, 3000)  # 3000 M5 = 1000 M15 bars (sufficient)
+        m5_m15 = state.all_m5_bars[-m15_window:]
+        m15_bars = _resample_m5_to_higher(m5_m15, 3)
+        if len(m15_bars) >= 20:
+            state.swings_m15 = detect_swings_atr(
+                m15_bars, atr_period=14, atr_multiplier=1.0,
+            )
+            if len(state.swings_m15) >= 4:
+                state.m15_wave = count_waves(state.swings_m15, 'M15')
+                m15_dir = state.m15_wave.get('direction', 'flat') if state.m15_wave else 'flat'
+                state.m15_wave_direction = m15_dir
+
+    if n >= 24:
+        h1_bars = _resample_m5_to_higher(m5_window, 12)
+        if len(h1_bars) >= 20:
+            state.swings_h1 = detect_swings_atr(
+                h1_bars, atr_period=14, atr_multiplier=1.5,
+            )
+
+    if n >= 200:
+        h4_bars = _resample_m5_to_higher(m5_window, 48)
+        if len(h4_bars) >= 20:
+            state.swings_h4 = detect_swings_atr(
+                h4_bars, atr_period=14, atr_multiplier=1.5,
+            )
+
+    if n >= 1000:
+        d1_bars = _resample_m5_to_higher(m5_window, 288)
+        if len(d1_bars) >= 20:
+            state.swings_d1 = detect_swings_atr(
+                d1_bars, atr_period=14, atr_multiplier=1.5,
+            )
+
+    # Wave counting
+    if len(state.swings_h1) >= 4:
+        state.h1_wave = count_waves(state.swings_h1, 'H1')
+        h1_dir = state.h1_wave.get('direction', 'flat') if state.h1_wave else 'flat'
+        state.h1_wave_direction = h1_dir
+
+    # D1 direction
+    if len(state.swings_d1) >= 3:
+        s1 = state.swings_d1[-3]
+        s3 = state.swings_d1[-1]
+        if s3['price'] > s1['price']:
+            state.d1_direction = 'up'
+        elif s3['price'] < s1['price']:
+            state.d1_direction = 'down'
+        else:
+            state.d1_direction = 'flat'
+    elif len(state.swings_h1) >= 3:
+        s1 = state.swings_h1[-3]
+        s3 = state.swings_h1[-1]
+        if s3['price'] > s1['price']:
+            state.d1_direction = 'up'
+        elif s3['price'] < s1['price']:
+            state.d1_direction = 'down'
+        else:
+            state.d1_direction = 'flat'
+
+
+def print_diagnostic_report_v92(state: TradingStateV92):
+    """Print diagnostic funnel report for v9.2."""
+    c = state.counters
+    total = c['total_m5_bars']
+    days = total / 288 if total > 0 else 1
+
+    print(f"\n{'='*70}")
+    print(f"  V9.2 DIAGNOSTIC REPORT")
+    print(f"{'='*70}")
+    print(f"  Total M5 bars: {total:,} ({days:.0f} trading days)")
+
+    for scale in ['h1', 'm15']:
+        label = scale.upper()
+        checked = c.get(f'convergence_checked_{scale}', 0)
+        qs = c.get(f'quant_started_{scale}', 0)
+        qc = c.get(f'quant_completed_{scale}', 0)
+        qt = c.get(f'quant_timeout_{scale}', 0)
+        bc = c.get(f'box_constructed_{scale}', 0)
+        be = c.get(f'box_expired_{scale}', 0)
+        rg = c.get(f'reached_green_{scale}', 0)
+        to = c.get(f'trades_opened_{scale}', 0)
+
+        print(f"\n  --- {label} SCALE ---")
+        print(f"  Convergence checks:   {checked:,}")
+        print(f"  Quants started:       {qs:,}")
+        print(f"  Quants completed:     {qc:,} (timeout: {qt:,})")
+        print(f"  Boxes constructed:    {bc:,} (expired: {be:,})")
+        print(f"  Reached green:        {rg:,}")
+        print(f"  Trades opened:        {to:,}")
+        if days > 0:
+            print(f"  Trades/day:           {to/days:.2f}")
+
+    total_trades = c.get('trades_opened_h1', 0) + c.get('trades_opened_m15', 0)
+    print(f"\n  --- COMBINED ---")
+    print(f"  Total trades:         {total_trades:,}")
+    print(f"  Trades/day:           {total_trades/days:.2f}")
+    print(f"  TP hit:               {c['tp_hit']:,}")
+    print(f"  SL hit:               {c['sl_hit']:,}")
+    print(f"  Max hold:             {c['max_hold_exit']:,}")
+    print(f"  Daily limit:          {c['green_daily_limit']:,}")
     print(f"{'='*70}")

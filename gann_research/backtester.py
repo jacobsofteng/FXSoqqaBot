@@ -14,6 +14,9 @@ from typing import Optional
 
 from .swing_detector import Bar
 from .strategy import TradingState, process_bar, print_diagnostic_report
+from .strategy import (
+    TradingStateV92, process_bar_v92, print_diagnostic_report_v92,
+)
 
 
 # Full data ranges per spec
@@ -237,6 +240,150 @@ def print_report(metrics: dict, label: str = ""):
     print(f"  Max drawdown:     {metrics['max_drawdown']:.1%}")
     print(f"  Trades per day:   {metrics['trades_per_day']:.2f}")
     print(f"  Final equity:     ${metrics['final_equity']:.2f}")
+
+    # Exit reason breakdown
+    if metrics.get('exit_reasons'):
+        print(f"\n  Exit reasons:")
+        for reason, count in sorted(metrics['exit_reasons'].items()):
+            pct = count / metrics['total_trades'] if metrics['total_trades'] > 0 else 0
+            print(f"    {reason}: {count} ({pct:.1%})")
+
+    print(f"{'='*60}")
+
+
+# ============================================================
+# v9.2 BACKTESTER
+# ============================================================
+
+def run_backtest_v92(bars: list[Bar],
+                     start_equity: float = 10000.0,
+                     multi_scale: bool = False,
+                     auto_scale_lots: bool = False,
+                     verbose: bool = False) -> dict:
+    """
+    Run v9.2 backtest with parallel boxes and optional multi-scale.
+
+    Args:
+        bars: List of M5 bars
+        start_equity: Starting account balance
+        multi_scale: Enable M15 scale alongside H1
+        auto_scale_lots: Use auto-scaling position sizing (Change 3)
+        verbose: Print trade details
+    """
+    state = TradingStateV92(multi_scale=multi_scale)
+    equity = start_equity
+    equity_curve = [equity]
+    all_trades = []
+
+    # Auto-scaling support (imported lazily to allow Change 3 to be optional)
+    dd_protection = None
+    get_lot_fn = None
+    if auto_scale_lots:
+        from .position_sizing import get_lot_size, DrawdownProtection
+        dd_protection = DrawdownProtection()
+        dd_protection.peak = start_equity
+        get_lot_fn = get_lot_size
+
+    for i, bar in enumerate(bars):
+        bar.bar_index = i
+        state = process_bar_v92(bar, state)
+
+        # Process newly closed trades
+        while state.closed_trades:
+            trade = state.closed_trades.pop(0)
+            raw_pnl = trade['pnl']
+
+            if auto_scale_lots and get_lot_fn and dd_protection:
+                dd_protection.update(equity)
+                scale = trade.get('scale', 'H1')
+                raw_lots = get_lot_fn(equity, scale)
+                lots = dd_protection.adjust(raw_lots)
+                lot_multiplier = lots / 0.01
+                trade['lots'] = lots
+                trade['lot_multiplier'] = lot_multiplier
+                equity += raw_pnl * lot_multiplier
+            else:
+                trade['lots'] = 0.01
+                trade['lot_multiplier'] = 1.0
+                equity += raw_pnl
+
+            equity_curve.append(equity)
+            all_trades.append(trade)
+
+            if verbose:
+                _print_trade_detail(trade, len(all_trades))
+
+    # Close remaining open trades
+    for trade in state.box_manager.open_trades[:]:
+        if len(bars) > 0:
+            last_bar = bars[-1]
+            if trade['direction'] == 'long':
+                pnl = last_bar.close - trade['entry_price']
+            else:
+                pnl = trade['entry_price'] - last_bar.close
+            trade['pnl'] = pnl
+            trade['exit_price'] = last_bar.close
+            trade['exit_bar'] = last_bar.bar_index
+            trade['exit_time'] = last_bar.time
+            trade['won'] = pnl > 0
+            trade['bars_held'] = last_bar.bar_index - trade['entry_bar']
+            trade['exit_reason'] = 'END_OF_DATA'
+            trade['actual_rr'] = round(
+                abs(pnl) / trade['sl_distance'], 2
+            ) if trade['sl_distance'] > 0 else 0
+
+            if auto_scale_lots and get_lot_fn and dd_protection:
+                dd_protection.update(equity)
+                lots = dd_protection.adjust(get_lot_fn(equity, trade.get('scale', 'H1')))
+                trade['lots'] = lots
+                trade['lot_multiplier'] = lots / 0.01
+                equity += pnl * trade['lot_multiplier']
+            else:
+                trade['lots'] = 0.01
+                trade['lot_multiplier'] = 1.0
+                equity += pnl
+
+            equity_curve.append(equity)
+            all_trades.append(trade)
+
+    metrics = compute_metrics(all_trades, equity_curve, len(bars), start_equity)
+    metrics['diagnostics'] = state.counters
+    metrics['state'] = state
+
+    # Per-scale metrics
+    h1_trades = [t for t in all_trades if t.get('scale', 'H1') == 'H1']
+    m15_trades = [t for t in all_trades if t.get('scale') == 'M15']
+    metrics['h1_metrics'] = compute_metrics(h1_trades, [start_equity], len(bars), start_equity)
+    metrics['m15_metrics'] = compute_metrics(m15_trades, [start_equity], len(bars), start_equity)
+
+    return metrics
+
+
+def print_report_v92(metrics: dict, label: str = ""):
+    """Print v9.2 backtest report with per-scale breakdown."""
+    print(f"\n{'='*60}")
+    print(f"  V9.2 BACKTEST REPORT{(' - ' + label) if label else ''}")
+    print(f"{'='*60}")
+    print(f"  Total trades:     {metrics['total_trades']}")
+    print(f"  Win rate:         {metrics['win_rate']:.1%}")
+    print(f"  Avg win:          ${metrics['avg_win']:.2f}")
+    print(f"  Avg loss:         ${metrics['avg_loss']:.2f}")
+    print(f"  R:R ratio:        {metrics['rr_ratio']:.2f}")
+    print(f"  EV per trade:     ${metrics['ev_per_trade']:.2f}")
+    print(f"  Max drawdown:     {metrics['max_drawdown']:.1%}")
+    print(f"  Trades per day:   {metrics['trades_per_day']:.2f}")
+    print(f"  Final equity:     ${metrics['final_equity']:.2f}")
+
+    # Per-scale breakdown
+    for scale_key, scale_label in [('h1_metrics', 'H1'), ('m15_metrics', 'M15')]:
+        sm = metrics.get(scale_key, {})
+        if sm and sm.get('total_trades', 0) > 0:
+            print(f"\n  --- {scale_label} SCALE ---")
+            print(f"    Trades:       {sm['total_trades']}")
+            print(f"    Win rate:     {sm['win_rate']:.1%}")
+            print(f"    R:R:          {sm['rr_ratio']:.2f}")
+            print(f"    EV/trade:     ${sm['ev_per_trade']:.2f}")
+            print(f"    Trades/day:   {sm['trades_per_day']:.2f}")
 
     # Exit reason breakdown
     if metrics.get('exit_reasons'):
