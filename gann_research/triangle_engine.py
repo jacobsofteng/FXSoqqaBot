@@ -287,17 +287,23 @@ def find_green_zone_entry(box: dict, bars: list[Bar], current_bar_idx: int,
     else:
         midpoint_direction = 'short'
 
-    if d1_direction == 'flat':
-        return None
+    d1_mapped = 'long' if d1_direction == 'up' else ('short' if d1_direction == 'down' else None)
+    h1_mapped = 'long' if h1_wave_direction == 'up' else ('short' if h1_wave_direction == 'down' else None)
 
-    d1_mapped = 'long' if d1_direction == 'up' else 'short'
-    h1_mapped = 'long' if h1_wave_direction == 'up' else 'short'
-
-    # All directions must agree
-    if not (midpoint_direction == d1_mapped == h1_mapped):
-        return None
-
+    # Midpoint is the primary signal (triangle's prediction).
+    # D1/H1 can confirm or reject. Need midpoint + at least 1 agreement,
+    # OR midpoint alone if both D1/H1 are flat/unavailable.
     direction = midpoint_direction
+
+    # If a higher timeframe actively DISAGREES, skip
+    disagreements = 0
+    if d1_mapped and d1_mapped != direction:
+        disagreements += 1
+    if h1_mapped and h1_mapped != direction:
+        disagreements += 1
+
+    if disagreements >= 2:
+        return None  # Both D1 and H1 disagree with midpoint
 
     # Find bounding diagonals at current bar
     upper_bound, lower_bound = _get_diagonal_bounds_at_bar(
@@ -311,27 +317,29 @@ def find_green_zone_entry(box: dict, bars: list[Bar], current_bar_idx: int,
     if triangle_gap <= 0:
         return None
 
-    # Gap should be small (diagonals converging) -- max 4 quanta ($48)
-    if triangle_gap > SWING_QUANTUM * 4:
+    # Gap should be small (diagonals converging) -- max 6 quanta ($72)
+    if triangle_gap > SWING_QUANTUM * 6:
         return None
 
+    # TP from quant measurement: 2x quant_pips (reduced from 4x for reachability)
     quant_pips = box['quant']['quant_pips']
+    tp_distance_target = quant_pips * wave_multiplier
 
-    # Entry and SL/TP from diagonal geometry
+    # Entry at diagonal boundary, SL opposite diagonal + lost motion
     if direction == 'long':
         entry_price = lower_bound + LOST_MOTION
         sl = lower_bound - LOST_MOTION
-        tp = entry_price + quant_pips * wave_multiplier
+        tp = entry_price + tp_distance_target
     else:
         entry_price = upper_bound - LOST_MOTION
         sl = upper_bound + LOST_MOTION
-        tp = entry_price - quant_pips * wave_multiplier
+        tp = entry_price - tp_distance_target
 
     sl_distance = abs(entry_price - sl)
     tp_distance = abs(tp - entry_price)
     rr = tp_distance / sl_distance if sl_distance > 0 else 0
 
-    if rr < 3.0:
+    if rr < 2.0:
         return None
 
     # Confidence from nearby power points

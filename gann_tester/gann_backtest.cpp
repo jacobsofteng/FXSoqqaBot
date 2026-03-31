@@ -27,6 +27,7 @@
 #include <cfloat>
 #include <string>
 #include <numeric>
+#include <ctime>
 
 // ============================================================
 // CONSTANTS (from constants.py — DO NOT CHANGE)
@@ -43,10 +44,11 @@ static constexpr double NATURAL_SQ_STRENGTH[] = {0.23, 0.28, 0.15, 0.10, 0.08, 0
 static constexpr int    NUM_NATURAL_SQ        = 8;
 static constexpr int    MAX_HOLD_BARS         = 288;    // M5 bars = 24h
 static constexpr int    MAX_DAILY_TRADES      = 5;
-static constexpr int    MIN_CONVERGENCE       = 4;
+static constexpr int    MIN_CONVERGENCE_SCAN  = 3;  // SCANNING: 3 of 6 categories
+static constexpr int    MIN_CONVERGENCE_BOX   = 4;  // BOX_ACTIVE: 4 of 7
 static constexpr int    MIN_LIMITS            = 2;
-static constexpr double MIN_RR_RATIO          = 3.0;
-static constexpr int    WAVE_MULTIPLIER       = 4;
+static constexpr double MIN_RR_RATIO          = 2.0;
+static constexpr int    WAVE_MULTIPLIER       = 3;
 static constexpr double VIBRATION_OVERRIDE    = 4.0 * BASE_VIBRATION; // $288
 
 static constexpr int    ATR_PERIOD            = 14;
@@ -56,8 +58,8 @@ static constexpr double ATR_MULTIPLIER        = 1.5;
 static constexpr int    IMPULSE_RATIOS[]      = {8, 16, 64};
 static constexpr int    NUM_IMPULSE_RATIOS    = 3;
 
-// Spread simulation
-static constexpr double SPREAD                = 0.30;   // ECN spread
+// Spread simulation (set to 0 to match Python backtester exactly)
+static constexpr double SPREAD                = 0.00;
 
 // M5-to-higher-TF conversion
 static constexpr int    M5_PER_H1             = 12;
@@ -464,7 +466,8 @@ static ConvergenceResult score_convergence(
     const std::vector<Swing>& swings_h1,
     const std::vector<Swing>& swings_h4,
     const WaveState& wave,
-    const std::vector<Intersection>* triangle_power_points)
+    const std::vector<Intersection>* triangle_power_points,
+    int phase = 0 /* 0=scanning, 2=box_active */)
 {
     ConvergenceResult r = {};
     r.score = 0;
@@ -516,8 +519,9 @@ static ConvergenceResult score_convergence(
         r.categories[3] = tw.active;
     }
 
-    // --- CATEGORY E: Triangle Crossing (near a power point) ---
-    if (triangle_power_points && !triangle_power_points->empty()) {
+    // --- CATEGORY E: Triangle Crossing — ONLY in BOX_ACTIVE phase ---
+    // Circular dependency: needs triangle to score, but needs score to build triangle
+    if (phase == 2 && triangle_power_points && !triangle_power_points->empty()) {
         for (const auto& pp : *triangle_power_points) {
             bool price_match = fabs(current_price - pp.price) <= LOST_MOTION * 2;
             bool bar_match = abs(current_m5_bar - pp.bar) <= 3;
@@ -540,13 +544,21 @@ static ConvergenceResult score_convergence(
     }
 
     // --- CATEGORY G: Price-Time Square ---
-    if (num_recent > 0) {
-        const Swing& last_sw = swings_h1.back();
-        double price_move = fabs(current_price - last_sw.price);
-        double price_units = price_move / SWING_QUANTUM;
-        double time_units = (double)(current_m5_bar - last_sw.m5_bar_index) / M5_PER_H1;
-        if (time_units > 0 && fabs(price_units - time_units) <= 2.0) {
-            r.categories[6] = true;
+    // Gold scale: ~$6/H4 bar (V=72 / 12 H4_bars_per_day)
+    {
+        const double PRICE_PER_H4 = 6.0;
+        for (int si = sw_start; si < (int)swings_h1.size() && !r.categories[6]; si++) {
+            double price_move = fabs(current_price - swings_h1[si].price);
+            int bars_elapsed = current_m5_bar - swings_h1[si].m5_bar_index;
+            double time_h4 = (double)bars_elapsed / M5_PER_H4;
+
+            if (time_h4 >= 1.0 && price_move >= SWING_QUANTUM) {
+                double expected_price = time_h4 * PRICE_PER_H4;
+                double ratio = (expected_price > 0) ? price_move / expected_price : 0;
+                if (ratio >= 0.6 && ratio <= 1.4) {
+                    r.categories[6] = true;
+                }
+            }
         }
     }
 
@@ -554,7 +566,9 @@ static ConvergenceResult score_convergence(
     for (int i = 0; i < 7; i++) {
         if (r.categories[i]) r.score++;
     }
-    r.is_tradeable = (r.score >= MIN_CONVERGENCE);
+    // SCANNING: 3 of 6 categories (E excluded). BOX_ACTIVE: 4 of 7.
+    int threshold = (phase == 0) ? MIN_CONVERGENCE_SCAN : MIN_CONVERGENCE_BOX;
+    r.is_tradeable = (r.score >= threshold);
 
     return r;
 }
@@ -713,11 +727,12 @@ static void cluster_intersections(
 
 // 1. Measure quant
 static QuantMeasurement measure_quant(const std::vector<Bar>& m5_bars,
-                                      int convergence_bar) {
+                                      int convergence_bar,
+                                      int bars_available = -1) {
     QuantMeasurement q = {};
     q.valid = false;
 
-    int n = (int)m5_bars.size();
+    int n = (bars_available > 0) ? bars_available : (int)m5_bars.size();
     if (convergence_bar >= n - 2) return q;
 
     double touch_price = m5_bars[convergence_bar].close;
@@ -961,18 +976,16 @@ static EntrySignal find_green_zone_entry(
     if (current_bar_idx >= (int)m5_bars.size())
         return sig;
 
-    // Midpoint resolution
+    // Midpoint resolution — primary signal
     double current_price = m5_bars[current_bar_idx].close;
     int midpoint_dir = (current_price > box.mid_price) ? 1 : -1;
 
-    // D1 must not be flat
-    if (d1_direction == 0) return sig;
-
-    // All directions must agree
-    if (midpoint_dir != d1_direction || midpoint_dir != h1_wave_direction)
-        return sig;
-
+    // Direction: midpoint is primary. Reject only if BOTH D1 AND H1 disagree.
     int direction = midpoint_dir;
+    int disagreements = 0;
+    if (d1_direction != 0 && d1_direction != direction) disagreements++;
+    if (h1_wave_direction != 0 && h1_wave_direction != direction) disagreements++;
+    if (disagreements >= 2) return sig;
 
     // Get diagonal bounds at current bar
     double upper_bound, lower_bound;
@@ -982,8 +995,8 @@ static EntrySignal find_green_zone_entry(
     double triangle_gap = upper_bound - lower_bound;
     if (triangle_gap <= 0) return sig;
 
-    // Gap should be small (converging) — max 4 quanta ($48)
-    if (triangle_gap > SWING_QUANTUM * 4.0) return sig;
+    // Gap should be small (converging) — max 6 quanta ($72)
+    if (triangle_gap > SWING_QUANTUM * 6.0) return sig;
 
     double quant_pips = box.quant.quant_pips;
 
@@ -1056,11 +1069,10 @@ static bool check_explosion(const GannBox& box, int current_bar_idx,
 // ============================================================
 
 static void resample_m5(const std::vector<Bar>& m5_bars, int period,
-                        std::vector<Bar>& out, int start_from = 0) {
+                        std::vector<Bar>& out, int start_from, int up_to) {
     out.clear();
-    int n = (int)m5_bars.size();
-    for (int s = start_from; s < n; s += period) {
-        int end = std::min(s + period, n);
+    for (int s = start_from; s < up_to; s += period) {
+        int end = std::min(s + period, up_to);
         if (s >= end) break;
 
         Bar b;
@@ -1069,7 +1081,7 @@ static void resample_m5(const std::vector<Bar>& m5_bars, int period,
         b.high = m5_bars[s].high;
         b.low = m5_bars[s].low;
         b.close = m5_bars[end - 1].close;
-        b.bar_index = s;  // M5 index for cross-TF mapping
+        b.bar_index = m5_bars[s].bar_index;  // Global M5 index
 
         for (int j = s + 1; j < end; j++) {
             if (m5_bars[j].high > b.high) b.high = m5_bars[j].high;
@@ -1143,12 +1155,13 @@ static void update_mtf(const std::vector<Bar>& m5_bars, int current_idx,
     if (n % M5_PER_H1 != 0 && n > 50) return;
 
     // Sliding window — last 24000 M5 bars = 2000 H1 bars
+    // CRITICAL: only resample up to current bar (no look-ahead)
     int window_size = std::min(n, 24000);
     int window_start = n - window_size;
 
     // Resample M5 → H1
     if (n >= 24) {
-        resample_m5(m5_bars, M5_PER_H1, st.h1_bars, window_start);
+        resample_m5(m5_bars, M5_PER_H1, st.h1_bars, window_start, n);
         if ((int)st.h1_bars.size() >= 20) {
             detect_swings_atr(st.h1_bars, st.swings_h1);
         }
@@ -1156,7 +1169,7 @@ static void update_mtf(const std::vector<Bar>& m5_bars, int current_idx,
 
     // Resample M5 → H4
     if (n >= 200) {
-        resample_m5(m5_bars, M5_PER_H4, st.h4_bars, window_start);
+        resample_m5(m5_bars, M5_PER_H4, st.h4_bars, window_start, n);
         if ((int)st.h4_bars.size() >= 20) {
             detect_swings_atr(st.h4_bars, st.swings_h4);
         }
@@ -1164,7 +1177,7 @@ static void update_mtf(const std::vector<Bar>& m5_bars, int current_idx,
 
     // Resample M5 → D1
     if (n >= 1000) {
-        resample_m5(m5_bars, M5_PER_D1, st.d1_bars, window_start);
+        resample_m5(m5_bars, M5_PER_D1, st.d1_bars, window_start, n);
         if ((int)st.d1_bars.size() >= 20) {
             detect_swings_atr(st.d1_bars, st.swings_d1);
         }
@@ -1258,8 +1271,8 @@ static void close_trade(StrategyState& st, const Bar& bar) {
     ot.active = false;
 }
 
-// Manage open trade (from risk.py)
-static bool should_close_trade(const OpenTrade& ot, const Bar& bar) {
+// Manage open trade (from risk.py) — with trailing stop at 2R
+static bool should_close_trade(OpenTrade& ot, const Bar& bar) {
     int bars_held = bar.bar_index - ot.entry_bar;
 
     // Max hold: 288 M5 bars (24h)
@@ -1272,6 +1285,21 @@ static bool should_close_trade(const OpenTrade& ot, const Bar& bar) {
     // TP hit
     if (ot.direction == 1 && bar.high >= ot.tp) return true;
     if (ot.direction == -1 && bar.low <= ot.tp) return true;
+
+    // Trailing stop: when price moves 2R in your favor, trail SL to breakeven
+    if (ot.sl_distance > 0) {
+        if (ot.direction == 1) {
+            double unrealized = bar.high - ot.entry_price;
+            if (unrealized >= ot.sl_distance * 2.0 && ot.sl < ot.entry_price) {
+                ot.sl = ot.entry_price;  // exact breakeven
+            }
+        } else {
+            double unrealized = ot.entry_price - bar.low;
+            if (unrealized >= ot.sl_distance * 2.0 && ot.sl > ot.entry_price) {
+                ot.sl = ot.entry_price;  // exact breakeven
+            }
+        }
+    }
 
     // Vibration override ($288 move)
     double move = fabs(bar.close - ot.entry_price);
@@ -1319,15 +1347,10 @@ static void process_bar(const std::vector<Bar>& m5_bars, int idx,
         );
 
         if (conv.is_tradeable) {
-            // Also check limits
-            LimitsResult lim = check_three_limits(
-                bar.close, bar.bar_index, st.swings_h1
-            );
-            if (lim.count >= MIN_LIMITS) {
-                st.phase = QUANT_FORMING;
-                st.convergence_bar = bar.bar_index;
-                st.convergence_price = bar.close;
-            }
+            // Python v9.1 calibrated: no three_limits gate in SCANNING
+            st.phase = QUANT_FORMING;
+            st.convergence_bar = bar.bar_index;
+            st.convergence_price = bar.close;
         }
         return;
     }
@@ -1336,13 +1359,13 @@ static void process_bar(const std::vector<Bar>& m5_bars, int idx,
     if (st.phase == QUANT_FORMING) {
         int bars_since = bar.bar_index - st.convergence_bar;
 
-        // Timeout: 20 bars to form quant
-        if (bars_since > 20) {
+        // Timeout: 50 bars to form quant
+        if (bars_since > 50) {
             st.phase = SCANNING;
             return;
         }
 
-        QuantMeasurement quant = measure_quant(m5_bars, st.convergence_bar);
+        QuantMeasurement quant = measure_quant(m5_bars, st.convergence_bar, idx + 1);
         if (quant.valid) {
             GannBox gbox = construct_gann_box(quant);
             if (gbox.valid) {
@@ -1553,13 +1576,32 @@ static Metrics compute_metrics(const std::vector<TradeRecord>& trades,
 // MAIN
 // ============================================================
 
+// Parse YYYY-MM-DD to unix timestamp
+static int64_t parse_date(const char* s) {
+    int y = 0, m = 0, d = 0;
+    if (sscanf(s, "%d-%d-%d", &y, &m, &d) != 3) return 0;
+    // Simple: approximate days since epoch
+    // Use mktime for proper calculation
+    struct tm t = {};
+    t.tm_year = y - 1900;
+    t.tm_mon = m - 1;
+    t.tm_mday = d;
+    t.tm_hour = 0;
+    t.tm_min = 0;
+    t.tm_sec = 0;
+    time_t epoch = mktime(&t);
+    // mktime uses local time; adjust to UTC (approximate — good enough for date filtering)
+    return (int64_t)epoch;
+}
+
 static void print_usage(const char* prog) {
     printf("Usage: %s <data.bin> [options]\n", prog);
     printf("Options:\n");
     printf("  --verbose       Print each trade\n");
-    printf("  --from <ts>     Start timestamp (unix)\n");
-    printf("  --to <ts>       End timestamp (unix)\n");
+    printf("  --from <ts>     Start timestamp (unix) or YYYY-MM-DD\n");
+    printf("  --to <ts>       End timestamp (unix) or YYYY-MM-DD\n");
     printf("  --equity <$>    Starting equity (default 10000)\n");
+    printf("  --csv <file>    Export trades to CSV\n");
 }
 
 int main(int argc, char* argv[]) {
@@ -1573,15 +1615,24 @@ int main(int argc, char* argv[]) {
     int64_t from_ts = 0;
     int64_t to_ts = INT64_MAX;
     double start_equity = 10000.0;
+    const char* csv_file = nullptr;
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0) verbose = true;
-        else if (strcmp(argv[i], "--from") == 0 && i + 1 < argc)
-            from_ts = atoll(argv[++i]);
-        else if (strcmp(argv[i], "--to") == 0 && i + 1 < argc)
-            to_ts = atoll(argv[++i]);
+        else if (strcmp(argv[i], "--from") == 0 && i + 1 < argc) {
+            const char* val = argv[++i];
+            if (strchr(val, '-')) from_ts = parse_date(val);
+            else from_ts = atoll(val);
+        }
+        else if (strcmp(argv[i], "--to") == 0 && i + 1 < argc) {
+            const char* val = argv[++i];
+            if (strchr(val, '-')) to_ts = parse_date(val);
+            else to_ts = atoll(val);
+        }
         else if (strcmp(argv[i], "--equity") == 0 && i + 1 < argc)
             start_equity = atof(argv[++i]);
+        else if (strcmp(argv[i], "--csv") == 0 && i + 1 < argc)
+            csv_file = argv[++i];
     }
 
     // Load data
@@ -1609,8 +1660,8 @@ int main(int argc, char* argv[]) {
     printf("Constants: V=%.0f, SwingQ=%.0f, LostMotion=$%.0f\n",
            BASE_VIBRATION, SWING_QUANTUM, LOST_MOTION);
     printf("ATR: period=%d, mult=%.1f\n", ATR_PERIOD, ATR_MULTIPLIER);
-    printf("Convergence: min=%d, Limits: min=%d, R:R: min=%.1f\n",
-           MIN_CONVERGENCE, MIN_LIMITS, MIN_RR_RATIO);
+    printf("Convergence: scan=%d, box=%d, R:R: min=%.1f\n",
+           MIN_CONVERGENCE_SCAN, MIN_CONVERGENCE_BOX, MIN_RR_RATIO);
     printf("MaxDailyTrades=%d, MaxHold=%d bars, WaveMultiplier=%d\n",
            MAX_DAILY_TRADES, MAX_HOLD_BARS, WAVE_MULTIPLIER);
     printf("Spread=$%.2f\n\n", SPREAD);
@@ -1707,6 +1758,31 @@ int main(int argc, char* argv[]) {
                state.h1_wave.wave_number,
                state.h1_wave.direction == 1 ? "up" : "down",
                state.h1_wave.wave_0_size);
+    }
+
+    // CSV export
+    if (csv_file) {
+        FILE* csvf = fopen(csv_file, "w");
+        if (csvf) {
+            fprintf(csvf, "trade_num,direction,entry_price,sl,tp,exit_price,pnl,"
+                          "exit_reason,bars_held,rr_ratio\n");
+            for (int i = 0; i < (int)state.closed_trades.size(); i++) {
+                const TradeRecord& t = state.closed_trades[i];
+                const char* dir = (t.direction == 1) ? "long" : "short";
+                const char* reason;
+                switch (t.exit_reason) {
+                    case 0: reason = "TP_HIT"; break;
+                    case 1: reason = "SL_HIT"; break;
+                    case 2: reason = "MAX_HOLD"; break;
+                    default: reason = "OTHER"; break;
+                }
+                fprintf(csvf, "%d,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%d,%.1f\n",
+                        i + 1, dir, t.entry_price, t.sl, t.tp,
+                        t.exit_price, t.pnl, reason, t.bars_held, t.rr_ratio);
+            }
+            fclose(csvf);
+            printf("  Exported %d trades to %s\n", (int)state.closed_trades.size(), csv_file);
+        }
     }
 
     printf("\n");

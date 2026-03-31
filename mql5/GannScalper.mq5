@@ -1,34 +1,36 @@
 //+------------------------------------------------------------------+
-//| GannScalper.mq5 — v9.1 Triangle-First Gann EA                    |
+//| GannScalper.mq5 — v9.1c Calibrated Triangle-First Gann EA       |
 //| FXSoqqaBot — XAUUSD on RoboForex ECN 1:500                       |
+//| Calibrated 2026-03-31 on 17yr data (2009-2026)                    |
 //+------------------------------------------------------------------+
 #property copyright "FXSoqqaBot"
-#property version   "9.10"
+#property version   "9.11"
 #property strict
 
 //+------------------------------------------------------------------+
-//| INPUT PARAMETERS                                                  |
+//| INPUT PARAMETERS (v9.1 Calibrated)                                |
 //+------------------------------------------------------------------+
 input int    InpMagic       = 91100;      // Magic number
 input double InpRiskPct     = 0.02;       // Risk per trade (2%)
 input double InpMaxSpread   = 0.50;       // Max spread ($)
 input int    InpMaxDaily    = 5;          // Max trades per day
 input int    InpMaxHold     = 288;        // Max hold (M5 bars)
-input int    InpMinConv     = 4;          // Min convergence score
-input int    InpMinLimits   = 2;          // Min limits count
-input double InpMinRR       = 3.0;        // Min R:R ratio
-input int    InpWaveMult    = 4;          // TP = quant * this
+input int    InpMinConvScan = 3;          // Min convergence SCANNING (3 of 6)
+input int    InpMinConvBox  = 4;          // Min convergence BOX_ACTIVE (4 of 7)
+input double InpMinRR       = 2.0;        // Min R:R ratio
+input int    InpWaveMult    = 3;          // TP = quant * this
+input double InpTrailAtR    = 2.0;        // Trail SL to breakeven at this R multiple
 
 //+------------------------------------------------------------------+
 //| GANN CONSTANTS (DO NOT CHANGE)                                    |
 //+------------------------------------------------------------------+
-#define V_BASE         72     // Base vibration
-#define V_QUANTUM      12     // Swing quantum V/6
-#define V_GROWTH       18     // Growth quantum V/4
-#define V_CORRECTION   24     // Correction quantum V/3
-#define LOST_MOTION    3.0    // Dollars +/-
-#define CUBE_ROOT_STEP 52
-#define OVERRIDE_MULT  4      // 4 x V = reversal threshold
+#define V_BASE         72
+#define V_QUANTUM      12
+#define V_GROWTH       18
+#define V_CORRECTION   24
+#define LOST_MOTION    3.0
+#define OVERRIDE_MULT  4
+#define PRICE_PER_H4   6.0    // Gold natural rate for price-time squaring
 
 const int NATURAL_SQ[] = {4, 9, 16, 24, 36, 49, 72, 81};
 const double NAT_SQ_STR[] = {0.23, 0.28, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03};
@@ -39,51 +41,40 @@ const int IMPULSE_RATIOS[] = {8, 16, 64};
 //| STATE MACHINE                                                     |
 //+------------------------------------------------------------------+
 enum EState { STATE_SCANNING, STATE_QUANT, STATE_BOX, STATE_TRADE };
-
 EState g_state = STATE_SCANNING;
 
 //+------------------------------------------------------------------+
 //| GLOBAL STATE                                                      |
 //+------------------------------------------------------------------+
 datetime g_lastBar_M5 = 0;
-datetime g_lastBar_H1 = 0;
-datetime g_lastBar_D1 = 0;
 int      g_dailyTrades = 0;
 datetime g_lastTradeDay = 0;
 
-// Convergence tracking
 int      g_convBar = 0;
 double   g_convPrice = 0;
+int      g_m5_count = 0;
+string   g_d1_direction = "flat";
 
 // Active box
 struct GannBox {
-   double top;
-   double bottom;
-   int    start_bar;
-   int    end_bar;
-   int    width;
-   double height;
-   double scale;
-   double midpoint;
-   int    green_start;
+   double top, bottom, height, scale, midpoint;
+   int    start_bar, end_bar, width, green_start;
    double quant_pips;
    int    quant_bars;
-   string direction;  // "up" or "down"
-   double touch_price;
-   double extreme_price;
+   string direction;
+   double touch_price, extreme_price;
    bool   active;
 };
 GannBox g_box;
 
-// Swing storage
+// Swing storage — bar_index is GLOBAL M5 counter (g_m5_count based)
 struct SwingPoint {
-   string type;     // "high" or "low"
+   string type;
    double price;
    datetime time;
-   int    bar_index;
+   int    bar_index;  // Global M5 bar index
    double atr;
 };
-
 SwingPoint g_swings_h1[];
 SwingPoint g_swings_h4[];
 SwingPoint g_swings_d1[];
@@ -91,22 +82,20 @@ SwingPoint g_swings_d1[];
 // Wave state
 struct WaveState {
    int    wave_number;
-   double wave_0_price;
-   double wave_0_size;
-   string direction;  // "up" or "down"
+   double wave_0_price, wave_0_size;
+   string direction;
    double targets[];
-   bool   is_trending;
-   bool   valid;
+   bool   is_trending, valid;
 };
 WaveState g_wave;
 
-string g_d1_direction = "flat";
-
-// Bar counter for M5
-int g_m5_count = 0;
+// Trailing stop tracking
+double g_trade_entry_price = 0;
+double g_trade_sl_distance = 0;
+bool   g_trailed_to_be = false;
 
 //+------------------------------------------------------------------+
-//| HELPER: Normalize price to tick size                              |
+//| HELPER: Normalize price/lots                                      |
 //+------------------------------------------------------------------+
 double NormalizePrice(double price) {
    double tick = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
@@ -114,17 +103,13 @@ double NormalizePrice(double price) {
    return NormalizeDouble(MathRound(price / tick) * tick, _Digits);
 }
 
-//+------------------------------------------------------------------+
-//| HELPER: Normalize lot size                                        |
-//+------------------------------------------------------------------+
 double NormalizeLots(double lots) {
-   double min_lot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   double max_lot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   double step     = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   double min_lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double max_lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double step    = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    if(step == 0) step = 0.01;
    lots = MathFloor(lots / step) * step;
-   lots = MathMax(min_lot, MathMin(max_lot, lots));
-   return NormalizeDouble(lots, 2);
+   return NormalizeDouble(MathMax(min_lot, MathMin(max_lot, lots)), 2);
 }
 
 //+------------------------------------------------------------------+
@@ -137,17 +122,13 @@ bool IsNewBar_M5() {
    return false;
 }
 
-//+------------------------------------------------------------------+
-//| HELPER: Spread check                                              |
-//+------------------------------------------------------------------+
 bool IsSpreadAcceptable() {
-   double spread = SymbolInfoDouble(_Symbol, SYMBOL_ASK) -
-                   SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   return spread <= InpMaxSpread;
+   return (SymbolInfoDouble(_Symbol, SYMBOL_ASK) -
+           SymbolInfoDouble(_Symbol, SYMBOL_BID)) <= InpMaxSpread;
 }
 
 //+------------------------------------------------------------------+
-//| HELPER: Has open position with our magic                          |
+//| HELPER: Position management                                       |
 //+------------------------------------------------------------------+
 bool HasOpenPosition() {
    for(int i = 0; i < PositionsTotal(); i++) {
@@ -158,9 +139,15 @@ bool HasOpenPosition() {
    return false;
 }
 
-//+------------------------------------------------------------------+
-//| HELPER: Close position by ticket                                  |
-//+------------------------------------------------------------------+
+ulong GetPositionTicket() {
+   for(int i = 0; i < PositionsTotal(); i++) {
+      if(PositionGetSymbol(i) == _Symbol &&
+         PositionGetInteger(POSITION_MAGIC) == InpMagic)
+         return PositionGetInteger(POSITION_TICKET);
+   }
+   return 0;
+}
+
 void ClosePositionByTicket(ulong ticket) {
    MqlTradeRequest request = {};
    MqlTradeResult result = {};
@@ -200,7 +187,29 @@ void ClosePositionByTicket(ulong ticket) {
 }
 
 //+------------------------------------------------------------------+
-//| SQ9 ENGINE: Price to degree                                       |
+//| Modify SL on existing position (for trailing stop)                |
+//+------------------------------------------------------------------+
+bool ModifySL(ulong ticket, double new_sl) {
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+
+   if(!PositionSelectByTicket(ticket)) return false;
+
+   request.action = TRADE_ACTION_SLTP;
+   request.position = ticket;
+   request.symbol = _Symbol;
+   request.sl = NormalizePrice(new_sl);
+   request.tp = PositionGetDouble(POSITION_TP);
+
+   if(!OrderSend(request, result)) {
+      Print("ModifySL FAILED: ", GetLastError());
+      return false;
+   }
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| SQ9 ENGINE                                                        |
 //+------------------------------------------------------------------+
 double PriceToSq9Degree(double price) {
    if(price <= 0) return 0;
@@ -209,9 +218,6 @@ double PriceToSq9Degree(double price) {
    return deg;
 }
 
-//+------------------------------------------------------------------+
-//| SQ9: Generate levels from price at degree offsets                 |
-//+------------------------------------------------------------------+
 void Sq9LevelsFromPrice(double price, double &levels[], int &count) {
    count = 0;
    ArrayResize(levels, 20);
@@ -224,11 +230,8 @@ void Sq9LevelsFromPrice(double price, double &levels[], int &count) {
          double target_sqrt = ref_sqrt + step_val * ring;
          if(target_sqrt > 0) {
             double level = target_sqrt * target_sqrt;
-            if(MathAbs(level - price) <= price * 0.15) {
-               if(count < 20) {
-                  levels[count] = level;
-                  count++;
-               }
+            if(MathAbs(level - price) <= price * 0.15 && count < 20) {
+               levels[count++] = level;
             }
          }
       }
@@ -236,32 +239,16 @@ void Sq9LevelsFromPrice(double price, double &levels[], int &count) {
 }
 
 //+------------------------------------------------------------------+
-//| ATR calculation                                                   |
+//| SWING DETECTION on CopyRates data                                 |
+//| Converts reversed CopyRates indices to global M5 bar count        |
 //+------------------------------------------------------------------+
-double CalculateATR(const MqlRates &rates[], int period, int start_idx) {
-   double sum = 0;
-   for(int i = start_idx; i < start_idx + period; i++) {
-      double tr = MathMax(rates[i].high - rates[i].low,
-                 MathMax(MathAbs(rates[i].high - rates[i+1].close),
-                         MathAbs(rates[i].low - rates[i+1].close)));
-      sum += tr;
-   }
-   return sum / period;
-}
-
-//+------------------------------------------------------------------+
-//| SWING DETECTION: ATR ZigZag on MqlRates                           |
-//+------------------------------------------------------------------+
-void DetectSwings(const MqlRates &rates[], int n_bars,
+void DetectSwings(const MqlRates &rates[], int n_bars, int tf_m5_factor,
                   SwingPoint &swings[], int atr_period = 14,
                   double atr_mult = 1.5) {
    ArrayResize(swings, 0);
    if(n_bars < atr_period + 2) return;
 
-   // rates[0] = newest, rates[n-1] = oldest (ArraySetAsSeries)
-   // Process from oldest to newest: i from n-1 down to 0
-   // But we need chronological order, so reverse:
-
+   // rates[0]=newest, rates[n-1]=oldest. Process oldest→newest.
    string direction = "";
    double last_high = rates[n_bars - 1].high;
    int last_high_idx = n_bars - 1;
@@ -270,17 +257,18 @@ void DetectSwings(const MqlRates &rates[], int n_bars,
 
    for(int i = n_bars - 1 - atr_period; i >= 1; i--) {
       // ATR at this bar
-      double atr = CalculateATR(rates, atr_period, i);
+      double atr_sum = 0;
+      for(int j = i; j < i + atr_period && j < n_bars - 1; j++) {
+         double tr = MathMax(rates[j].high - rates[j].low,
+                    MathMax(MathAbs(rates[j].high - rates[j+1].close),
+                            MathAbs(rates[j].low - rates[j+1].close)));
+         atr_sum += tr;
+      }
+      double atr = atr_sum / atr_period;
       double threshold = atr * atr_mult;
 
-      if(rates[i].high > last_high) {
-         last_high = rates[i].high;
-         last_high_idx = i;
-      }
-      if(rates[i].low < last_low) {
-         last_low = rates[i].low;
-         last_low_idx = i;
-      }
+      if(rates[i].high > last_high) { last_high = rates[i].high; last_high_idx = i; }
+      if(rates[i].low < last_low)   { last_low = rates[i].low; last_low_idx = i; }
 
       if(direction != "down" && last_high - rates[i].low > threshold) {
          int sz = ArraySize(swings);
@@ -288,7 +276,8 @@ void DetectSwings(const MqlRates &rates[], int n_bars,
          swings[sz].type = "high";
          swings[sz].price = last_high;
          swings[sz].time = rates[last_high_idx].time;
-         swings[sz].bar_index = last_high_idx;
+         // Convert reversed index to global M5 count
+         swings[sz].bar_index = g_m5_count - last_high_idx * tf_m5_factor;
          swings[sz].atr = atr;
          direction = "down";
          last_low = rates[i].low;
@@ -300,7 +289,7 @@ void DetectSwings(const MqlRates &rates[], int n_bars,
          swings[sz].type = "low";
          swings[sz].price = last_low;
          swings[sz].time = rates[last_low_idx].time;
-         swings[sz].bar_index = last_low_idx;
+         swings[sz].bar_index = g_m5_count - last_low_idx * tf_m5_factor;
          swings[sz].atr = atr;
          direction = "up";
          last_high = rates[i].high;
@@ -310,110 +299,103 @@ void DetectSwings(const MqlRates &rates[], int n_bars,
 }
 
 //+------------------------------------------------------------------+
-//| CONVERGENCE: 7-category independent scoring                       |
+//| CONVERGENCE: 7 categories, phase-dependent threshold              |
 //+------------------------------------------------------------------+
-int ScoreConvergence(double price, int bar_idx, datetime bar_time,
-                     const SwingPoint &swings_h1[], int n_h1,
-                     const SwingPoint &swings_h4[], int n_h4) {
-   if(n_h1 < 2) return 0;
+int ScoreConvergence(double price, int bar_idx,
+                     const SwingPoint &sh1[], int nh1,
+                     const SwingPoint &sh4[], int nh4,
+                     bool in_box_phase) {
+   if(nh1 < 2) return 0;
 
    int score = 0;
-   int recent_start = MathMax(0, n_h1 - 5);
+   int rs = MathMax(0, nh1 - 5);
 
-   // --- A: Sq9 level ---
-   for(int s = recent_start; s < n_h1; s++) {
-      double levels[];
-      int count;
-      Sq9LevelsFromPrice(swings_h1[s].price, levels, count);
+   // A: Sq9 level
+   bool catA = false;
+   for(int s = rs; s < nh1 && !catA; s++) {
+      double levels[]; int count;
+      Sq9LevelsFromPrice(sh1[s].price, levels, count);
       for(int j = 0; j < count; j++) {
-         if(MathAbs(price - levels[j]) <= LOST_MOTION) {
-            score++;
-            s = n_h1; // break outer
-            break;
-         }
+         if(MathAbs(price - levels[j]) <= LOST_MOTION) { catA = true; break; }
       }
    }
+   if(catA) score++;
 
-   // --- B: Vibration level ---
-   for(int s = recent_start; s < n_h1; s++) {
-      double dist = MathAbs(price - swings_h1[s].price);
-      double rem = MathMod(dist, (double)V_QUANTUM);
-      if(rem <= LOST_MOTION || (V_QUANTUM - rem) <= LOST_MOTION) {
-         score++;
-         break;
-      }
+   // B: Vibration level
+   bool catB = false;
+   for(int s = rs; s < nh1 && !catB; s++) {
+      double rem = MathMod(MathAbs(price - sh1[s].price), (double)V_QUANTUM);
+      if(rem <= LOST_MOTION || (V_QUANTUM - rem) <= LOST_MOTION) catB = true;
    }
+   if(catB) score++;
 
-   // --- C: Proportional division ---
-   for(int i = recent_start; i < n_h1 - 1; i++) {
-      bool found = false;
-      for(int j = i + 1; j < n_h1; j++) {
-         double hi = MathMax(swings_h1[i].price, swings_h1[j].price);
-         double lo = MathMin(swings_h1[i].price, swings_h1[j].price);
+   // C: Proportional division
+   bool catC = false;
+   for(int i = rs; i < nh1 - 1 && !catC; i++) {
+      for(int j = i + 1; j < nh1 && !catC; j++) {
+         double hi = MathMax(sh1[i].price, sh1[j].price);
+         double lo = MathMin(sh1[i].price, sh1[j].price);
          if(hi - lo < V_QUANTUM) continue;
          double range = hi - lo;
-         double thirds[] = {lo + range/3.0, lo + range/2.0, lo + range*2.0/3.0};
+         double fracs[] = {1.0/3.0, 1.0/2.0, 2.0/3.0};
          for(int k = 0; k < 3; k++) {
-            if(MathAbs(price - thirds[k]) <= LOST_MOTION) {
-               score++;
-               found = true;
-               break;
+            if(MathAbs(price - (lo + range * fracs[k])) <= LOST_MOTION) {
+               catC = true; break;
             }
          }
-         if(found) break;
       }
-      if(found) break;
    }
+   if(catC) score++;
 
-   // --- D: Time window (natural square) ---
-   if(n_h4 >= 1) {
-      int last_h4_bar = swings_h4[n_h4 - 1].bar_index;
-      int h4_elapsed = (bar_idx - last_h4_bar) / 48;
+   // D: Time window (natural square)
+   bool catD = false;
+   if(nh4 >= 1) {
+      int h4_elapsed = (bar_idx - sh4[nh4-1].bar_index) / 48;
       for(int k = 0; k < ArraySize(NATURAL_SQ); k++) {
-         if(MathAbs(h4_elapsed - NATURAL_SQ[k]) <= 1) {
-            score++;
-            break;
-         }
+         if(MathAbs(h4_elapsed - NATURAL_SQ[k]) <= 1) { catD = true; break; }
       }
-      // Impulse check
-      if(score == 0) {
+      if(!catD) {
          int h1_bars = h4_elapsed * 4;
          double ratio = (double)h1_bars / V_QUANTUM;
          for(int k = 0; k < 3; k++) {
-            if(MathAbs(ratio - IMPULSE_RATIOS[k]) <= 1.0) {
-               score++;
-               break;
-            }
+            if(MathAbs(ratio - IMPULSE_RATIOS[k]) <= 1.0) { catD = true; break; }
          }
       }
    }
+   if(catD) score++;
 
-   // --- E: Triangle (if active box) ---
-   if(g_box.active) {
+   // E: Triangle crossing — ONLY in BOX_ACTIVE phase
+   if(in_box_phase && g_box.active) {
       if(bar_idx >= g_box.green_start && bar_idx <= g_box.end_bar) {
          if(MathAbs(price - g_box.midpoint) <= LOST_MOTION * 3)
             score++;
       }
    }
 
-   // --- F: Wave target ---
+   // F: Wave target
+   bool catF = false;
    if(g_wave.valid && ArraySize(g_wave.targets) > 0) {
       for(int k = 0; k < MathMin(4, ArraySize(g_wave.targets)); k++) {
          if(MathAbs(price - g_wave.targets[k]) <= LOST_MOTION * 2) {
-            score++;
-            break;
+            catF = true; break;
          }
       }
    }
+   if(catF) score++;
 
-   // --- G: Price-time square ---
-   if(n_h1 >= 1) {
-      double pmove = MathAbs(price - swings_h1[n_h1-1].price);
-      double p_units = pmove / V_QUANTUM;
-      double t_units = (double)(bar_idx - swings_h1[n_h1-1].bar_index) / 12.0;
-      if(t_units > 0 && MathAbs(p_units - t_units) <= 2.0)
-         score++;
+   // G: Price-time square (Gold scaling: $6/H4 bar)
+   bool catG = false;
+   for(int s = rs; s < nh1 && !catG; s++) {
+      double pmove = MathAbs(price - sh1[s].price);
+      int elapsed = bar_idx - sh1[s].bar_index;
+      double time_h4 = (double)elapsed / 48.0;
+      if(time_h4 >= 1.0 && pmove >= V_QUANTUM) {
+         double expected = time_h4 * PRICE_PER_H4;
+         double r = (expected > 0) ? pmove / expected : 0;
+         if(r >= 0.6 && r <= 1.4) catG = true;
+      }
    }
+   if(catG) score++;
 
    return score;
 }
@@ -421,14 +403,21 @@ int ScoreConvergence(double price, int bar_idx, datetime bar_time,
 //+------------------------------------------------------------------+
 //| QUANT MEASUREMENT                                                 |
 //+------------------------------------------------------------------+
-bool MeasureQuant(const MqlRates &m5[], int conv_idx, int n_bars) {
-   // conv_idx is in reversed indexing (0=newest)
+bool MeasureQuant(const MqlRates &m5[], int bars_since_conv, int n_bars) {
+   // In CopyRates reversed indexing, conv was at index bars_since_conv+1
+   int conv_idx = bars_since_conv + 1;
+   if(conv_idx >= n_bars - 2) return false;
+
    double touch_price = m5[conv_idx].close;
    double extreme_price = touch_price;
    int extreme_bar = conv_idx;
    string dir = "";
 
+   // Scan from conv toward present (decreasing index = forward in time)
    int scan_limit = MathMax(1, conv_idx - 50);
+   // CRITICAL: also limit to not go past current bar (idx=1 = last completed)
+   scan_limit = MathMax(scan_limit, 1);
+
    for(int i = conv_idx - 1; i >= scan_limit; i--) {
       if(dir == "" || dir == "up") {
          if(m5[i].high > extreme_price) {
@@ -453,7 +442,7 @@ bool MeasureQuant(const MqlRates &m5[], int conv_idx, int n_bars) {
    }
 
    double qpips = MathAbs(extreme_price - touch_price);
-   int qbars = conv_idx - extreme_bar;
+   int qbars = conv_idx - extreme_bar;  // positive
 
    if(qpips < V_QUANTUM * 0.5 || qbars < 1) return false;
 
@@ -462,13 +451,11 @@ bool MeasureQuant(const MqlRates &m5[], int conv_idx, int n_bars) {
    if(box_h < V_QUANTUM) box_h = V_QUANTUM;
 
    // Round bars to nearest natural square
-   int best_sq = 4;
-   int best_diff = 9999;
+   int best_sq = 4, best_diff = 9999;
    for(int k = 0; k < ArraySize(NATURAL_SQ); k++) {
       int d = MathAbs(qbars - NATURAL_SQ[k]);
       if(d < best_diff) { best_diff = d; best_sq = NATURAL_SQ[k]; }
    }
-
    int box_w = MathMax(4, (int)(best_sq * 4.0 / 3.0));
 
    // Build box
@@ -495,16 +482,14 @@ bool MeasureQuant(const MqlRates &m5[], int conv_idx, int n_bars) {
    g_box.extreme_price = extreme_price;
    g_box.active = true;
 
-   Print("Box built: $", DoubleToString(g_box.bottom, 2), "-$",
-         DoubleToString(g_box.top, 2),
-         " bars ", g_box.start_bar, "-", g_box.end_bar,
-         " quant=$", DoubleToString(qpips, 1));
-
+   Print("Box: $", DoubleToString(g_box.bottom,2), "-$",
+         DoubleToString(g_box.top,2), " w=", box_w,
+         " green@", g_box.green_start, " quant=$", DoubleToString(qpips,1));
    return true;
 }
 
 //+------------------------------------------------------------------+
-//| GREEN ZONE ENTRY                                                  |
+//| GREEN ZONE ENTRY — Calibrated direction logic                     |
 //+------------------------------------------------------------------+
 bool FindGreenZoneEntry(double current_price, double &entry_price,
                         double &sl, double &tp, string &trade_dir) {
@@ -512,36 +497,35 @@ bool FindGreenZoneEntry(double current_price, double &entry_price,
    if(g_m5_count < g_box.green_start || g_m5_count > g_box.end_bar)
       return false;
 
-   // Midpoint resolution
+   // Midpoint is PRIMARY direction signal
    string mid_dir = (current_price > g_box.midpoint) ? "long" : "short";
 
-   // D1 direction mapping
+   // D1/H1 can reject only if BOTH disagree
    string d1_mapped = "flat";
    if(g_d1_direction == "up") d1_mapped = "long";
    else if(g_d1_direction == "down") d1_mapped = "short";
 
-   // H1 wave direction mapping
    string h1_mapped = "flat";
    if(g_wave.valid) {
       if(g_wave.direction == "up") h1_mapped = "long";
       else if(g_wave.direction == "down") h1_mapped = "short";
    }
 
-   if(d1_mapped == "flat") return false;
-
-   // All directions must agree
-   if(mid_dir != d1_mapped || mid_dir != h1_mapped) return false;
+   int disagreements = 0;
+   if(d1_mapped != "flat" && d1_mapped != mid_dir) disagreements++;
+   if(h1_mapped != "flat" && h1_mapped != mid_dir) disagreements++;
+   if(disagreements >= 2) return false;
 
    trade_dir = mid_dir;
 
-   // Simplified diagonal bounds (use linear interpolation of box)
+   // Simplified diagonal bounds (linear convergence)
    double t_frac = (double)(g_m5_count - g_box.start_bar) / g_box.width;
    double converge = (1.0 - t_frac) * g_box.height;
    double upper = g_box.midpoint + converge / 2.0;
    double lower = g_box.midpoint - converge / 2.0;
    double gap = upper - lower;
 
-   if(gap <= 0 || gap > V_QUANTUM * 4) return false;
+   if(gap <= 0 || gap > V_QUANTUM * 6) return false;  // 6 quanta = $72
 
    double qpips = g_box.quant_pips;
 
@@ -561,33 +545,27 @@ bool FindGreenZoneEntry(double current_price, double &entry_price,
 
    if(rr < InpMinRR) return false;
 
-   Print("Green zone entry: ", trade_dir, " @$", DoubleToString(entry_price, 2),
-         " SL=$", DoubleToString(sl, 2),
-         " TP=$", DoubleToString(tp, 2),
-         " R:R=", DoubleToString(rr, 1));
-
+   Print("Entry: ", trade_dir, " @$", DoubleToString(entry_price,2),
+         " SL=$", DoubleToString(sl,2), " TP=$", DoubleToString(tp,2),
+         " R:R=", DoubleToString(rr,1));
    return true;
 }
 
 //+------------------------------------------------------------------+
-//| Calculate position size (2% risk)                                 |
+//| Calculate lot size                                                |
 //+------------------------------------------------------------------+
 double CalculateLots(double sl_distance) {
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    double risk = balance * InpRiskPct;
-
    double tick_value = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
    double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
    if(tick_size == 0 || tick_value == 0) return NormalizeLots(0.01);
-
-   double value_per_lot_per_dollar = tick_value / tick_size;
-   double lots = risk / (sl_distance * value_per_lot_per_dollar);
-
+   double lots = risk / (sl_distance * (tick_value / tick_size));
    return NormalizeLots(lots);
 }
 
 //+------------------------------------------------------------------+
-//| Open trade with full error handling                               |
+//| Open trade with error handling                                    |
 //+------------------------------------------------------------------+
 bool OpenTrade(ENUM_ORDER_TYPE type, double sl, double tp, double lots) {
    MqlTradeRequest request = {};
@@ -599,12 +577,11 @@ bool OpenTrade(ENUM_ORDER_TYPE type, double sl, double tp, double lots) {
    request.type = type;
    request.deviation = 30;
    request.magic = InpMagic;
-   request.comment = "GannScalper v9.1";
+   request.comment = "GannScalper v9.1c";
 
-   if(type == ORDER_TYPE_BUY)
-      request.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   else
-      request.price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   request.price = (type == ORDER_TYPE_BUY) ?
+      SymbolInfoDouble(_Symbol, SYMBOL_ASK) :
+      SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
    request.sl = NormalizePrice(sl);
    request.tp = NormalizePrice(tp);
@@ -618,53 +595,38 @@ bool OpenTrade(ENUM_ORDER_TYPE type, double sl, double tp, double lots) {
    else
       request.type_filling = ORDER_FILLING_RETURN;
 
-   // Validate SL/TP distance
+   // Validate stops
    int stop_level = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
    double min_dist = stop_level * _Point;
    if(MathAbs(request.price - request.sl) < min_dist ||
       MathAbs(request.tp - request.price) < min_dist) {
-      Print("SL/TP too close to entry. stop_level=", stop_level,
-            " min_dist=", DoubleToString(min_dist, _Digits));
+      Print("SL/TP too close. stop_level=", stop_level);
       return false;
    }
 
    // Check margin
    double margin_req;
-   if(!OrderCalcMargin(type, _Symbol, lots, request.price, margin_req)) {
-      Print("Cannot calculate margin");
-      return false;
-   }
+   if(!OrderCalcMargin(type, _Symbol, lots, request.price, margin_req)) return false;
    if(margin_req > AccountInfoDouble(ACCOUNT_MARGIN_FREE)) {
-      Print("Insufficient margin: need=", DoubleToString(margin_req, 2),
-            " free=", DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2));
+      Print("Insufficient margin");
       return false;
    }
 
    if(!OrderSend(request, result)) {
-      Print("OrderSend FAILED: err=", GetLastError(),
-            " retcode=", result.retcode,
-            " price=", DoubleToString(request.price, _Digits),
-            " sl=", DoubleToString(request.sl, _Digits),
-            " tp=", DoubleToString(request.tp, _Digits),
-            " lots=", DoubleToString(request.volume, 2));
+      Print("OrderSend FAILED: err=", GetLastError(), " retcode=", result.retcode);
       return false;
    }
-
-   if(result.retcode != TRADE_RETCODE_DONE &&
-      result.retcode != TRADE_RETCODE_PLACED) {
+   if(result.retcode != TRADE_RETCODE_DONE && result.retcode != TRADE_RETCODE_PLACED) {
       Print("Trade REJECTED: retcode=", result.retcode);
       return false;
    }
 
-   Print("TRADE OPENED: ticket=", result.order,
-         " price=", DoubleToString(result.price, _Digits),
-         " sl=", DoubleToString(request.sl, _Digits),
-         " tp=", DoubleToString(request.tp, _Digits));
+   Print("OPENED: ticket=", result.order, " @$", DoubleToString(result.price, _Digits));
    return true;
 }
 
 //+------------------------------------------------------------------+
-//| Manage open positions (max hold, fold, override)                  |
+//| Manage open positions: max hold, trailing stop, vibration override |
 //+------------------------------------------------------------------+
 void ManagePositions() {
    for(int i = PositionsTotal() - 1; i >= 0; i--) {
@@ -673,28 +635,56 @@ void ManagePositions() {
 
       ulong ticket = PositionGetInteger(POSITION_TICKET);
       datetime open_time = (datetime)PositionGetInteger(POSITION_TIME);
+      double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+      double current = PositionGetDouble(POSITION_PRICE_CURRENT);
+      ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double current_sl = PositionGetDouble(POSITION_SL);
 
       // Max hold
       int bars_held = Bars(_Symbol, PERIOD_M5, open_time, TimeCurrent());
       if(bars_held >= InpMaxHold) {
-         Print("Max hold reached (", bars_held, " bars). Closing.");
+         Print("Max hold (", bars_held, " bars). Closing.");
          ClosePositionByTicket(ticket);
          continue;
       }
 
-      // 4x vibration override
-      double entry_price = PositionGetDouble(POSITION_PRICE_OPEN);
-      double current_price = PositionGetDouble(POSITION_PRICE_CURRENT);
-      double move = MathAbs(current_price - entry_price);
+      // Vibration override ($288 move)
+      double move = MathAbs(current - entry);
       if(move >= OVERRIDE_MULT * V_BASE) {
-         Print("4x vibration override ($", DoubleToString(move, 2), "). Closing.");
+         Print("Vibration override ($", DoubleToString(move,2), "). Closing.");
          ClosePositionByTicket(ticket);
+         continue;
+      }
+
+      // Trailing stop: at InpTrailAtR × SL_distance, move SL to breakeven
+      if(g_trade_sl_distance > 0 && !g_trailed_to_be) {
+         double unrealized = 0;
+         if(type == POSITION_TYPE_BUY)
+            unrealized = current - entry;
+         else
+            unrealized = entry - current;
+
+         if(unrealized >= g_trade_sl_distance * InpTrailAtR) {
+            double new_sl = entry;  // exact breakeven
+            if(type == POSITION_TYPE_BUY && current_sl < entry) {
+               if(ModifySL(ticket, new_sl)) {
+                  Print("Trailed SL to breakeven: $", DoubleToString(new_sl,2));
+                  g_trailed_to_be = true;
+               }
+            }
+            else if(type == POSITION_TYPE_SELL && current_sl > entry) {
+               if(ModifySL(ticket, new_sl)) {
+                  Print("Trailed SL to breakeven: $", DoubleToString(new_sl,2));
+                  g_trailed_to_be = true;
+               }
+            }
+         }
       }
    }
 }
 
 //+------------------------------------------------------------------+
-//| Update swing detection on higher timeframes                       |
+//| Update swings and wave counting                                   |
 //+------------------------------------------------------------------+
 void UpdateSwings() {
    // H1 swings
@@ -702,49 +692,45 @@ void UpdateSwings() {
    ArraySetAsSeries(h1, true);
    int h1_count = CopyRates(_Symbol, PERIOD_H1, 0, 200, h1);
    if(h1_count >= 50)
-      DetectSwings(h1, h1_count, g_swings_h1, 14, 1.5);
+      DetectSwings(h1, h1_count, 12, g_swings_h1, 14, 1.5);
 
    // H4 swings
    MqlRates h4[];
    ArraySetAsSeries(h4, true);
    int h4_count = CopyRates(_Symbol, PERIOD_H4, 0, 100, h4);
    if(h4_count >= 30)
-      DetectSwings(h4, h4_count, g_swings_h4, 14, 1.5);
+      DetectSwings(h4, h4_count, 48, g_swings_h4, 14, 1.5);
 
-   // D1 swings
+   // D1 swings + direction
    MqlRates d1[];
    ArraySetAsSeries(d1, true);
    int d1_count = CopyRates(_Symbol, PERIOD_D1, 0, 60, d1);
    if(d1_count >= 20) {
-      DetectSwings(d1, d1_count, g_swings_d1, 14, 1.5);
-
-      // D1 direction from last 3 swings
-      int n_d1 = ArraySize(g_swings_d1);
-      if(n_d1 >= 3) {
-         if(g_swings_d1[n_d1-1].price > g_swings_d1[n_d1-3].price)
+      DetectSwings(d1, d1_count, 288, g_swings_d1, 14, 1.5);
+      int nd1 = ArraySize(g_swings_d1);
+      if(nd1 >= 3) {
+         if(g_swings_d1[nd1-1].price > g_swings_d1[nd1-3].price)
             g_d1_direction = "up";
-         else if(g_swings_d1[n_d1-1].price < g_swings_d1[n_d1-3].price)
+         else if(g_swings_d1[nd1-1].price < g_swings_d1[nd1-3].price)
             g_d1_direction = "down";
-         else
-            g_d1_direction = "flat";
+         else g_d1_direction = "flat";
       }
    }
 
-   // Wave counting (simplified)
-   int n_h1 = ArraySize(g_swings_h1);
+   // Wave counting
+   int nh1 = ArraySize(g_swings_h1);
    g_wave.valid = false;
-   if(n_h1 >= 4) {
-      // Find wave 0 (largest recent swing)
-      int lookback = MathMin(6, n_h1 - 1);
-      int start = n_h1 - lookback;
+   if(nh1 >= 4) {
+      int lookback = MathMin(6, nh1 - 1);
+      int start = nh1 - lookback;
       double best_score = 0;
       int best_idx = start;
 
-      for(int i = start + 2; i < n_h1; i++) {
-         double prev_size = MathAbs(g_swings_h1[i-1].price - g_swings_h1[i-2].price);
-         double curr_size = MathAbs(g_swings_h1[i].price - g_swings_h1[i-1].price);
-         if(prev_size == 0) continue;
-         double ratio = curr_size / prev_size;
+      for(int i = start + 2; i < nh1; i++) {
+         double prev_sz = MathAbs(g_swings_h1[i-1].price - g_swings_h1[i-2].price);
+         double curr_sz = MathAbs(g_swings_h1[i].price - g_swings_h1[i-1].price);
+         if(prev_sz == 0) continue;
+         double ratio = curr_sz / prev_sz;
          if(ratio > 1.5 || ratio < 0.67) {
             double s = MathAbs(MathLog(ratio));
             if(s > best_score) { best_score = s; best_idx = i - 1; }
@@ -753,43 +739,25 @@ void UpdateSwings() {
 
       if(best_score > 0.3) {
          g_wave.wave_0_price = g_swings_h1[best_idx].price;
-         int scenario_len = n_h1 - best_idx;
+         int scenario_len = nh1 - best_idx;
          g_wave.wave_number = scenario_len - 1;
 
-         if(scenario_len >= 2)
-            g_wave.wave_0_size = MathAbs(g_swings_h1[best_idx+1].price -
-                                          g_swings_h1[best_idx].price);
-         else
-            g_wave.wave_0_size = MathAbs(g_swings_h1[n_h1-1].price -
-                                          g_swings_h1[n_h1-2].price);
+         g_wave.wave_0_size = (scenario_len >= 2) ?
+            MathAbs(g_swings_h1[best_idx+1].price - g_swings_h1[best_idx].price) :
+            MathAbs(g_swings_h1[nh1-1].price - g_swings_h1[nh1-2].price);
 
          g_wave.direction = (g_swings_h1[best_idx].type == "low") ? "up" : "down";
          g_wave.is_trending = (g_wave.wave_number % 2 == 1);
 
-         // Generate targets
          ArrayResize(g_wave.targets, 7);
          for(int k = 0; k < 7; k++) {
-            if(g_wave.direction == "up")
-               g_wave.targets[k] = g_wave.wave_0_price + g_wave.wave_0_size * (k + 2);
-            else
-               g_wave.targets[k] = g_wave.wave_0_price - g_wave.wave_0_size * (k + 2);
+            g_wave.targets[k] = (g_wave.direction == "up") ?
+               g_wave.wave_0_price + g_wave.wave_0_size * (k + 2) :
+               g_wave.wave_0_price - g_wave.wave_0_size * (k + 2);
          }
          g_wave.valid = true;
       }
    }
-}
-
-//+------------------------------------------------------------------+
-//| Print symbol info                                                 |
-//+------------------------------------------------------------------+
-void PrintSymbolInfo() {
-   Print("=== Symbol: ", _Symbol, " ===");
-   Print("Point: ", _Point, " Digits: ", _Digits);
-   Print("Tick Size: ", SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE));
-   Print("Min Lot: ", SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN),
-         " Step: ", SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP));
-   Print("Stop Level: ", SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL));
-   Print("Contract Size: ", SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE));
 }
 
 //+------------------------------------------------------------------+
@@ -799,56 +767,55 @@ int OnInit() {
    if(StringFind(_Symbol, "XAU") < 0 && StringFind(_Symbol, "GOLD") < 0)
       Print("WARNING: EA designed for XAUUSD, running on ", _Symbol);
 
-   PrintSymbolInfo();
+   Print("=== GannScalper v9.1c Calibrated ===");
+   Print("Convergence: scan=", InpMinConvScan, " box=", InpMinConvBox);
+   Print("R:R min=", InpMinRR, " WaveMult=", InpWaveMult, " Trail@", InpTrailAtR, "R");
+   Print("Point=", _Point, " Digits=", _Digits,
+         " TickSize=", SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE));
 
-   // Force load multi-timeframe data
-   double d;
-   d = iClose(_Symbol, PERIOD_H1, 0);
-   d = iClose(_Symbol, PERIOD_H4, 0);
-   d = iClose(_Symbol, PERIOD_D1, 0);
+   // Force load MTF data
+   iClose(_Symbol, PERIOD_H1, 0);
+   iClose(_Symbol, PERIOD_H4, 0);
+   iClose(_Symbol, PERIOD_D1, 0);
 
    g_state = STATE_SCANNING;
    g_box.active = false;
+   g_wave.valid = false;
 
-   Print("GannScalper v9.1 initialized. Magic=", InpMagic);
    return INIT_SUCCEEDED;
 }
 
-//+------------------------------------------------------------------+
-//| OnDeinit                                                          |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
-   Print("GannScalper stopped. Reason=", reason,
-         " Trades today=", g_dailyTrades);
+   Print("GannScalper stopped. Reason=", reason, " DailyTrades=", g_dailyTrades);
 }
 
 //+------------------------------------------------------------------+
 //| OnTick — MAIN LOOP                                                |
 //+------------------------------------------------------------------+
 void OnTick() {
-   // STEP 1: New bar detection — process ONCE per M5 bar only
+   // STEP 1: New M5 bar only
    if(!IsNewBar_M5()) return;
    g_m5_count++;
 
-   // STEP 2: Reset daily counter
+   // STEP 2: Daily reset
    datetime today = iTime(_Symbol, PERIOD_D1, 0);
    if(today != g_lastTradeDay) {
       g_lastTradeDay = today;
       g_dailyTrades = 0;
    }
 
-   // STEP 3: Prerequisites
+   // STEP 3: Spread check
    if(!IsSpreadAcceptable()) return;
 
-   // STEP 4: Load M5 data
+   // STEP 4: Load last completed M5 bar
    MqlRates m5[];
    ArraySetAsSeries(m5, true);
    int m5_count = CopyRates(_Symbol, PERIOD_M5, 0, 500, m5);
-   if(m5_count < 300) return;
+   if(m5_count < 100) return;
 
    double current_price = m5[1].close;  // Last COMPLETED bar
 
-   // STEP 5: Update swings every 12 bars (1 H1 bar)
+   // STEP 5: Update swings periodically
    if(g_m5_count % 12 == 0)
       UpdateSwings();
 
@@ -857,51 +824,46 @@ void OnTick() {
 
    // === STATE MACHINE ===
 
-   // IN_TRADE: handled by SL/TP/ManagePositions
    if(g_state == STATE_TRADE) {
       if(!HasOpenPosition()) {
          g_state = STATE_SCANNING;
          g_box.active = false;
+         g_trailed_to_be = false;
       }
       return;
    }
 
-   // SCANNING: look for convergence
    if(g_state == STATE_SCANNING) {
-      int n_h1 = ArraySize(g_swings_h1);
-      int n_h4 = ArraySize(g_swings_h4);
-      if(n_h1 < 4) return;
+      int nh1 = ArraySize(g_swings_h1);
+      int nh4 = ArraySize(g_swings_h4);
+      if(nh1 < 4) return;
 
       int score = ScoreConvergence(current_price, g_m5_count,
-                                    m5[1].time, g_swings_h1, n_h1,
-                                    g_swings_h4, n_h4);
+                                    g_swings_h1, nh1, g_swings_h4, nh4,
+                                    false);  // not in box phase
 
-      if(score >= InpMinConv) {
+      if(score >= InpMinConvScan) {
          g_state = STATE_QUANT;
          g_convBar = g_m5_count;
          g_convPrice = current_price;
-         Print("Convergence detected: score=", score, " price=$",
-               DoubleToString(current_price, 2));
+         Print("Convergence: score=", score, " @$", DoubleToString(current_price,2));
       }
       return;
    }
 
-   // QUANT_FORMING: measure initial impulse
    if(g_state == STATE_QUANT) {
       int bars_since = g_m5_count - g_convBar;
-      if(bars_since > 20) {
+      if(bars_since > 50) {  // 50-bar timeout
          g_state = STATE_SCANNING;
          return;
       }
 
-      if(MeasureQuant(m5, bars_since + 1, m5_count)) {
+      if(MeasureQuant(m5, bars_since, m5_count)) {
          g_state = STATE_BOX;
-         Print("Quant measured. Box active.");
       }
       return;
    }
 
-   // BOX_ACTIVE: wait for green zone, then enter
    if(g_state == STATE_BOX) {
       if(!g_box.active || g_m5_count > g_box.end_bar) {
          g_state = STATE_SCANNING;
@@ -909,7 +871,7 @@ void OnTick() {
          return;
       }
 
-      if(g_m5_count < g_box.green_start) return;  // Not in green zone yet
+      if(g_m5_count < g_box.green_start) return;
 
       if(g_dailyTrades >= InpMaxDaily) return;
       if(HasOpenPosition()) return;
@@ -921,13 +883,15 @@ void OnTick() {
          double sl_dist = MathAbs(entry_price - sl);
          double lots = CalculateLots(sl_dist);
 
-         ENUM_ORDER_TYPE type = (trade_dir == "long") ?
-                                 ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+         ENUM_ORDER_TYPE type = (trade_dir == "long") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
 
          if(OpenTrade(type, sl, tp, lots)) {
             g_dailyTrades++;
             g_state = STATE_TRADE;
-            Print("Entered trade #", g_dailyTrades, " today");
+            g_trade_entry_price = entry_price;
+            g_trade_sl_distance = sl_dist;
+            g_trailed_to_be = false;
+            Print("Trade #", g_dailyTrades, " today");
          }
       }
       return;

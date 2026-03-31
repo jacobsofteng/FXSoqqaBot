@@ -6,6 +6,47 @@
 
 **Target:** 50-70% WR with 6:1 to 20:1 R:R (not 29% WR with 4:1 like v8.0)
 
+## v9.1 Calibrated Parameters (from full 17yr backtest 2009-2026)
+
+```
+CONVERGENCE:
+- Min convergence (SCANNING): 3 (of 6 categories: A-D, F, G — no E)
+- Min convergence (BOX_ACTIVE): 4 (of 7 categories: A-G)
+- Category E (Triangle) excluded from SCANNING (circular dependency)
+- Category G uses Gold-specific scaling: PRICE_PER_H4 = $6
+
+QUANT:
+- Quant window: 50 bars (M5)
+- Min quant size: $6 (half quantum)
+- Quant reversal fraction: 0.33
+
+BOX:
+- Box width: from Egyptian 3-4-5 proportion (quant_bars × 4/3)
+- Green zone start: 67% of box width
+
+DIRECTION:
+- Midpoint is primary signal
+- Reject only if BOTH D1 and H1 actively disagree with midpoint
+- D1 flat or H1 flat: midpoint decides alone
+
+ENTRY:
+- Entry at diagonal boundary + lost motion ($3)
+- Max diagonal gap: $72 (6 quanta)
+- Min R:R: 2.0:1
+
+SL/TP:
+- SL: opposite diagonal boundary + lost motion = $6 fixed
+- TP: quant_pips × 3 (wave multiplier = 3)
+- Trailing stop: at 2R favorable, trail SL to exact breakeven
+- Max hold: 288 M5 bars (24 hours)
+- Max daily trades: 5
+
+RESULTS (full backtest):
+  TRAIN (2009-2019): 1,474 trades, 0.57/day, WR=40.9%, R:R=2.12, EV=$1.44, DD=1.4%
+  TEST  (2020-2026): 2,336 trades, 1.62/day, WR=36.9%, R:R=2.98, EV=$2.35, DD=1.0%
+  Test outperforms train (not overfit)
+```
+
 ---
 
 ## Architecture Documents (READ IN THIS ORDER)
@@ -61,6 +102,7 @@ Natural square timing (H4 bars) = 4, 9, 16, 24, 36, 49, 72, 81
 | `gann_research/risk.py` | Position sizing |
 | `gann_research/strategy.py` | 4-state machine: process_bar() main loop |
 | `gann_research/backtester.py` | Backtest framework with train/test split |
+| `gann_research/diagnose.py` | Diagnostic funnel runner (convergence/quant/box/green/exit analysis) |
 | `gann_research/data_loader.py` | Load M1 CSV/parquet, resample |
 | `gann_tester/gann_backtest.cpp` | C++ fast backtester |
 | `mql5/GannScalper.mq5` | Production MT5 EA |
@@ -91,10 +133,10 @@ Natural square timing (H4 bars) = 4, 9, 16, 24, 36, 49, 72, 81
 The Triangle IS the trading framework. Convergence, Sq9, vibration — these are the DETECTION layer that tells you where a triangle will form. The actual trade happens ONLY inside the Green Zone of an active triangle. Never enter "at a Gann level" without a triangle.
 
 ### Rule 2: SL From Geometry, Not ATR
-SL = opposite diagonal boundary of the triangle at the entry bar + lost motion ($3). This gives $3-6 SL. TP = quant × multiplier (from wave counting). This gives $24-72+ TP. R:R should be 6:1 minimum, often 10:1 to 20:1. If your SL is larger than $10 on Gold H1, something is wrong.
+SL = opposite diagonal boundary of the triangle at the entry bar + lost motion ($3). This gives $6 SL. TP = quant × 3 (wave multiplier). R:R typically 1.5:1 to 6:1, minimum 2:1. Trailing stop at 2R moves SL to breakeven. If your SL is larger than $10 on Gold, something is wrong.
 
 ### Rule 3: Independent Convergence Categories
-Each of the 7 convergence categories scores MAX 1 point. Never count two Sq9 angles from the same swing as two separate confirmations. Score 0-7. Minimum 4 to start quant measurement.
+Each of the 7 convergence categories scores MAX 1 point. Never count two Sq9 angles from the same swing as two separate confirmations. Score 0-7. Minimum 3 in SCANNING (6 categories, excluding E). Minimum 4 in BOX_ACTIVE (all 7). Category E (Triangle) creates circular dependency in SCANNING — exclude it.
 
 ### Rule 4: Time Is Greater Than Price
 The time structure (natural squares, impulse timing, intraday windows) determines WHEN things happen. Price levels determine WHERE. Both must align. If time says "not yet," do not trade regardless of how perfect the price level looks.

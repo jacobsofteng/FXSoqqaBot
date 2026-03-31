@@ -66,10 +66,17 @@ def manage_open_trade(trade: dict, current_bar: Bar,
     if trade['direction'] == 'short' and current_bar.low <= trade['tp']:
         return 'close'
 
-    # Check fold
-    fold = check_fold(current_price, trade['entry_price'], trade['tp'])
-    if fold.get('fold_detected'):
-        trade['tp'] = fold['adjusted_tp_best']
+    # Trailing stop: when price moves 2R in your favor, trail SL to breakeven
+    sl_dist = trade.get('sl_distance', 0)
+    if sl_dist > 0:
+        if trade['direction'] == 'long':
+            unrealized = current_bar.high - trade['entry_price']
+            if unrealized >= sl_dist * 2 and trade['sl'] < trade['entry_price']:
+                trade['sl'] = trade['entry_price']  # exact breakeven
+        else:
+            unrealized = trade['entry_price'] - current_bar.low
+            if unrealized >= sl_dist * 2 and trade['sl'] > trade['entry_price']:
+                trade['sl'] = trade['entry_price']  # exact breakeven
 
     # Check vibration override
     move = abs(current_price - trade['entry_price'])

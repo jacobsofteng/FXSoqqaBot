@@ -97,12 +97,12 @@ def detect_swings_atr(bars: list[Bar], atr_period: int = 14,
             last_low_idx = i
 
         if direction != 'down' and last_high - bars[i].low > threshold:
-            # Confirm swing HIGH
+            # Confirm swing HIGH — use bar's own bar_index (M5 global index)
             swings.append({
                 'type': 'high',
                 'price': last_high,
                 'time': bars[last_high_idx].time,
-                'bar_index': last_high_idx,
+                'bar_index': bars[last_high_idx].bar_index,
                 'atr_at_swing': atr,
             })
             direction = 'down'
@@ -110,12 +110,12 @@ def detect_swings_atr(bars: list[Bar], atr_period: int = 14,
             last_low_idx = i
 
         elif direction != 'up' and bars[i].high - last_low > threshold:
-            # Confirm swing LOW
+            # Confirm swing LOW — use bar's own bar_index (M5 global index)
             swings.append({
                 'type': 'low',
                 'price': last_low,
                 'time': bars[last_low_idx].time,
-                'bar_index': last_low_idx,
+                'bar_index': bars[last_low_idx].bar_index,
                 'atr_at_swing': atr,
             })
             direction = 'up'

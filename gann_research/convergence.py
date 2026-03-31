@@ -23,20 +23,23 @@ def score_convergence(current_price: float, current_bar: int,
                       swings_h1: list[dict],
                       swings_h4: list[dict],
                       wave_state: dict | None,
-                      triangle: dict | None) -> dict:
+                      triangle: dict | None,
+                      phase: str = 'scanning') -> dict:
     """
     Score convergence using INDEPENDENT categories.
 
     CRITICAL: Each category contributes MAX 1 POINT.
 
-    Categories:
+    Categories (SCANNING phase uses A-D, F, G — 6 categories max):
       A. Sq9 price level (30 or 45 deg from any recent swing)
       B. Vibration level (V=12 multiple from any swing)
       C. Proportional division (1/3, 1/2, 2/3 of any swing range)
       D. Time window (natural square from last H4 swing)
-      E. Triangle crossing (near a power point)
+      E. Triangle crossing — ONLY in BOX_ACTIVE phase (circular dependency)
       F. Wave target (near a wave counting target)
       G. Price-time square (price units ~= time units)
+
+    Threshold: 3 in SCANNING (of 6 categories), 4 in BOX_ACTIVE (of 7).
 
     Returns:
         {'score': int (0-7), 'categories': dict, 'details': dict,
@@ -116,8 +119,9 @@ def score_convergence(current_price: float, current_bar: int,
     categories['D_time'] = cat_d
 
     # --- CATEGORY E: Triangle Crossing ---
+    # ONLY counts in BOX_ACTIVE phase — circular dependency in SCANNING
     cat_e = False
-    if triangle and triangle.get('power_points'):
+    if phase == 'box_active' and triangle and triangle.get('power_points'):
         for pp in triangle['power_points']:
             price_match = abs(current_price - pp['price']) <= LOST_MOTION * 2
             bar_match = abs(current_bar - pp['bar']) <= 3
@@ -139,28 +143,40 @@ def score_convergence(current_price: float, current_bar: int,
     categories['F_wave'] = cat_f
 
     # --- CATEGORY G: Price-Time Square ---
-    # Convert M5 bars to H1 bars (12 M5 = 1 H1) for price-time squaring
-    # Require both values >= 3 for meaningful squaring (not noise)
+    # Gann squaring: price move in dollars ≈ time in H4 bars × scale
+    # Gold scale: ~$6/H4 bar (V=72 / 12 H4_bars_per_day ≈ $6)
+    # Check if price_move ≈ time_h4 × 6, within 40% tolerance
+    PRICE_PER_H4 = 6.0  # $6 per H4 bar (Gold natural rate)
     cat_g = False
-    if recent_swings:
-        last_swing = recent_swings[-1]
-        price_move = abs(current_price - last_swing['price'])
-        price_units = price_move / SWING_QUANTUM
-        time_units = (current_bar - last_swing['bar_index']) / 12  # M5 -> H1
+    for sw in recent_swings:
+        price_move = abs(current_price - sw['price'])
+        bars_elapsed = current_bar - sw['bar_index']  # M5 bars
+        time_h4 = bars_elapsed / 48  # M5 -> H4
 
-        if (price_units >= 3 and time_units >= 3
-                and abs(price_units - time_units) <= 1):
-            cat_g = True
-            details['G'] = (f"Squared: price_units={price_units:.1f}, "
-                            f"time_units={time_units:.1f}")
+        if time_h4 >= 1 and price_move >= SWING_QUANTUM:
+            expected_price = time_h4 * PRICE_PER_H4
+            ratio = price_move / expected_price if expected_price > 0 else 0
+            if 0.6 <= ratio <= 1.4:
+                cat_g = True
+                details['G'] = (f"Squared: move=${price_move:.0f}, "
+                                f"expected=${expected_price:.0f} "
+                                f"({time_h4:.0f}H4×$6, ratio={ratio:.2f})")
+                break
     categories['G_square'] = cat_g
 
     # --- FINAL SCORE ---
     score = sum(1 for v in categories.values() if v)
 
+    # In SCANNING phase: 6 categories (A-D, F, G). Threshold = 3.
+    # In BOX_ACTIVE phase: 7 categories (A-G). Threshold = 4.
+    if phase == 'scanning':
+        threshold = 3
+    else:
+        threshold = MIN_CONVERGENCE_SCORE
+
     return {
         'score': score,
         'categories': categories,
         'details': details,
-        'is_tradeable': score >= MIN_CONVERGENCE_SCORE,
+        'is_tradeable': score >= threshold,
     }
