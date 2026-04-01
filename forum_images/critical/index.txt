@@ -1,0 +1,186 @@
+CRITICAL FORUM IMAGES INDEX
+============================
+31 images selected from 1,656 total across Ferro, Hellcat, FFM, and aid folders.
+Selection criteria: Gann Box overlays, colored zones, triangle/diamond patterns,
+entry/exit arrows with SL/TP, wave numbering, CVP notation, time-price squaring.
+
+================================================================================
+FERRO (17 images) - Core Gann methodology / theory
+================================================================================
+
+25800524.gif [FERRO] - CORE METHOD
+  GBPUSDm H1 with multiple overlaid Gann triangles/boxes (orange, purple, red, blue).
+  Entry/exit labels in Russian ("Vkhod"/"Vykhod"). MFI indicator below, zigzag swing overlay.
+  Shows the complete triangle trading method with colored zones.
+
+25800510.gif [FERRO] - GOLD CONSTANTS / TIMING
+  EUR/USD D1 with Gann time measurements between swings: 72, 24, 144, 48, 576 bars.
+  Diagonal Gann angle lines forming converging pattern. Demonstrates natural square
+  timing and the V=72 vibration constant in action.
+
+25929158.png [FERRO] - GANN FAN / NATURAL SQUARES
+  EURUSD Monthly with Gann fan/angle lines from the 2008 high. Red diagonal lines
+  labeled with natural square numbers: 4, 9, 16, 24, 36, 49, 72, 81.
+  Classic Gann time-price fan demonstration on macro scale.
+
+25901400.png [FERRO] - FILLED GANN TRIANGLES
+  GBPUSD daily chart with multiple colorful filled Gann triangles/boxes (red, yellow,
+  blue, green, purple) overlaid on candlesticks, diagonal Gann angle lines.
+  Shows how multiple triangles tile across price action.
+
+25929824.png [FERRO] - ABCD GANN BOX
+  EURUSD H1 with red zigzag swings, blue-shaded triangle zone, and labeled ABCD points
+  (A, B, C, D in red). Blue and red diagonal lines forming converging triangles.
+  Shows Gann box with labeled vertices and magenta-filled inner triangles.
+
+25930092.png [FERRO] - TRIANGLE WITH INNER STRUCTURE
+  EURUSD H1 with red zigzag swings, blue-shaded triangle, and magenta-filled triangle
+  patterns. ABCD labeled points (B, D at top, A, C at bottom). Shows both a large
+  blue triangle and smaller magenta inner triangles - triangle subdivision method.
+
+25930127.png [FERRO] - MULTI-LAYER ANALYSIS (MOST COMPLEX)
+  GBPUSD H1 with magenta-filled triangle, red diagonal Gann grid, blue zigzag lines,
+  and pink/purple question marks showing potential future projections. Complex multi-layer
+  analysis combining triangles with angle grid. Most information-dense image.
+
+25921337.png [FERRO] - YELLOW TRIANGLE/DIAMOND
+  GBPUSD H1 with yellow-filled triangle/diamond patterns (Gann triangles) overlaid on
+  price. Red zigzag lines on the right side show recent swing structure. Key example
+  of diamond-shaped Gann box analysis.
+
+25920278.png [FERRO] - PROPORTIONAL ANALYSIS
+  EURUSD H1 with proportional analysis. Red zigzag swings labeled with Gann numbers
+  (54, 21-22). Russian annotations: "price grows by proportion 2, corrects by
+  proportion 3." Blue arrow indicating forces. Shows quantum proportions.
+
+25929834.png [FERRO] - QUANTUM/VIBRATION REPETITION
+  EURUSD H1 with repeating swing pattern labeled "48-49" at each swing segment.
+  Red zigzag lines showing consistent swing sizes throughout the downtrend.
+  Demonstrates quantum/vibration repetition in price moves (V/6 multiples).
+
+25933128.png [FERRO] - TIME-PRICE SQUARING
+  EURUSD H1 with time-price squaring analysis. Blue and red diagonal lines labeled
+  "172/172", "86/86", "86/258 (86x3)." Shows symmetrical time-price angle
+  relationships from a swing low. Core "time = price" Gann principle.
+
+25919570.png [FERRO] - WAVE COUNTING (0-1-2)
+  EURUSD H1 with wave counting (0-1-2 labels in red) and red zigzag swing lines
+  connecting swing points. Shows three consecutive downtrend wave cycles.
+  Ferro's wave numbering methodology for trend analysis.
+
+25806999.jpg [FERRO] - DENSE GANN ANGLE GRID
+  Candlestick chart with dense Gann angle fan/grid overlay (multiple diagonal lines
+  from multiple origins). Price action moving through the grid. Red/blue/green colored
+  lines. Shows how intersection points create support/resistance.
+
+25936002.png [FERRO] - SQUARE OF 9 GRID (RAW SQ9 MATH)
+  Square of 9 grid/wheel with numerical matrix. Shows "synchronized values by square 9"
+  (Russian). Blue/red arrows pointing to specific cells, green highlighted cells,
+  diagonal pink lines. Demonstrates how Sq9 numbers map to angles and price levels.
+
+25938060.png [FERRO] - PROPORTIONAL DIVISION FRAMEWORK
+  EURUSD M30 with full proportional division levels (0.0, 0.25, 0.33, 0.382, 0.50,
+  0.618, 0.66, 0.786, 0.886, 1.0, 1.25, 1.33, 1.5... up to 4.0). Red horizontal
+  lines with exact price labels. Blue diagonal trajectory. Complete proportional
+  division reference applied to a swing.
+
+25943463.jpg [FERRO] - 169-BAR TIME CYCLE
+  GBPUSD daily chart (1995-2016), 20+ year view. Blue horizontal arrows marking "169"
+  bar distances (time cycles). Shows the 169-bar (Sq9 of 13) time cycle repeating
+  across major GBPUSD highs and lows. Clearest time structure demonstration.
+
+25944280.png [FERRO] - SQ9 ANGLE PROJECTIONS WITH DEGREE LABELS
+  GBPUSD H4 with Gann fan/angle construction. Labeled angle lines: 18, 36, 54, 72,
+  90, 108, 126, 144 degrees with exact price levels. Annotation "18000/576/31.25"
+  showing the calculation basis. Most instructive image for understanding how Sq9
+  angles map to price levels on a chart.
+
+================================================================================
+HELLCAT (11 images) - Trading execution + Gann application
+================================================================================
+
+26901763.png [HELLCAT] - BEST TRIANGLE EXAMPLE
+  Candlestick chart with large orange/filled Gann triangles overlaid on price. Shows
+  two triangles - a large upward one and a smaller one at bottom right. Multiple
+  horizontal levels (cyan, magenta). Best visual of Gann triangle trading method.
+
+26902611.png [HELLCAT] - GANN DIAMOND/RHOMBUS
+  EURUSD chart with orange diamond/rhombus Gann boxes and diagonal lines (red, green,
+  orange) showing geometric price-time relationships. Multiple overlapping Gann Box
+  structures. Demonstrates the geometric construction method.
+
+26813931.png [HELLCAT] - DENSE GANN ANGLE FANS WITH WAVE LABELS
+  EURUSD H4 (TradingView, FXCM) with multiple Gann angle lines in green, blue, red,
+  black. Wave numbers labeled (L4, L3, L2, L1). Orange rectangle marking key point.
+  Multiple diagonal fan lines creating angle convergence. Richest analytical chart.
+
+26887678.png [HELLCAT] - GANN BOX WITH CVP NOTATION
+  EURUSD H1 with a red Gann Box, yellow horizontal zones, "Daily Range" indicator
+  panel on right side, and annotations including CVP notation. Shows wave/swing
+  analysis with price targets. Key for understanding CVP method.
+
+26724892.png [HELLCAT] - GANN CONCENTRIC ELLIPSES
+  EURUSD Daily with Gann-style concentric ellipses/circles overlay, red horizontal
+  zone (key level), blue zigzag projection line, orange Gann arcs. Multiple trade
+  entries labeled. Complex Gann geometric analysis with circles.
+
+26801821.png [HELLCAT] - TRIANGLE + WAVE COUNTING + PROJECTION
+  EURUSD chart (daily/weekly) with large beige/tan filled Gann triangle pattern,
+  green zigzag wave counting overlay, small colored rectangles at wave turning points,
+  and orange arrow projection to upper right. Full analysis framework.
+
+26789300.png [HELLCAT] - GANN TRIANGLES ON STOCK
+  #AIG (American International Group) H1 with two large orange filled triangles
+  (Gann triangles), a gray rectangle zone between them, magenta horizontal levels,
+  and time marker. Shows Gann triangle method applied to stocks, not just forex.
+
+26779239.png [HELLCAT] - GANN BOX WITH DIAGONAL INTERSECTIONS
+  Small EURUSD chart with Gann Box/grid (gray shaded square area with red diagonal
+  lines, green horizontal levels, blue horizontal rectangle as target, red rectangle).
+  Shows price-time squaring grid with diagonal intersection analysis.
+
+27104992.png [HELLCAT] - WAVE COUNTING WITH ANGLE PROJECTIONS
+  EURUSD chart with cyan diagonal Gann angle lines forming wave pattern. Wave numbers
+  labeled: (X=0), (1), (2), (3.0), (4), and price targets annotated (2.8 rd, 2.7 rd).
+  Shows Gann wave counting methodology with angle projections.
+
+26555585.png [HELLCAT] - COLORED ZONE TRADE SETUP
+  EURNZD H1 chart with red arrow showing sell signal, yellow target zone box,
+  magenta vertical time lines, horizontal levels. Clean example of Hellcat's
+  colored-zone entry system with directional arrows.
+
+27576473.png [HELLCAT] - LEVEL ANALYSIS WITH FORECAST
+  GBPAUD H1 with horizontal resistance levels (red lines with Russian annotations
+  about strength of each level). Blue highlighted zone with orange forecast line.
+  Shows level hierarchy and trade prediction methodology.
+
+================================================================================
+FFM (3 images) - Trading system implementation
+================================================================================
+
+27128561.png [FFM] - GANN TRIANGLE OVERLAYS WITH COLORED ZONES
+  Candlestick chart with Gann triangle overlays (tan/beige triangles), colored zones
+  (green boxes marking entry/target areas), directional arrows. Shows triangle
+  convergence applied to live price action.
+
+27128562.png [FFM] - ANNOTATED TRIANGLE STRUCTURE
+  Same chart as 27128561 with added orange text annotations/labels explaining the
+  triangle structure. Gann box overlay with labeled entry/target zones. Best image
+  for understanding the triangle construction methodology step-by-step.
+
+27742170.png [FFM] - CHANNEL/TRIANGLE CONVERGENCE
+  GBPUSD H1 with zigzag (cyan), multiple cyan trendlines forming channel/triangle,
+  light-blue zone rectangle, horizontal red levels, price action at convergence point.
+  Shows how channels and triangles create convergence zones for entries.
+
+================================================================================
+NOTES
+================================================================================
+- ~25 Hellcat images (batch 1, IDs 25783xxx-26385xxx) could not be processed.
+  Some may contain additional valuable content.
+- The "aid" folder (1036 images) could not be processed (dimension limits).
+  The remaining FFM images (314) were partially sampled.
+  Additional chart images exist but are mostly duplicates or less critical.
+- All annotations in Russian (InvestSocial forum).
+- Key Russian terms: Vkhod=Entry, Vykhod=Exit, Tsena=Price, Vremya=Time,
+  Vibratsiya=Vibration, Treugolnik=Triangle, Ugol=Angle
